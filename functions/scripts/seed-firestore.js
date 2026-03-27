@@ -46,7 +46,7 @@ function toFirestoreValue(value) {
   }
 }
 
-function getFirebaseCliAccessToken() {
+function getFirebaseCliRefreshToken() {
   const candidates = [
     path.join(process.env.USERPROFILE || '', '.config', 'configstore', 'firebase-tools.json'),
     path.join(process.env.APPDATA || '', 'configstore', 'firebase-tools.json'),
@@ -58,13 +58,50 @@ function getFirebaseCliAccessToken() {
     }
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    const accessToken = config?.tokens?.access_token;
-    if (accessToken) {
-      return accessToken;
+    const refreshToken = config?.tokens?.refresh_token;
+    if (refreshToken) {
+      return refreshToken;
     }
   }
 
   return null;
+}
+
+async function getFirebaseCliAccessToken() {
+  const refreshToken = getFirebaseCliRefreshToken();
+  if (!refreshToken) {
+    return null;
+  }
+
+  const body = new URLSearchParams({
+    refresh_token: refreshToken,
+    client_id: '563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com',
+    client_secret: 'j9iVZfS8kkCEFUPaAeJV0sAi',
+    grant_type: 'refresh_token',
+    scope:
+      'https://www.googleapis.com/auth/cloudplatformprojects.readonly https://www.googleapis.com/auth/firebase https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email openid',
+  });
+
+  const response = await fetch('https://www.googleapis.com/oauth2/v3/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: body.toString(),
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Failed to refresh Firebase CLI access token: ${response.status} ${details}`);
+  }
+
+  const tokenPayload = await response.json();
+  const accessToken = tokenPayload?.access_token;
+  if (!accessToken) {
+    throw new Error('Firebase CLI token refresh response did not include access_token.');
+  }
+
+  return accessToken;
 }
 
 async function seedWithAdminSdk(seed) {
@@ -98,7 +135,7 @@ async function seedWithFirebaseCliToken(seed) {
     );
   }
 
-  const accessToken = getFirebaseCliAccessToken();
+  const accessToken = await getFirebaseCliAccessToken();
   if (!accessToken) {
     throw new Error(
       'No Firebase CLI access token found. Run "firebase login" first or provide GOOGLE_APPLICATION_CREDENTIALS.',

@@ -513,104 +513,161 @@
   ],
   "learning_modules": [
     {
-      "id": "matching-basics",
-      "title": "Matching Basics",
-      "description": "Practice matching visual objects and simple categories.",
+      "id": "move-play-tap",
+      "title": "Tap Game",
+      "description": "Tap the right answer quickly.",
       "type": "learning",
-      "levelRange": "Beginner",
-      "assetRefs": ["category:colors", "category:animals", "category:feelings"],
+      "learningCategoryKey": "move_play",
+      "learningCategoryTitle": "Move & Play",
+      "gameTypeKey": "tap_game",
+      "levelRange": "Level 1",
+      "assetRefs": ["category:numbers", "category:food", "category:shapes"],
       "sortOrder": 1,
       "isActive": true
     },
     {
-      "id": "alphabets-game",
-      "title": "Alphabets Game",
-      "description": "Recognize and speak basic letters.",
+      "id": "move-play-drag",
+      "title": "Drag Game",
+      "description": "Drag items to the matching target.",
       "type": "learning",
-      "levelRange": "Beginner",
-      "assetRefs": ["category:alphabets"],
+      "learningCategoryKey": "move_play",
+      "learningCategoryTitle": "Move & Play",
+      "gameTypeKey": "drag_game",
+      "levelRange": "Level 1",
+      "assetRefs": ["category:numbers", "category:food", "category:shapes"],
       "sortOrder": 2,
       "isActive": true
     },
     {
-      "id": "numbers-game",
-      "title": "Numbers Game",
-      "description": "Practice basic counting words and numbers.",
+      "id": "move-play-trace",
+      "title": "Trace Game",
+      "description": "Trace guided shapes and strokes.",
       "type": "learning",
-      "levelRange": "Beginner",
-      "assetRefs": ["category:numbers"],
+      "learningCategoryKey": "move_play",
+      "learningCategoryTitle": "Move & Play",
+      "gameTypeKey": "trace_game",
+      "levelRange": "Level 1",
+      "assetRefs": ["category:shapes", "category:alphabets"],
       "sortOrder": 3,
       "isActive": true
     },
     {
-      "id": "colors-game",
-      "title": "Colors Game",
-      "description": "Identify color names and sounds.",
+      "id": "speak-learn-alphabets",
+      "title": "Alphabets",
+      "description": "Letter recognition and pronunciation practice.",
       "type": "learning",
-      "levelRange": "Beginner",
-      "assetRefs": ["category:colors"],
+      "learningCategoryKey": "speak_learn",
+      "learningCategoryTitle": "Speak & Learn",
+      "gameTypeKey": "alphabets",
+      "levelRange": "Level 1",
+      "assetRefs": ["category:alphabets"],
       "sortOrder": 4,
       "isActive": true
     },
     {
-      "id": "animals-game",
-      "title": "Animals Game",
-      "description": "Learn common animals through matching.",
+      "id": "speak-learn-words",
+      "title": "Words",
+      "description": "Practice speaking high-frequency words.",
       "type": "learning",
-      "levelRange": "Beginner",
-      "assetRefs": ["category:animals"],
+      "learningCategoryKey": "speak_learn",
+      "learningCategoryTitle": "Speak & Learn",
+      "gameTypeKey": "words",
+      "levelRange": "Level 2",
+      "assetRefs": ["category:food", "category:family", "category:clothes"],
       "sortOrder": 5,
       "isActive": true
     },
     {
-      "id": "shape-sort",
-      "title": "Shape Sort",
-      "description": "Recognize and sort common shapes.",
+      "id": "speak-learn-sentences",
+      "title": "Sentences",
+      "description": "Simple sentence-level speaking practice.",
       "type": "learning",
-      "levelRange": "Beginner",
-      "assetRefs": ["category:shapes"],
+      "learningCategoryKey": "speak_learn",
+      "learningCategoryTitle": "Speak & Learn",
+      "gameTypeKey": "sentences",
+      "levelRange": "Level 3",
+      "assetRefs": ["category:feelings", "category:emotions"],
       "sortOrder": 6,
       "isActive": true
     },
     {
-      "id": "family-game",
-      "title": "Family Game",
-      "description": "Build family vocabulary with quick taps.",
+      "id": "focus-find-it",
+      "title": "Find it",
+      "description": "Find the requested item among distractors.",
       "type": "learning",
-      "levelRange": "Beginner",
-      "assetRefs": ["category:family"],
+      "learningCategoryKey": "focus_games",
+      "learningCategoryTitle": "Focus Games",
+      "gameTypeKey": "find_it",
+      "levelRange": "Level 1",
+      "assetRefs": ["category:animals", "category:food", "category:colors"],
       "sortOrder": 7,
       "isActive": true
     },
     {
-      "id": "clothes-game",
-      "title": "Clothes Game",
-      "description": "Recognize everyday clothing items.",
+      "id": "focus-match-it",
+      "title": "Match it",
+      "description": "Match objects, colors, and feelings.",
       "type": "learning",
-      "levelRange": "Beginner",
-      "assetRefs": ["category:clothes"],
+      "learningCategoryKey": "focus_games",
+      "learningCategoryTitle": "Focus Games",
+      "gameTypeKey": "match_it",
+      "levelRange": "Level 2",
+      "assetRefs": ["category:colors", "category:feelings", "category:shapes"],
       "sortOrder": 8,
       "isActive": true
     },
     {
-      "id": "food-game",
-      "title": "Food Game",
-      "description": "Identify common food words.",
+      "id": "focus-hold-it",
+      "title": "Hold it",
+      "description": "Hold on the correct answer to complete.",
       "type": "learning",
-      "levelRange": "Beginner",
-      "assetRefs": ["category:food"],
+      "learningCategoryKey": "focus_games",
+      "learningCategoryTitle": "Focus Games",
+      "gameTypeKey": "hold_it",
+      "levelRange": "Level 3",
+      "assetRefs": ["category:animals", "category:food", "category:emotions"],
       "sortOrder": 9,
       "isActive": true
     },
     {
+      "id": "matching-basics",
+      "isActive": false
+    },
+    {
+      "id": "alphabets-game",
+      "isActive": false
+    },
+    {
+      "id": "numbers-game",
+      "isActive": false
+    },
+    {
+      "id": "colors-game",
+      "isActive": false
+    },
+    {
+      "id": "animals-game",
+      "isActive": false
+    },
+    {
+      "id": "shape-sort",
+      "isActive": false
+    },
+    {
+      "id": "family-game",
+      "isActive": false
+    },
+    {
+      "id": "clothes-game",
+      "isActive": false
+    },
+    {
+      "id": "food-game",
+      "isActive": false
+    },
+    {
       "id": "emotions-game",
-      "title": "Emotions Game",
-      "description": "Recognize and name emotions.",
-      "type": "learning",
-      "levelRange": "Beginner",
-      "assetRefs": ["category:emotions", "category:feelings"],
-      "sortOrder": 10,
-      "isActive": true
+      "isActive": false
     }
   ],
   "daily_activity_templates": [
@@ -618,7 +675,7 @@
       "id": "morning-routine",
       "title": "Morning Routine",
       "description": "A guided routine for getting ready in the morning.",
-      "moduleRefs": ["matching-basics"],
+      "moduleRefs": ["move-play-tap"],
       "estimatedMinutes": 15,
       "difficulty": "easy",
       "isActive": true
@@ -627,7 +684,7 @@
       "id": "after-school-checkin",
       "title": "After School Check-In",
       "description": "Review feelings, homework, and transitions after school.",
-      "moduleRefs": ["shape-sort"],
+      "moduleRefs": ["focus-match-it"],
       "estimatedMinutes": 20,
       "difficulty": "medium",
       "isActive": true

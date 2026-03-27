@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../config/learning_catalog.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../utils/app_colors.dart';
@@ -107,8 +108,32 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
     }
   }
 
+  Map<String, List<LearningModuleModel>> _groupLearningModules() {
+    final grouped = <String, List<LearningModuleModel>>{};
+    for (final module in _modules) {
+      final key = module.learningCategoryKey.trim().isEmpty
+          ? 'general'
+          : module.learningCategoryKey.trim().toLowerCase();
+      grouped.putIfAbsent(key, () => []).add(module);
+    }
+    for (final entry in grouped.entries) {
+      entry.value.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    }
+    return grouped;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final groupedLearningModules = _groupLearningModules();
+    final orderedLearningCategoryKeys = <String>[
+      ...LearningCatalog.orderedCategoryKeys.where(
+        groupedLearningModules.containsKey,
+      ),
+      ...groupedLearningModules.keys.where(
+        (key) => !LearningCatalog.orderedCategoryKeys.contains(key),
+      ),
+    ];
+
     return SessionGuard(
       role: SessionGuardRole.parent,
       child: FigmaModuleScaffold(
@@ -149,22 +174,43 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
                     },
                   ),
                   const SizedBox(height: 20),
-                  _SelectableGroup<LearningModuleModel>(
-                    title: 'Learning Modules',
-                    items: _modules,
-                    isSelected: (item) => _selectedModuleIds.contains(item.id),
-                    label: (item) => item.title,
-                    subtitle: (item) => item.description,
-                    onChanged: (item, selected) {
-                      setState(() {
-                        if (selected) {
-                          _selectedModuleIds.add(item.id);
-                        } else {
-                          _selectedModuleIds.remove(item.id);
-                        }
-                      });
-                    },
-                  ),
+                  if (groupedLearningModules.isEmpty)
+                    const _PlannerInfoCard(
+                      title: 'No learning games in DB',
+                      body:
+                          'Seed learning_modules in Firestore to manage Learn categories and game types.',
+                    ),
+                  for (final key in orderedLearningCategoryKeys) ...[
+                    _LearningGameTypeGroup(
+                      category: LearningCatalog.forKey(
+                        key,
+                        fallbackTitle: groupedLearningModules[key]!
+                            .first
+                            .learningCategoryTitle,
+                      ),
+                      modules: groupedLearningModules[key]!,
+                      selectedModuleIds: _selectedModuleIds,
+                      onToggleModule: (moduleId, selected) {
+                        setState(() {
+                          if (selected) {
+                            _selectedModuleIds.add(moduleId);
+                          } else {
+                            _selectedModuleIds.remove(moduleId);
+                          }
+                        });
+                      },
+                      onSelectAll: (moduleIds, shouldSelectAll) {
+                        setState(() {
+                          if (shouldSelectAll) {
+                            _selectedModuleIds.addAll(moduleIds);
+                          } else {
+                            _selectedModuleIds.removeAll(moduleIds);
+                          }
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   const SizedBox(height: 20),
                   _SelectableGroup<DailyActivityTemplate>(
                     title: 'Daily Activities',
@@ -236,6 +282,84 @@ class _PlannerInfoCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(body, style: const TextStyle(height: 1.5)),
+        ],
+      ),
+    );
+  }
+}
+
+class _LearningGameTypeGroup extends StatelessWidget {
+  const _LearningGameTypeGroup({
+    required this.category,
+    required this.modules,
+    required this.selectedModuleIds,
+    required this.onToggleModule,
+    required this.onSelectAll,
+  });
+
+  final LearningCategoryDefinition category;
+  final List<LearningModuleModel> modules;
+  final Set<String> selectedModuleIds;
+  final void Function(String moduleId, bool selected) onToggleModule;
+  final void Function(List<String> moduleIds, bool shouldSelectAll) onSelectAll;
+
+  @override
+  Widget build(BuildContext context) {
+    final moduleIds = modules.map((module) => module.id).toList();
+    final selectedCount = modules
+        .where((module) => selectedModuleIds.contains(module.id))
+        .length;
+    final shouldSelectAll = selectedCount != modules.length;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: category.color.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      category.title,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1A2D4B),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$selectedCount/${modules.length} game types selected',
+                      style: const TextStyle(color: Color(0xFF2D4058)),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(category.icon, color: const Color(0xFF2A4A7A)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: () => onSelectAll(moduleIds, shouldSelectAll),
+            child: Text(shouldSelectAll ? 'Select all' : 'Clear all'),
+          ),
+          for (final module in modules)
+            CheckboxListTile(
+              value: selectedModuleIds.contains(module.id),
+              onChanged: (selected) =>
+                  onToggleModule(module.id, selected ?? false),
+              title: Text(module.title),
+              subtitle: Text(module.description),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
         ],
       ),
     );

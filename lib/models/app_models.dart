@@ -309,6 +309,9 @@ class LearningModuleModel {
     required this.title,
     required this.description,
     required this.type,
+    required this.learningCategoryKey,
+    required this.learningCategoryTitle,
+    required this.gameTypeKey,
     required this.levelRange,
     required this.assetRefs,
     required this.sortOrder,
@@ -319,6 +322,9 @@ class LearningModuleModel {
   final String title;
   final String description;
   final String type;
+  final String learningCategoryKey;
+  final String learningCategoryTitle;
+  final String gameTypeKey;
   final String levelRange;
   final List<String> assetRefs;
   final int sortOrder;
@@ -330,6 +336,13 @@ class LearningModuleModel {
       title: (data['title'] ?? '').toString(),
       description: (data['description'] ?? '').toString(),
       type: (data['type'] ?? '').toString(),
+      learningCategoryKey: (data['learningCategoryKey'] ?? 'general')
+          .toString()
+          .trim(),
+      learningCategoryTitle: (data['learningCategoryTitle'] ?? 'General')
+          .toString()
+          .trim(),
+      gameTypeKey: (data['gameTypeKey'] ?? id).toString().trim(),
       levelRange: (data['levelRange'] ?? '').toString(),
       assetRefs: stringListFrom(data['assetRefs']),
       sortOrder: intFrom(data['sortOrder']),
