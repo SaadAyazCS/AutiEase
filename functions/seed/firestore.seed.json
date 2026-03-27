@@ -1,0 +1,677 @@
+{
+  "app_modules": [
+    {
+      "id": "dashboard",
+      "title": "Dashboard",
+      "subtitle": "Progress, mood, and activity summaries",
+      "routeKey": "dashboard",
+      "targetRole": "parent",
+      "sortOrder": 1,
+      "isActive": true,
+      "imageAsset": "assets/images/Dashboard.png"
+    },
+    {
+      "id": "child_profile",
+      "title": "Child Profile",
+      "subtitle": "Assigned communication, learning, and daily activities",
+      "routeKey": "child_profile",
+      "targetRole": "parent",
+      "sortOrder": 2,
+      "isActive": true,
+      "imageAsset": "assets/images/Child_Profile.png"
+    },
+    {
+      "id": "professional_support",
+      "title": "Professional Support",
+      "subtitle": "Therapist discovery, subscriptions, and chat",
+      "routeKey": "professional_support",
+      "targetRole": "parent",
+      "sortOrder": 3,
+      "isActive": true,
+      "imageAsset": "assets/images/Professional_Support.png"
+    },
+    {
+      "id": "settings",
+      "title": "Settings",
+      "subtitle": "Profile, notifications, legal docs, and app info",
+      "routeKey": "settings",
+      "targetRole": "parent",
+      "sortOrder": 4,
+      "isActive": true,
+      "imageAsset": "assets/images/Settings.png"
+    },
+    {
+      "id": "learning_planner",
+      "title": "Learning Planner",
+      "subtitle": "Choose what the child sees in the app",
+      "routeKey": "learning_planner",
+      "targetRole": "parent",
+      "sortOrder": 5,
+      "isActive": true,
+      "imageAsset": "assets/images/Learning_Planner.png"
+    },
+    {
+      "id": "therapist_dashboard",
+      "title": "Dashboard",
+      "subtitle": "Open therapist conversations and support activity",
+      "routeKey": "therapist_threads",
+      "targetRole": "therapist",
+      "sortOrder": 1,
+      "isActive": true,
+      "imageAsset": "assets/images/Dashboard.png"
+    },
+    {
+      "id": "therapist_settings",
+      "title": "Settings",
+      "subtitle": "Profile, notifications, legal docs, and app info",
+      "routeKey": "settings",
+      "targetRole": "therapist",
+      "sortOrder": 2,
+      "isActive": true,
+      "imageAsset": "assets/images/Settings.png"
+    }
+  ],
+  "settings_entries": [
+    {
+      "id": "profile",
+      "title": "My Profile",
+      "subtitle": "Manage parent and child profile fields",
+      "routeKey": "profile",
+      "targetRole": "parent",
+      "sortOrder": 1,
+      "isActive": true
+    },
+    {
+      "id": "notifications",
+      "title": "Notifications",
+      "subtitle": "Notification preferences stored in Firestore",
+      "routeKey": "notifications",
+      "targetRole": "parent",
+      "sortOrder": 2,
+      "isActive": true
+    },
+    {
+      "id": "about",
+      "title": "About Application",
+      "subtitle": "About, mission, and support information from the DB",
+      "routeKey": "about",
+      "targetRole": "parent",
+      "sortOrder": 3,
+      "isActive": true
+    },
+    {
+      "id": "therapist-profile",
+      "title": "My Profile",
+      "subtitle": "Manage therapist profile fields",
+      "routeKey": "profile",
+      "targetRole": "therapist",
+      "sortOrder": 1,
+      "isActive": true
+    },
+    {
+      "id": "therapist-notifications",
+      "title": "Notifications",
+      "subtitle": "Notification preferences stored in Firestore",
+      "routeKey": "notifications",
+      "targetRole": "therapist",
+      "sortOrder": 2,
+      "isActive": true
+    },
+    {
+      "id": "therapist-about",
+      "title": "About Application",
+      "subtitle": "About, mission, and support information from the DB",
+      "routeKey": "about",
+      "targetRole": "therapist",
+      "sortOrder": 3,
+      "isActive": true
+    }
+  ],
+  "legal_documents": [
+    {
+      "id": "parent-terms",
+      "audience": "parent",
+      "version": "1.0.0",
+      "title": "Parent Terms & Conditions",
+      "body": "By using AutiEase as a parent or caregiver, you agree to manage child profiles responsibly, review assigned learning content, and supervise child usage. All child content selections, therapist access, and notifications are controlled by the parent account.",
+      "isActive": true
+    },
+    {
+      "id": "therapist-terms",
+      "audience": "therapist",
+      "version": "1.0.0",
+      "title": "Therapist Terms & Conditions",
+      "body": "Therapists on AutiEase must maintain valid professional standing, communicate ethically, and use the platform only for legitimate support and educational guidance. Therapist access to child-facing plans is read-only in v1; assignment authority remains with the parent.",
+      "isActive": true
+    },
+    {
+      "id": "about-app",
+      "audience": "all",
+      "version": "1.0.0",
+      "title": "About AutiEase",
+      "body": "AutiEase is a structured support app for autistic children and their caregivers. The platform combines assigned communication topics, learning modules, daily activities, progress tracking, therapist support, and subscription-based professional guidance in one place. All product content shown in the app is designed to be delivered from Firestore rather than hardcoded in the client.",
+      "isActive": true
+    }
+  ],
+  "content_categories": [
+    {
+      "id": "colors",
+      "type": "communication",
+      "title": "Colors",
+      "icon": "palette",
+      "imageUrl": "",
+      "sortOrder": 1,
+      "isActive": true
+    },
+    {
+      "id": "animals",
+      "type": "communication",
+      "title": "Animals",
+      "icon": "pets",
+      "imageUrl": "",
+      "sortOrder": 2,
+      "isActive": true
+    },
+    {
+      "id": "feelings",
+      "type": "communication",
+      "title": "Feelings",
+      "icon": "mood",
+      "imageUrl": "",
+      "sortOrder": 3,
+      "isActive": true
+    },
+    {
+      "id": "alphabets",
+      "type": "learning",
+      "title": "Alphabets",
+      "icon": "sort_by_alpha",
+      "imageUrl": "",
+      "sortOrder": 4,
+      "isActive": true
+    },
+    {
+      "id": "numbers",
+      "type": "learning",
+      "title": "Numbers",
+      "icon": "pin",
+      "imageUrl": "",
+      "sortOrder": 5,
+      "isActive": true
+    },
+    {
+      "id": "shapes",
+      "type": "learning",
+      "title": "Shapes",
+      "icon": "category",
+      "imageUrl": "",
+      "sortOrder": 6,
+      "isActive": true
+    },
+    {
+      "id": "family",
+      "type": "learning",
+      "title": "Family",
+      "icon": "groups",
+      "imageUrl": "",
+      "sortOrder": 7,
+      "isActive": true
+    },
+    {
+      "id": "clothes",
+      "type": "learning",
+      "title": "Clothes",
+      "icon": "checkroom",
+      "imageUrl": "",
+      "sortOrder": 8,
+      "isActive": true
+    },
+    {
+      "id": "food",
+      "type": "learning",
+      "title": "Food",
+      "icon": "restaurant",
+      "imageUrl": "",
+      "sortOrder": 9,
+      "isActive": true
+    },
+    {
+      "id": "emotions",
+      "type": "learning",
+      "title": "Emotions",
+      "icon": "sentiment_satisfied",
+      "imageUrl": "",
+      "sortOrder": 10,
+      "isActive": true
+    }
+  ],
+  "content_items": [
+    {
+      "id": "red",
+      "categoryId": "colors",
+      "title": "Red",
+      "subtitle": "Primary color",
+      "imageUrl": "",
+      "audioText": "Red",
+      "level": 1,
+      "tags": ["color"],
+      "isActive": true
+    },
+    {
+      "id": "blue",
+      "categoryId": "colors",
+      "title": "Blue",
+      "subtitle": "Primary color",
+      "imageUrl": "",
+      "audioText": "Blue",
+      "level": 1,
+      "tags": ["color"],
+      "isActive": true
+    },
+    {
+      "id": "cat",
+      "categoryId": "animals",
+      "title": "Cat",
+      "subtitle": "Pet animal",
+      "imageUrl": "",
+      "audioText": "Cat",
+      "level": 1,
+      "tags": ["animal"],
+      "isActive": true
+    },
+    {
+      "id": "happy",
+      "categoryId": "feelings",
+      "title": "Happy",
+      "subtitle": "Emotion word",
+      "imageUrl": "",
+      "audioText": "Happy",
+      "level": 1,
+      "tags": ["emotion"],
+      "isActive": true
+    },
+    {
+      "id": "letter-a",
+      "categoryId": "alphabets",
+      "title": "A",
+      "subtitle": "Letter A",
+      "imageUrl": "",
+      "audioText": "A",
+      "level": 1,
+      "tags": ["alphabet", "letter"],
+      "isActive": true
+    },
+    {
+      "id": "letter-b",
+      "categoryId": "alphabets",
+      "title": "B",
+      "subtitle": "Letter B",
+      "imageUrl": "",
+      "audioText": "B",
+      "level": 1,
+      "tags": ["alphabet", "letter"],
+      "isActive": true
+    },
+    {
+      "id": "letter-c",
+      "categoryId": "alphabets",
+      "title": "C",
+      "subtitle": "Letter C",
+      "imageUrl": "",
+      "audioText": "C",
+      "level": 1,
+      "tags": ["alphabet", "letter"],
+      "isActive": true
+    },
+    {
+      "id": "num-1",
+      "categoryId": "numbers",
+      "title": "1",
+      "subtitle": "One",
+      "imageUrl": "",
+      "audioText": "One",
+      "level": 1,
+      "tags": ["number", "counting"],
+      "isActive": true
+    },
+    {
+      "id": "num-2",
+      "categoryId": "numbers",
+      "title": "2",
+      "subtitle": "Two",
+      "imageUrl": "",
+      "audioText": "Two",
+      "level": 1,
+      "tags": ["number", "counting"],
+      "isActive": true
+    },
+    {
+      "id": "num-3",
+      "categoryId": "numbers",
+      "title": "3",
+      "subtitle": "Three",
+      "imageUrl": "",
+      "audioText": "Three",
+      "level": 1,
+      "tags": ["number", "counting"],
+      "isActive": true
+    },
+    {
+      "id": "shape-circle",
+      "categoryId": "shapes",
+      "title": "Circle",
+      "subtitle": "Round shape",
+      "imageUrl": "",
+      "audioText": "Circle",
+      "level": 1,
+      "tags": ["shape"],
+      "isActive": true
+    },
+    {
+      "id": "shape-square",
+      "categoryId": "shapes",
+      "title": "Square",
+      "subtitle": "Four equal sides",
+      "imageUrl": "",
+      "audioText": "Square",
+      "level": 1,
+      "tags": ["shape"],
+      "isActive": true
+    },
+    {
+      "id": "shape-triangle",
+      "categoryId": "shapes",
+      "title": "Triangle",
+      "subtitle": "Three sides",
+      "imageUrl": "",
+      "audioText": "Triangle",
+      "level": 1,
+      "tags": ["shape"],
+      "isActive": true
+    },
+    {
+      "id": "family-mother",
+      "categoryId": "family",
+      "title": "Mother",
+      "subtitle": "Family member",
+      "imageUrl": "",
+      "audioText": "Mother",
+      "level": 1,
+      "tags": ["family"],
+      "isActive": true
+    },
+    {
+      "id": "family-father",
+      "categoryId": "family",
+      "title": "Father",
+      "subtitle": "Family member",
+      "imageUrl": "",
+      "audioText": "Father",
+      "level": 1,
+      "tags": ["family"],
+      "isActive": true
+    },
+    {
+      "id": "family-sister",
+      "categoryId": "family",
+      "title": "Sister",
+      "subtitle": "Family member",
+      "imageUrl": "",
+      "audioText": "Sister",
+      "level": 1,
+      "tags": ["family"],
+      "isActive": true
+    },
+    {
+      "id": "cloth-shirt",
+      "categoryId": "clothes",
+      "title": "Shirt",
+      "subtitle": "Clothing item",
+      "imageUrl": "",
+      "audioText": "Shirt",
+      "level": 1,
+      "tags": ["clothes"],
+      "isActive": true
+    },
+    {
+      "id": "cloth-pants",
+      "categoryId": "clothes",
+      "title": "Pants",
+      "subtitle": "Clothing item",
+      "imageUrl": "",
+      "audioText": "Pants",
+      "level": 1,
+      "tags": ["clothes"],
+      "isActive": true
+    },
+    {
+      "id": "cloth-shoes",
+      "categoryId": "clothes",
+      "title": "Shoes",
+      "subtitle": "Clothing item",
+      "imageUrl": "",
+      "audioText": "Shoes",
+      "level": 1,
+      "tags": ["clothes"],
+      "isActive": true
+    },
+    {
+      "id": "food-apple",
+      "categoryId": "food",
+      "title": "Apple",
+      "subtitle": "Fruit",
+      "imageUrl": "",
+      "audioText": "Apple",
+      "level": 1,
+      "tags": ["food"],
+      "isActive": true
+    },
+    {
+      "id": "food-bread",
+      "categoryId": "food",
+      "title": "Bread",
+      "subtitle": "Bakery item",
+      "imageUrl": "",
+      "audioText": "Bread",
+      "level": 1,
+      "tags": ["food"],
+      "isActive": true
+    },
+    {
+      "id": "food-milk",
+      "categoryId": "food",
+      "title": "Milk",
+      "subtitle": "Drink",
+      "imageUrl": "",
+      "audioText": "Milk",
+      "level": 1,
+      "tags": ["food"],
+      "isActive": true
+    },
+    {
+      "id": "emotion-sad",
+      "categoryId": "emotions",
+      "title": "Sad",
+      "subtitle": "Emotion word",
+      "imageUrl": "",
+      "audioText": "Sad",
+      "level": 1,
+      "tags": ["emotion"],
+      "isActive": true
+    },
+    {
+      "id": "emotion-angry",
+      "categoryId": "emotions",
+      "title": "Angry",
+      "subtitle": "Emotion word",
+      "imageUrl": "",
+      "audioText": "Angry",
+      "level": 1,
+      "tags": ["emotion"],
+      "isActive": true
+    }
+  ],
+  "learning_modules": [
+    {
+      "id": "matching-basics",
+      "title": "Matching Basics",
+      "description": "Practice matching visual objects and simple categories.",
+      "type": "learning",
+      "levelRange": "Beginner",
+      "assetRefs": ["category:colors", "category:animals", "category:feelings"],
+      "sortOrder": 1,
+      "isActive": true
+    },
+    {
+      "id": "alphabets-game",
+      "title": "Alphabets Game",
+      "description": "Recognize and speak basic letters.",
+      "type": "learning",
+      "levelRange": "Beginner",
+      "assetRefs": ["category:alphabets"],
+      "sortOrder": 2,
+      "isActive": true
+    },
+    {
+      "id": "numbers-game",
+      "title": "Numbers Game",
+      "description": "Practice basic counting words and numbers.",
+      "type": "learning",
+      "levelRange": "Beginner",
+      "assetRefs": ["category:numbers"],
+      "sortOrder": 3,
+      "isActive": true
+    },
+    {
+      "id": "colors-game",
+      "title": "Colors Game",
+      "description": "Identify color names and sounds.",
+      "type": "learning",
+      "levelRange": "Beginner",
+      "assetRefs": ["category:colors"],
+      "sortOrder": 4,
+      "isActive": true
+    },
+    {
+      "id": "animals-game",
+      "title": "Animals Game",
+      "description": "Learn common animals through matching.",
+      "type": "learning",
+      "levelRange": "Beginner",
+      "assetRefs": ["category:animals"],
+      "sortOrder": 5,
+      "isActive": true
+    },
+    {
+      "id": "shape-sort",
+      "title": "Shape Sort",
+      "description": "Recognize and sort common shapes.",
+      "type": "learning",
+      "levelRange": "Beginner",
+      "assetRefs": ["category:shapes"],
+      "sortOrder": 6,
+      "isActive": true
+    },
+    {
+      "id": "family-game",
+      "title": "Family Game",
+      "description": "Build family vocabulary with quick taps.",
+      "type": "learning",
+      "levelRange": "Beginner",
+      "assetRefs": ["category:family"],
+      "sortOrder": 7,
+      "isActive": true
+    },
+    {
+      "id": "clothes-game",
+      "title": "Clothes Game",
+      "description": "Recognize everyday clothing items.",
+      "type": "learning",
+      "levelRange": "Beginner",
+      "assetRefs": ["category:clothes"],
+      "sortOrder": 8,
+      "isActive": true
+    },
+    {
+      "id": "food-game",
+      "title": "Food Game",
+      "description": "Identify common food words.",
+      "type": "learning",
+      "levelRange": "Beginner",
+      "assetRefs": ["category:food"],
+      "sortOrder": 9,
+      "isActive": true
+    },
+    {
+      "id": "emotions-game",
+      "title": "Emotions Game",
+      "description": "Recognize and name emotions.",
+      "type": "learning",
+      "levelRange": "Beginner",
+      "assetRefs": ["category:emotions", "category:feelings"],
+      "sortOrder": 10,
+      "isActive": true
+    }
+  ],
+  "daily_activity_templates": [
+    {
+      "id": "morning-routine",
+      "title": "Morning Routine",
+      "description": "A guided routine for getting ready in the morning.",
+      "moduleRefs": ["matching-basics"],
+      "estimatedMinutes": 15,
+      "difficulty": "easy",
+      "isActive": true
+    },
+    {
+      "id": "after-school-checkin",
+      "title": "After School Check-In",
+      "description": "Review feelings, homework, and transitions after school.",
+      "moduleRefs": ["shape-sort"],
+      "estimatedMinutes": 20,
+      "difficulty": "medium",
+      "isActive": true
+    }
+  ],
+  "therapist_profiles": [
+    {
+      "id": "demo-therapist-1",
+      "displayName": "Dr. Michael Chen",
+      "bio": "Speech and communication specialist focused on AAC-supported routines and parent coaching.",
+      "specializations": ["Speech Therapy", "AAC", "Parent Coaching"],
+      "pricing": "$49 / month support access",
+      "languages": ["English"],
+      "rating": 4.9,
+      "availability": "Weekdays 9 AM - 5 PM",
+      "photoUrl": "",
+      "isActive": true
+    },
+    {
+      "id": "demo-therapist-2",
+      "displayName": "Sana Ahmed, OT",
+      "bio": "Occupational therapist supporting routines, transitions, and sensory-friendly activity planning.",
+      "specializations": ["Occupational Therapy", "Routines", "Sensory Support"],
+      "pricing": "$59 / month support access",
+      "languages": ["English", "Urdu"],
+      "rating": 4.8,
+      "availability": "Mon, Wed, Fri",
+      "photoUrl": "",
+      "isActive": true
+    }
+  ],
+  "subscription_products": [
+    {
+      "id": "professional-support-monthly",
+      "title": "Professional Support Monthly",
+      "subtitle": "Unlock therapist chat and guided support",
+      "featureList": [
+        "Message a licensed therapist",
+        "Keep support threads in-app",
+        "Access support-oriented guidance"
+      ],
+      "priceLabel": "$29/month",
+      "stripePriceId": "price_professional_support_monthly",
+      "isActive": true
+    }
+  ]
+}

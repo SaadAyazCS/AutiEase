@@ -1,0 +1,719 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+DateTime? dateTimeFromFirestore(dynamic value) {
+  if (value is Timestamp) {
+    return value.toDate();
+  }
+  if (value is DateTime) {
+    return value;
+  }
+  if (value is String && value.isNotEmpty) {
+    return DateTime.tryParse(value);
+  }
+  return null;
+}
+
+List<String> stringListFrom(dynamic value) {
+  if (value is List) {
+    return value.map((item) => item.toString()).toList();
+  }
+  return const [];
+}
+
+Map<String, dynamic> mapFrom(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return Map<String, dynamic>.from(value);
+  }
+  return const <String, dynamic>{};
+}
+
+Map<String, bool> boolMapFrom(dynamic value) {
+  final raw = mapFrom(value);
+  return raw.map(
+    (key, item) => MapEntry(
+      key,
+      item is bool ? item : item.toString().toLowerCase() == 'true',
+    ),
+  );
+}
+
+int intFrom(dynamic value, [int fallback = 0]) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.tryParse(value?.toString() ?? '') ?? fallback;
+}
+
+enum AppSessionState {
+  unauthenticated,
+  incompleteProfile,
+  emailVerificationPending,
+  parent,
+  therapist,
+}
+
+class AppSession {
+  const AppSession({
+    required this.state,
+    this.uid,
+    this.role,
+    this.activeChildId,
+  });
+
+  final AppSessionState state;
+  final String? uid;
+  final String? role;
+  final String? activeChildId;
+}
+
+class UserProfile {
+  const UserProfile({
+    required this.uid,
+    required this.email,
+    required this.firstName,
+    required this.lastName,
+    required this.role,
+    required this.status,
+    required this.phone,
+    required this.photoUrl,
+    required this.subscriptionTier,
+    required this.entitlements,
+    required this.notificationPreferences,
+    this.activeChildId,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String uid;
+  final String email;
+  final String firstName;
+  final String lastName;
+  final String role;
+  final String status;
+  final String phone;
+  final String photoUrl;
+  final String subscriptionTier;
+  final Map<String, bool> entitlements;
+  final Map<String, bool> notificationPreferences;
+  final String? activeChildId;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  String get fullName => '$firstName $lastName'.trim();
+
+  factory UserProfile.fromMap(String uid, Map<String, dynamic> data) {
+    return UserProfile(
+      uid: uid,
+      email: (data['email'] ?? '').toString(),
+      firstName: (data['firstName'] ?? '').toString(),
+      lastName: (data['lastName'] ?? '').toString(),
+      role: (data['role'] ?? '').toString(),
+      status: (data['status'] ?? '').toString(),
+      phone: (data['phone'] ?? '').toString(),
+      photoUrl: (data['photoUrl'] ?? '').toString(),
+      subscriptionTier: (data['subscriptionTier'] ?? 'free').toString(),
+      entitlements: boolMapFrom(data['entitlements']),
+      notificationPreferences: boolMapFrom(data['notificationPreferences']),
+      activeChildId: data['activeChildId']?.toString(),
+      createdAt: dateTimeFromFirestore(data['createdAt']),
+      updatedAt: dateTimeFromFirestore(data['updatedAt']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'uid': uid,
+      'email': email,
+      'firstName': firstName,
+      'lastName': lastName,
+      'fullName': fullName,
+      'role': role,
+      'status': status,
+      'phone': phone,
+      'photoUrl': photoUrl,
+      'subscriptionTier': subscriptionTier,
+      'entitlements': entitlements,
+      'notificationPreferences': notificationPreferences,
+      'activeChildId': activeChildId,
+      'createdAt': createdAt,
+      'updatedAt': updatedAt,
+    };
+  }
+}
+
+class ChildProfile {
+  const ChildProfile({
+    required this.id,
+    required this.parentId,
+    required this.name,
+    required this.avatar,
+    required this.supportAreas,
+    required this.status,
+    this.activePlanId,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String parentId;
+  final String name;
+  final String avatar;
+  final List<String> supportAreas;
+  final String status;
+  final String? activePlanId;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  factory ChildProfile.fromMap(String id, Map<String, dynamic> data) {
+    return ChildProfile(
+      id: id,
+      parentId: (data['parentId'] ?? '').toString(),
+      name: (data['name'] ?? '').toString(),
+      avatar: (data['avatar'] ?? '').toString(),
+      supportAreas: stringListFrom(data['supportAreas']),
+      status: (data['status'] ?? 'active').toString(),
+      activePlanId: data['activePlanId']?.toString(),
+      createdAt: dateTimeFromFirestore(data['createdAt']),
+      updatedAt: dateTimeFromFirestore(data['updatedAt']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'parentId': parentId,
+      'name': name,
+      'avatar': avatar,
+      'supportAreas': supportAreas,
+      'status': status,
+      'activePlanId': activePlanId,
+      'createdAt': createdAt,
+      'updatedAt': updatedAt,
+    };
+  }
+}
+
+class AppModule {
+  const AppModule({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.routeKey,
+    required this.targetRole,
+    required this.sortOrder,
+    required this.isActive,
+    this.imageAsset = '',
+  });
+
+  final String id;
+  final String title;
+  final String subtitle;
+  final String routeKey;
+  final String targetRole;
+  final int sortOrder;
+  final bool isActive;
+  final String imageAsset;
+
+  factory AppModule.fromMap(String id, Map<String, dynamic> data) {
+    return AppModule(
+      id: id,
+      title: (data['title'] ?? '').toString(),
+      subtitle: (data['subtitle'] ?? '').toString(),
+      routeKey: (data['routeKey'] ?? id).toString(),
+      targetRole: (data['targetRole'] ?? '').toString(),
+      sortOrder: intFrom(data['sortOrder']),
+      isActive: data['isActive'] != false,
+      imageAsset: (data['imageAsset'] ?? '').toString(),
+    );
+  }
+}
+
+class ContentCategory {
+  const ContentCategory({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.icon,
+    required this.imageUrl,
+    required this.sortOrder,
+    required this.isActive,
+  });
+
+  final String id;
+  final String type;
+  final String title;
+  final String icon;
+  final String imageUrl;
+  final int sortOrder;
+  final bool isActive;
+
+  factory ContentCategory.fromMap(String id, Map<String, dynamic> data) {
+    return ContentCategory(
+      id: id,
+      type: (data['type'] ?? '').toString(),
+      title: (data['title'] ?? '').toString(),
+      icon: (data['icon'] ?? '').toString(),
+      imageUrl: (data['imageUrl'] ?? '').toString(),
+      sortOrder: intFrom(data['sortOrder']),
+      isActive: data['isActive'] != false,
+    );
+  }
+}
+
+class ContentItem {
+  const ContentItem({
+    required this.id,
+    required this.categoryId,
+    required this.title,
+    required this.subtitle,
+    required this.imageUrl,
+    required this.audioText,
+    required this.level,
+    required this.tags,
+    required this.isActive,
+  });
+
+  final String id;
+  final String categoryId;
+  final String title;
+  final String subtitle;
+  final String imageUrl;
+  final String audioText;
+  final int level;
+  final List<String> tags;
+  final bool isActive;
+
+  factory ContentItem.fromMap(String id, Map<String, dynamic> data) {
+    return ContentItem(
+      id: id,
+      categoryId: (data['categoryId'] ?? '').toString(),
+      title: (data['title'] ?? '').toString(),
+      subtitle: (data['subtitle'] ?? '').toString(),
+      imageUrl: (data['imageUrl'] ?? '').toString(),
+      audioText: (data['audioText'] ?? '').toString(),
+      level: intFrom(data['level'], 1),
+      tags: stringListFrom(data['tags']),
+      isActive: data['isActive'] != false,
+    );
+  }
+}
+
+class LearningModuleModel {
+  const LearningModuleModel({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.type,
+    required this.levelRange,
+    required this.assetRefs,
+    required this.sortOrder,
+    required this.isActive,
+  });
+
+  final String id;
+  final String title;
+  final String description;
+  final String type;
+  final String levelRange;
+  final List<String> assetRefs;
+  final int sortOrder;
+  final bool isActive;
+
+  factory LearningModuleModel.fromMap(String id, Map<String, dynamic> data) {
+    return LearningModuleModel(
+      id: id,
+      title: (data['title'] ?? '').toString(),
+      description: (data['description'] ?? '').toString(),
+      type: (data['type'] ?? '').toString(),
+      levelRange: (data['levelRange'] ?? '').toString(),
+      assetRefs: stringListFrom(data['assetRefs']),
+      sortOrder: intFrom(data['sortOrder']),
+      isActive: data['isActive'] != false,
+    );
+  }
+}
+
+class DailyActivityTemplate {
+  const DailyActivityTemplate({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.moduleRefs,
+    required this.estimatedMinutes,
+    required this.difficulty,
+    required this.isActive,
+  });
+
+  final String id;
+  final String title;
+  final String description;
+  final List<String> moduleRefs;
+  final int estimatedMinutes;
+  final String difficulty;
+  final bool isActive;
+
+  factory DailyActivityTemplate.fromMap(String id, Map<String, dynamic> data) {
+    return DailyActivityTemplate(
+      id: id,
+      title: (data['title'] ?? '').toString(),
+      description: (data['description'] ?? '').toString(),
+      moduleRefs: stringListFrom(data['moduleRefs']),
+      estimatedMinutes: intFrom(data['estimatedMinutes']),
+      difficulty: (data['difficulty'] ?? 'easy').toString(),
+      isActive: data['isActive'] != false,
+    );
+  }
+}
+
+class ChildAssignment {
+  const ChildAssignment({
+    required this.id,
+    required this.childId,
+    required this.parentId,
+    required this.assignedCategoryIds,
+    required this.assignedModuleIds,
+    required this.assignedActivityTemplateIds,
+    required this.status,
+    this.effectiveFrom,
+  });
+
+  final String id;
+  final String childId;
+  final String parentId;
+  final List<String> assignedCategoryIds;
+  final List<String> assignedModuleIds;
+  final List<String> assignedActivityTemplateIds;
+  final String status;
+  final DateTime? effectiveFrom;
+
+  factory ChildAssignment.fromMap(String id, Map<String, dynamic> data) {
+    return ChildAssignment(
+      id: id,
+      childId: (data['childId'] ?? '').toString(),
+      parentId: (data['parentId'] ?? '').toString(),
+      assignedCategoryIds: stringListFrom(data['assignedCategoryIds']),
+      assignedModuleIds: stringListFrom(data['assignedModuleIds']),
+      assignedActivityTemplateIds: stringListFrom(
+        data['assignedActivityTemplateIds'],
+      ),
+      status: (data['status'] ?? 'draft').toString(),
+      effectiveFrom: dateTimeFromFirestore(data['effectiveFrom']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'childId': childId,
+      'parentId': parentId,
+      'assignedCategoryIds': assignedCategoryIds,
+      'assignedModuleIds': assignedModuleIds,
+      'assignedActivityTemplateIds': assignedActivityTemplateIds,
+      'status': status,
+      'effectiveFrom': effectiveFrom,
+    };
+  }
+}
+
+class DashboardSnapshot {
+  const DashboardSnapshot({
+    required this.childId,
+    required this.completedTasks,
+    required this.weeklyMinutes,
+    required this.streakDays,
+    required this.moodEntries,
+    required this.lastUpdated,
+  });
+
+  final String childId;
+  final int completedTasks;
+  final int weeklyMinutes;
+  final int streakDays;
+  final int moodEntries;
+  final DateTime? lastUpdated;
+
+  factory DashboardSnapshot.fromMap(String childId, Map<String, dynamic> data) {
+    return DashboardSnapshot(
+      childId: childId,
+      completedTasks: intFrom(data['completedTasks']),
+      weeklyMinutes: intFrom(data['weeklyMinutes']),
+      streakDays: intFrom(data['streakDays']),
+      moodEntries: intFrom(data['moodEntries']),
+      lastUpdated: dateTimeFromFirestore(data['lastUpdated']),
+    );
+  }
+}
+
+class TherapistProfile {
+  const TherapistProfile({
+    required this.id,
+    required this.displayName,
+    required this.bio,
+    required this.specializations,
+    required this.pricing,
+    required this.languages,
+    required this.rating,
+    required this.availability,
+    required this.photoUrl,
+    required this.isActive,
+  });
+
+  final String id;
+  final String displayName;
+  final String bio;
+  final List<String> specializations;
+  final String pricing;
+  final List<String> languages;
+  final double rating;
+  final String availability;
+  final String photoUrl;
+  final bool isActive;
+
+  factory TherapistProfile.fromMap(String id, Map<String, dynamic> data) {
+    final rawRating = data['rating'];
+    return TherapistProfile(
+      id: id,
+      displayName: (data['displayName'] ?? '').toString(),
+      bio: (data['bio'] ?? '').toString(),
+      specializations: stringListFrom(data['specializations']),
+      pricing: (data['pricing'] ?? '').toString(),
+      languages: stringListFrom(data['languages']),
+      rating: rawRating is num ? rawRating.toDouble() : 0,
+      availability: (data['availability'] ?? '').toString(),
+      photoUrl: (data['photoUrl'] ?? '').toString(),
+      isActive: data['isActive'] != false,
+    );
+  }
+}
+
+class TherapistThread {
+  const TherapistThread({
+    required this.id,
+    required this.parentId,
+    required this.therapistId,
+    required this.childId,
+    required this.subscriptionId,
+    required this.status,
+    this.parentDisplayName = '',
+    this.therapistDisplayName = '',
+    this.lastMessagePreview = '',
+    this.lastMessageAt,
+  });
+
+  final String id;
+  final String parentId;
+  final String therapistId;
+  final String childId;
+  final String subscriptionId;
+  final String status;
+  final String parentDisplayName;
+  final String therapistDisplayName;
+  final String lastMessagePreview;
+  final DateTime? lastMessageAt;
+
+  factory TherapistThread.fromMap(String id, Map<String, dynamic> data) {
+    return TherapistThread(
+      id: id,
+      parentId: (data['parentId'] ?? '').toString(),
+      therapistId: (data['therapistId'] ?? '').toString(),
+      childId: (data['childId'] ?? '').toString(),
+      subscriptionId: (data['subscriptionId'] ?? '').toString(),
+      status: (data['status'] ?? 'active').toString(),
+      parentDisplayName: (data['parentDisplayName'] ?? '').toString(),
+      therapistDisplayName: (data['therapistDisplayName'] ?? '').toString(),
+      lastMessagePreview: (data['lastMessagePreview'] ?? '').toString(),
+      lastMessageAt: dateTimeFromFirestore(data['lastMessageAt']),
+    );
+  }
+
+  TherapistThread copyWith({
+    String? parentDisplayName,
+    String? therapistDisplayName,
+    String? lastMessagePreview,
+    DateTime? lastMessageAt,
+  }) {
+    return TherapistThread(
+      id: id,
+      parentId: parentId,
+      therapistId: therapistId,
+      childId: childId,
+      subscriptionId: subscriptionId,
+      status: status,
+      parentDisplayName: parentDisplayName ?? this.parentDisplayName,
+      therapistDisplayName: therapistDisplayName ?? this.therapistDisplayName,
+      lastMessagePreview: lastMessagePreview ?? this.lastMessagePreview,
+      lastMessageAt: lastMessageAt ?? this.lastMessageAt,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'parentId': parentId,
+      'therapistId': therapistId,
+      'childId': childId,
+      'subscriptionId': subscriptionId,
+      'status': status,
+      'parentDisplayName': parentDisplayName,
+      'therapistDisplayName': therapistDisplayName,
+      'lastMessagePreview': lastMessagePreview,
+      'lastMessageAt': lastMessageAt,
+    };
+  }
+}
+
+class TherapistMessage {
+  const TherapistMessage({
+    required this.id,
+    required this.senderId,
+    required this.senderRole,
+    required this.body,
+    required this.attachments,
+    this.sentAt,
+  });
+
+  final String id;
+  final String senderId;
+  final String senderRole;
+  final String body;
+  final List<String> attachments;
+  final DateTime? sentAt;
+
+  factory TherapistMessage.fromMap(String id, Map<String, dynamic> data) {
+    return TherapistMessage(
+      id: id,
+      senderId: (data['senderId'] ?? '').toString(),
+      senderRole: (data['senderRole'] ?? '').toString(),
+      body: (data['body'] ?? '').toString(),
+      attachments: stringListFrom(data['attachments']),
+      sentAt: dateTimeFromFirestore(data['sentAt']),
+    );
+  }
+}
+
+class SubscriptionProduct {
+  const SubscriptionProduct({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.featureList,
+    required this.priceLabel,
+    required this.stripePriceId,
+    required this.isActive,
+  });
+
+  final String id;
+  final String title;
+  final String subtitle;
+  final List<String> featureList;
+  final String priceLabel;
+  final String stripePriceId;
+  final bool isActive;
+
+  factory SubscriptionProduct.fromMap(String id, Map<String, dynamic> data) {
+    return SubscriptionProduct(
+      id: id,
+      title: (data['title'] ?? '').toString(),
+      subtitle: (data['subtitle'] ?? '').toString(),
+      featureList: stringListFrom(data['featureList']),
+      priceLabel: (data['priceLabel'] ?? '').toString(),
+      stripePriceId: (data['stripePriceId'] ?? '').toString(),
+      isActive: data['isActive'] != false,
+    );
+  }
+}
+
+class UserSubscription {
+  const UserSubscription({
+    required this.id,
+    required this.userId,
+    required this.productId,
+    required this.status,
+    required this.cancelAtPeriodEnd,
+    this.currentPeriodEnd,
+  });
+
+  final String id;
+  final String userId;
+  final String productId;
+  final String status;
+  final bool cancelAtPeriodEnd;
+  final DateTime? currentPeriodEnd;
+
+  bool get isActive => status == 'active' || status == 'trialing';
+
+  factory UserSubscription.fromMap(String id, Map<String, dynamic> data) {
+    return UserSubscription(
+      id: id,
+      userId: (data['userId'] ?? '').toString(),
+      productId: (data['productId'] ?? '').toString(),
+      status: (data['status'] ?? 'inactive').toString(),
+      cancelAtPeriodEnd: data['cancelAtPeriodEnd'] == true,
+      currentPeriodEnd: dateTimeFromFirestore(data['currentPeriodEnd']),
+    );
+  }
+}
+
+class LegalDocument {
+  const LegalDocument({
+    required this.id,
+    required this.audience,
+    required this.version,
+    required this.title,
+    required this.body,
+    required this.isActive,
+  });
+
+  final String id;
+  final String audience;
+  final String version;
+  final String title;
+  final String body;
+  final bool isActive;
+
+  factory LegalDocument.fromMap(String id, Map<String, dynamic> data) {
+    return LegalDocument(
+      id: id,
+      audience: (data['audience'] ?? '').toString(),
+      version: (data['version'] ?? 'v1').toString(),
+      title: (data['title'] ?? '').toString(),
+      body: (data['body'] ?? '').toString(),
+      isActive: data['isActive'] != false,
+    );
+  }
+}
+
+class SettingsEntry {
+  const SettingsEntry({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.routeKey,
+    required this.targetRole,
+    required this.sortOrder,
+    required this.isActive,
+  });
+
+  final String id;
+  final String title;
+  final String subtitle;
+  final String routeKey;
+  final String targetRole;
+  final int sortOrder;
+  final bool isActive;
+
+  factory SettingsEntry.fromMap(String id, Map<String, dynamic> data) {
+    return SettingsEntry(
+      id: id,
+      title: (data['title'] ?? '').toString(),
+      subtitle: (data['subtitle'] ?? '').toString(),
+      routeKey: (data['routeKey'] ?? '').toString(),
+      targetRole: (data['targetRole'] ?? '').toString(),
+      sortOrder: intFrom(data['sortOrder']),
+      isActive: data['isActive'] != false,
+    );
+  }
+}

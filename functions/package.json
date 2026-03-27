@@ -1,0 +1,17 @@
+{
+  "name": "autiease-functions",
+  "private": true,
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "scripts": {
+    "seed": "node scripts/seed-firestore.js",
+    "cleanup:user": "node scripts/cleanup-user.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.2",
+    "firebase-functions": "^6.0.1",
+    "stripe": "^17.6.0"
+  }
+}

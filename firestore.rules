@@ -1,0 +1,133 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isParent() {
+      return signedIn() && userDoc().role == 'parent';
+    }
+
+    function isTherapist() {
+      return signedIn() && userDoc().role == 'therapist';
+    }
+
+    function ownsChild(childId) {
+      return isParent() &&
+        get(/databases/$(database)/documents/child_profiles/$(childId)).data.parentId == request.auth.uid;
+    }
+
+    function isThreadParticipant(threadData) {
+      return signedIn() &&
+        (threadData.parentId == request.auth.uid || threadData.therapistId == request.auth.uid);
+    }
+
+    match /users/{userId} {
+      allow read, update: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn() && request.auth.uid == userId;
+    }
+
+    match /child_profiles/{childId} {
+      allow read: if (isParent() && resource.data.parentId == request.auth.uid) || isTherapist();
+      allow create, update: if isParent() && request.resource.data.parentId == request.auth.uid;
+    }
+
+    match /child_assignments/{childId} {
+      allow read: if (isParent() && resource.data.parentId == request.auth.uid) || isTherapist();
+      allow create, update: if isParent() && request.resource.data.parentId == request.auth.uid;
+    }
+
+    match /therapist_profiles/{therapistId} {
+      allow read: if signedIn();
+      allow create, update: if isTherapist() && request.auth.uid == therapistId;
+    }
+
+    match /content_categories/{document=**} {
+      allow read: if signedIn();
+    }
+
+    match /content_items/{document=**} {
+      allow read: if signedIn();
+    }
+
+    match /learning_modules/{document=**} {
+      allow read: if signedIn();
+    }
+
+    match /daily_activity_templates/{document=**} {
+      allow read: if signedIn();
+    }
+
+    match /dashboard_snapshots/{childId} {
+      allow read: if ownsChild(childId) || isTherapist();
+      allow create, update: if ownsChild(childId);
+    }
+
+    match /mood_logs/{logId} {
+      allow read: if signedIn();
+      allow create: if isParent();
+    }
+
+    match /activity_progress/{progressId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+    }
+
+    match /therapist_threads/{threadId} {
+      allow read: if isThreadParticipant(resource.data);
+      allow create: if isParent() &&
+        request.resource.data.parentId == request.auth.uid &&
+        ownsChild(request.resource.data.childId);
+      allow update: if isThreadParticipant(resource.data) &&
+        request.resource.data.parentId == resource.data.parentId &&
+        request.resource.data.therapistId == resource.data.therapistId &&
+        request.resource.data.childId == resource.data.childId &&
+        request.resource.data.subscriptionId == resource.data.subscriptionId;
+
+      match /messages/{messageId} {
+        allow read: if isThreadParticipant(
+          get(/databases/$(database)/documents/therapist_threads/$(threadId)).data
+        );
+        allow create: if isThreadParticipant(
+            get(/databases/$(database)/documents/therapist_threads/$(threadId)).data
+          ) &&
+          request.resource.data.senderId == request.auth.uid &&
+          (
+            (isParent() && request.resource.data.senderRole == 'parent') ||
+            (isTherapist() && request.resource.data.senderRole == 'therapist')
+          );
+      }
+    }
+
+    match /subscription_products/{document=**} {
+      allow read: if signedIn();
+    }
+
+    match /subscriptions/{subscriptionId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    match /legal_documents/{document=**} {
+      allow read: if true;
+    }
+
+    match /app_modules/{document=**} {
+      allow read: if signedIn();
+    }
+
+    match /settings_entries/{document=**} {
+      allow read: if signedIn();
+    }
+
+    match /feedback/{feedbackId} {
+      allow create: if signedIn();
+      allow read: if false;
+    }
+  }
+}

@@ -1,0 +1,305 @@
+import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
+import '../services/tts_service.dart';
+
+class FamilyScreen extends StatefulWidget {
+  const FamilyScreen({super.key});
+
+  @override
+  State<FamilyScreen> createState() => _FamilyScreenState();
+}
+
+class _FamilyScreenState extends State<FamilyScreen> {
+  final TtsService tts = TtsService();
+
+  final List<FamilyMember> members = [
+    FamilyMember(name: 'Father', emoji: '👨'),
+    FamilyMember(name: 'Mother', emoji: '👩'),
+    FamilyMember(name: 'Brother', emoji: '👦'),
+    FamilyMember(name: 'Sister', emoji: '👧'),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _initTts();
+  }
+
+  Future<void> _initTts() async {
+    await tts.init(
+      language: "en-US",
+      speechRate: 0.4,
+      volume: 1.0,
+      pitch: 1.0,
+    );
+  }
+
+  @override
+  void dispose() {
+    tts.dispose();
+    super.dispose();
+  }
+
+  Future<void> _speakMember(String name) async {
+    await tts.speak(name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          // Background gradient
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [AppColors.primaryBlue, AppColors.lightBlue],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+            ),
+          ),
+
+          // Bottom wave
+          Positioned(bottom: 0, left: 0, right: 0, child: _buildBottomWave()),
+
+          // Decorative shapes
+          Positioned(
+            bottom: 50,
+            left: 20,
+            child: Container(width: 20, height: 20, color: AppColors.yellow),
+          ),
+          Positioned(
+            bottom: 100,
+            left: 80,
+            child: const Icon(Icons.star, color: AppColors.pink, size: 24),
+          ),
+          Positioned(
+            bottom: 60,
+            right: 100,
+            child: CustomPaint(
+              size: const Size(20, 20),
+              painter: TrianglePainter(color: AppColors.red),
+            ),
+          ),
+          Positioned(
+            bottom: 50,
+            right: 30,
+            child: Container(
+              width: 16,
+              height: 16,
+              decoration: const BoxDecoration(
+                color: AppColors.green,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+
+          // Main content
+          SafeArea(
+            child: Column(
+              children: [
+                // App Bar
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      // Back button
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          child: const Icon(
+                            Icons.arrow_back_ios_new,
+                            color: AppColors.darkBlue,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                      const Expanded(
+                        child: Center(
+                          child: Text(
+                            'Family',
+                            style: TextStyle(
+                              fontSize: 30,
+                              fontWeight: FontWeight.bold,
+                              color: Color.fromARGB(255, 0, 0, 0),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 40),
+                    ],
+                  ),
+                ),
+
+                // Grid of family members
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: GridView.builder(
+                      padding: const EdgeInsets.only(top: 40, bottom: 140),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 20,
+                        mainAxisSpacing: 20,
+                        childAspectRatio: 0.95,
+                      ),
+                      itemCount: members.length,
+                      itemBuilder: (context, index) {
+                        return _buildFamilyCard(members[index]);
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ONLY CHANGE: _buildFamilyCard updated (rest same)
+
+Widget _buildFamilyCard(FamilyMember member) {
+  final borderRadius = BorderRadius.circular(20);
+
+  return Material(
+    color: Colors.transparent,
+    child: InkWell(
+      borderRadius: borderRadius,
+      onTap: () => _speakMember(member.name),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFFE8EAF6),
+          borderRadius: borderRadius,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFBBDEFB),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Text(member.emoji, style: const TextStyle(fontSize: 48)),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  member.name,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: Color.fromARGB(255, 0, 0, 0),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Icon(Icons.mic, size: 25, color: AppColors.darkBlue),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+
+  Widget _buildBottomWave() {
+    return ClipPath(
+      clipper: BottomWaveClipper(),
+      child: Container(
+        height: 120,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF00B5FD), AppColors.primaryBlue],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class FamilyMember {
+  final String name;
+  final String emoji;
+
+  FamilyMember({required this.name, required this.emoji});
+}
+
+class BottomWaveClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    var path = Path();
+    path.moveTo(0, 50);
+
+    var firstControlPoint = Offset(size.width / 4, 0);
+    var firstEndPoint = Offset(size.width / 2, 30);
+    path.quadraticBezierTo(
+      firstControlPoint.dx,
+      firstControlPoint.dy,
+      firstEndPoint.dx,
+      firstEndPoint.dy,
+    );
+
+    var secondControlPoint = Offset(size.width * 3 / 4, 60);
+    var secondEndPoint = Offset(size.width, 20);
+    path.quadraticBezierTo(
+      secondControlPoint.dx,
+      secondControlPoint.dy,
+      secondEndPoint.dx,
+      secondEndPoint.dy,
+    );
+
+    path.lineTo(size.width, size.height);
+    path.lineTo(0, size.height);
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
+}
+
+class TrianglePainter extends CustomPainter {
+  final Color color;
+
+  TrianglePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    var path = Path();
+    path.moveTo(size.width / 2, 0);
+    path.lineTo(size.width, size.height);
+    path.lineTo(0, size.height);
+    path.close();
+
+    var paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
+}
