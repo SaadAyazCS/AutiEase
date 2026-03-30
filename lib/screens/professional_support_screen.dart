@@ -585,11 +585,19 @@ class _TherapistListCard extends StatelessWidget {
   final bool isSubscribed;
   final VoidCallback onTap;
 
+  List<String> _specializations(TherapistProfile profile) {
+    return profile.specializations
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+  }
+
   String _specialization(TherapistProfile profile) {
-    if (profile.specializations.isNotEmpty) {
-      return profile.specializations.first;
+    final specs = _specializations(profile);
+    if (specs.isNotEmpty) {
+      return specs.first;
     }
-    return 'Behavioral Therapy';
+    return 'Specialization not set';
   }
 
   int _yearsExp(TherapistProfile profile, int fallback) {
@@ -865,11 +873,19 @@ class _SupportTherapistDetailsScreenState
     _isSubscribed = widget.initiallySubscribed;
   }
 
+  List<String> _specializations(TherapistProfile profile) {
+    return profile.specializations
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+  }
+
   String _specialization(TherapistProfile profile) {
-    if (profile.specializations.isNotEmpty) {
-      return profile.specializations.first;
+    final specs = _specializations(profile);
+    if (specs.isNotEmpty) {
+      return specs.first;
     }
-    return 'Behavioral Therapy';
+    return 'Specialization not set';
   }
 
   int _yearsExp(TherapistProfile profile) {
@@ -906,6 +922,7 @@ class _SupportTherapistDetailsScreenState
   @override
   Widget build(BuildContext context) {
     final therapist = widget.therapist;
+    final allSpecializations = _specializations(therapist);
     final specialization = _specialization(therapist);
     final years = _yearsExp(therapist);
     final price = _priceLabel(therapist);
@@ -945,21 +962,38 @@ class _SupportTherapistDetailsScreenState
                             fontSize: 14,
                           ),
                         ),
+                        if (allSpecializations.length > 1) ...[
+                          const SizedBox(height: 8),
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: allSpecializations
+                                .skip(1)
+                                .map(
+                                  (item) => Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFE6F3FF),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      item,
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        color: Color(0xFF2563EB),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                                .toList(growable: false),
+                          ),
+                        ],
                         const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            // Hardcoded reviews count and rating fallback removed for now.
-                            if (therapist.rating > 0)
-                              Text(
-                                therapist.rating.toStringAsFixed(1),
-                                style: const TextStyle(
-                                  color: Color(0xFF4B5563),
-                                  fontSize: 13,
-                                ),
-                              ),
-                          ],
-                        ),
                         if (_isSubscribed) ...[
                           const SizedBox(height: 10),
                           Container(
@@ -1266,11 +1300,19 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
 
   bool _emergencyActive = true;
 
+  List<String> _specializations(TherapistProfile profile) {
+    return profile.specializations
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+  }
+
   String _specialization(TherapistProfile profile) {
-    if (profile.specializations.isNotEmpty) {
-      return profile.specializations.first;
+    final specs = _specializations(profile);
+    if (specs.isNotEmpty) {
+      return specs.first;
     }
-    return 'Speech & Language Therapy';
+    return 'Specialization not set';
   }
 
   Future<void> _showTherapistProfileSheet() async {

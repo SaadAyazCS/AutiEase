@@ -520,6 +520,8 @@ class FirebaseService {
 
         await _therapists.doc(user.uid).set({
           'licenseNumber': licenseNumber ?? '',
+          'contactEmail': email,
+          'contactPhone': phone,
         }, SetOptions(merge: true));
       } catch (_) {
         if (createdPasswordUser) {

@@ -25,6 +25,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
   bool _loading = true;
   int _years = 0;
   String _credentials = '';
+  String _contactEmail = '';
+  String _contactPhone = '';
   String? _certificatePdfName;
   List<TherapyPackage> _packages = const <TherapyPackage>[];
   bool _profilePromptDone = false;
@@ -51,6 +53,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
           .collection(FirestoreCollections.therapistProfiles)
           .doc(uid)
           .get();
+      final userProfile = await AppRepositories.users.getCurrentUserProfile();
       final data = doc.data() ?? <String, dynamic>{};
       final parsedPackages = _parsePackages(data['servicePackages']);
 
@@ -74,6 +77,16 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
             );
         _years = intFrom(data['yearsOfExperience']);
         _credentials = (data['credentials'] ?? '').toString();
+        _contactEmail = (data['contactEmail'] ??
+                userProfile?.email ??
+                FirebaseAuth.instance.currentUser?.email ??
+                '')
+            .toString();
+        _contactPhone = (data['contactPhone'] ??
+                userProfile?.phone ??
+                FirebaseAuth.instance.currentUser?.phoneNumber ??
+                '')
+            .toString();
         _certificatePdfName = data['certificatePdfName']?.toString();
         _packages = parsedPackages;
         _notificationPrefs = {
@@ -118,6 +131,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
           setupMode: true,
           initialYears: _years,
           initialCredentials: _credentials,
+          initialEmail: _contactEmail,
+          initialPhone: _contactPhone,
           initialCertificatePdfName: _certificatePdfName,
           initialPackages: _packages,
           onSave: _saveProfileData,
@@ -134,6 +149,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
     required TherapistProfile profile,
     required int years,
     required String credentials,
+    required String contactEmail,
+    required String contactPhone,
     required List<TherapyPackage> packages,
     String? certificatePdfName,
   }) async {
@@ -167,6 +184,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
         .set({
       'yearsOfExperience': years,
       'credentials': credentials,
+      'contactEmail': contactEmail,
+      'contactPhone': contactPhone,
       if (certificatePdfName != null) 'certificatePdfName': certificatePdfName,
       'servicePackages': packages.map((item) => item.toMap()).toList(),
       'isActive': normalized.isActive,
@@ -180,6 +199,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
       _profile = normalized;
       _years = years;
       _credentials = credentials;
+      _contactEmail = contactEmail;
+      _contactPhone = contactPhone;
       if (certificatePdfName != null) {
         _certificatePdfName = certificatePdfName;
       }
@@ -248,6 +269,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
                   setupMode: false,
                   initialYears: _years,
                   initialCredentials: _credentials,
+                  initialEmail: _contactEmail,
+                  initialPhone: _contactPhone,
                   initialCertificatePdfName: _certificatePdfName,
                   initialPackages: _packages,
                   onSave: _saveProfileData,
@@ -271,6 +294,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
                 profile: _profile!,
                 years: _years,
                 credentials: _credentials,
+                contactEmail: _contactEmail,
+                contactPhone: _contactPhone,
                 packages: updated,
               );
             }
@@ -1019,6 +1044,8 @@ class TherapistProfileSettingsScreen extends StatefulWidget {
     required this.setupMode,
     required this.initialYears,
     required this.initialCredentials,
+    required this.initialEmail,
+    required this.initialPhone,
     required this.initialCertificatePdfName,
     required this.initialPackages,
     required this.onSave,
@@ -1028,12 +1055,16 @@ class TherapistProfileSettingsScreen extends StatefulWidget {
   final bool setupMode;
   final int initialYears;
   final String initialCredentials;
+  final String initialEmail;
+  final String initialPhone;
   final String? initialCertificatePdfName;
   final List<TherapyPackage> initialPackages;
   final Future<void> Function({
     required TherapistProfile profile,
     required int years,
     required String credentials,
+    required String contactEmail,
+    required String contactPhone,
     required List<TherapyPackage> packages,
     String? certificatePdfName,
   }) onSave;
@@ -1047,6 +1078,8 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
   final _selected = <String>{};
   late final TextEditingController _first;
   late final TextEditingController _last;
+  late final TextEditingController _email;
+  late final TextEditingController _phone;
   late final TextEditingController _years;
   late final TextEditingController _credentials;
   late final TextEditingController _about;
@@ -1059,6 +1092,8 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
     final display = widget.profile.displayName.trim().split(' ');
     _first = TextEditingController(text: display.isEmpty ? '' : display.first);
     _last = TextEditingController(text: display.length > 1 ? display.sublist(1).join(' ') : '');
+    _email = TextEditingController(text: widget.initialEmail);
+    _phone = TextEditingController(text: widget.initialPhone);
     _years = TextEditingController(
         text: widget.initialYears > 0 ? widget.initialYears.toString() : '');
     _credentials = TextEditingController(text: widget.initialCredentials);
@@ -1071,6 +1106,8 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
   void dispose() {
     _first.dispose();
     _last.dispose();
+    _email.dispose();
+    _phone.dispose();
     _years.dispose();
     _credentials.dispose();
     _about.dispose();
@@ -1102,6 +1139,22 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
       );
       return;
     }
+    final email = _email.text.trim();
+    if (!_isValidEmail(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid email address.')),
+      );
+      return;
+    }
+    final phone = _phone.text.trim();
+    if (!_isValidPhoneNumber(phone)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid phone number (10-15 digits).'),
+        ),
+      );
+      return;
+    }
 
     final years = int.tryParse(_years.text.trim()) ?? 0;
 
@@ -1124,6 +1177,8 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
         profile: updated,
         years: years,
         credentials: _credentials.text.trim(),
+        contactEmail: email,
+        contactPhone: phone,
         packages: packages,
         certificatePdfName: _certificatePdfName,
       );
@@ -1159,6 +1214,13 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
 
   @override
   Widget build(BuildContext context) {
+    if (widget.setupMode) {
+      return _buildSetupMode(context);
+    }
+    return _buildProfileSettingsMode(context);
+  }
+
+  Widget _buildSetupMode(BuildContext context) {
     return SessionGuard(
       role: SessionGuardRole.therapist,
       child: Scaffold(
@@ -1315,12 +1377,300 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
     );
   }
 
+  Widget _buildProfileSettingsMode(BuildContext context) {
+    return SessionGuard(
+      role: SessionGuardRole.therapist,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF1F3F4),
+        body: SafeArea(
+          child: Column(
+            children: [
+              Container(
+                height: 80,
+                color: const Color(0xFF9FE7F2),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back),
+                    ),
+                    const Expanded(
+                      child: Text(
+                        'Profile Settings',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 26 / 1.5,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1F2937),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 40),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
+                  children: [
+                    _sectionCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Profile Picture',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF1F2937),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Stack(
+                                children: [
+                                  const CircleAvatar(
+                                    radius: 26,
+                                    backgroundImage:
+                                        AssetImage('assets/images/autiease.png'),
+                                  ),
+                                  Positioned(
+                                    right: 0,
+                                    bottom: 0,
+                                    child: Container(
+                                      width: 18,
+                                      height: 18,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF11B5CF),
+                                        borderRadius: BorderRadius.circular(9),
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 1.6,
+                                        ),
+                                      ),
+                                      child: const Icon(
+                                        Icons.camera_alt_outlined,
+                                        size: 11,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${_first.text.trim()} ${_last.text.trim()}'.trim().isEmpty
+                                          ? widget.profile.displayName
+                                          : '${_first.text.trim()} ${_last.text.trim()}'.trim(),
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF1F2937),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _sectionCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Basic Information',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF1F2937),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _input(
+                                  'First Name',
+                                  _first,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _input(
+                                  'Last Name',
+                                  _last,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          _input(
+                            'Email Address',
+                            _email,
+                            keyboard: TextInputType.emailAddress,
+                          ),
+                          const SizedBox(height: 8),
+                          _input(
+                            'Phone Number',
+                            _phone,
+                            keyboard: TextInputType.phone,
+                          ),
+                          const SizedBox(height: 8),
+                          _input('About Me', _about, lines: 4),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _sectionCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Professional Information',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF1F2937),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          _input(
+                            'Years of Experience',
+                            _years,
+                            keyboard: TextInputType.number,
+                          ),
+                          const SizedBox(height: 8),
+                          _input(
+                            'Credentials & Certifications',
+                            _credentials,
+                            lines: 3,
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: _pickCertificatePdf,
+                            icon: const Icon(Icons.upload_file_outlined),
+                            label: Text(
+                              _certificatePdfName == null
+                                  ? 'Upload Certificate PDF'
+                                  : 'Selected: $_certificatePdfName',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(42),
+                              alignment: Alignment.centerLeft,
+                              side: const BorderSide(color: Color(0xFF11B5CF)),
+                              foregroundColor: const Color(0xFF11B5CF),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _sectionCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Specializations (${_selected.length} selected)',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF1F2937),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          for (final item in _specializations) ...[
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 7),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFFE5E7EB)),
+                                color: Colors.white,
+                              ),
+                              child: CheckboxListTile(
+                                dense: true,
+                                value: _selected.contains(item),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 0,
+                                ),
+                                controlAffinity: ListTileControlAffinity.leading,
+                                activeColor: const Color(0xFF11B5CF),
+                                onChanged: (value) {
+                                  setState(() {
+                                    if (value == true) {
+                                      _selected.add(item);
+                                    } else {
+                                      _selected.remove(item);
+                                    }
+                                  });
+                                },
+                                title: Text(
+                                  item,
+                                  style: const TextStyle(
+                                    fontSize: 13.2,
+                                    color: Color(0xFF374151),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: _saving ? null : () => _save(widget.initialPackages),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF11B5CF),
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size.fromHeight(44),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: _saving
+                            ? const SizedBox(
+                                height: 16,
+                                width: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('Save All Changes'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _input(String label, TextEditingController controller,
       {int lines = 1, TextInputType? keyboard}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.w500,
+            fontSize: 12,
+            color: Color(0xFF6B7280),
+          ),
+        ),
         const SizedBox(height: 4),
         TextField(
           controller: controller,
@@ -1329,14 +1679,64 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
           decoration: InputDecoration(
             filled: true,
             fillColor: const Color(0xFFF8FAFC),
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Color(0xFF11B5CF)),
             ),
           ),
         ),
       ],
     );
+  }
+
+  Widget _sectionCard({required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
+  bool _isValidEmail(String email) {
+    if (email.isEmpty) {
+      return false;
+    }
+    final emailRegex = RegExp(
+      r'^[a-zA-Z0-9.!#$%&*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$',
+    );
+    return emailRegex.hasMatch(email);
+  }
+
+  bool _isValidPhoneNumber(String phone) {
+    final digitsOnly = phone.replaceAll(RegExp(r'[^\d]'), '');
+    if (digitsOnly.length < 10 || digitsOnly.length > 15) {
+      return false;
+    }
+    final phoneRegex = RegExp(r'^[+]?[\d\s\-()]+$');
+    return phoneRegex.hasMatch(phone);
   }
 }
 class TherapistPackagesScreen extends StatefulWidget {
