@@ -5,6 +5,7 @@ import '../models/app_models.dart';
 import '../utils/app_colors.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
+import 'alphabets_screen.dart';
 import 'drag_game_screen.dart';
 import 'learning_game_screen.dart';
 import 'tap_game_screen.dart';
@@ -21,6 +22,16 @@ class LearningCategoryGamesScreen extends StatelessWidget {
   final String childId;
   final LearningCategoryDefinition category;
   final List<LearningModuleModel> modules;
+
+  String _normalizeKey(String raw) {
+    final cleaned = raw.trim().toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9]+'),
+      '_',
+    );
+    return cleaned
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -78,23 +89,34 @@ class LearningCategoryGamesScreen extends StatelessWidget {
                           children: [
                             ElevatedButton.icon(
                               onPressed: () {
+                                final gameKey = _normalizeKey(
+                                  module.gameTypeKey,
+                                );
+                                final moduleKey = _normalizeKey(module.id);
+                                final titleKey = _normalizeKey(module.title);
                                 final isTapGame =
-                                    module.gameTypeKey.toLowerCase() ==
-                                        'tap_game' ||
-                                    module.id.toLowerCase() == 'move-play-tap';
+                                    gameKey == 'tap_game' ||
+                                    moduleKey.contains('tap') ||
+                                    titleKey.contains('tap');
                                 final isDragGame =
-                                    module.gameTypeKey.toLowerCase() ==
-                                        'drag_game' ||
-                                    module.id.toLowerCase() == 'move-play-drag';
+                                    gameKey == 'drag_game' ||
+                                    moduleKey.contains('drag') ||
+                                    titleKey.contains('drag');
                                 final isTraceGame =
-                                    module.gameTypeKey.toLowerCase() ==
-                                        'trace_game' ||
-                                    module.id.toLowerCase() ==
-                                        'move-play-trace';
+                                    gameKey == 'trace_game' ||
+                                    moduleKey.contains('trace') ||
+                                    titleKey.contains('trace');
+                                final isAlphabetsGame =
+                                    gameKey.contains('alphabet') ||
+                                    moduleKey.contains('alphabet') ||
+                                    titleKey.contains('alphabet');
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
                                     builder: (_) {
+                                      if (isAlphabetsGame) {
+                                        return const AlphabetsScreen();
+                                      }
                                       if (isTapGame) {
                                         return TapGameScreen(
                                           childId: childId,

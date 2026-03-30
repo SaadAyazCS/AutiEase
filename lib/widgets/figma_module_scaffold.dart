@@ -6,11 +6,13 @@ class FigmaModuleScaffold extends StatelessWidget {
     required this.title,
     required this.onBack,
     required this.child,
+    this.trailing,
   });
 
   final String title;
   final VoidCallback onBack;
   final Widget child;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -79,7 +81,7 @@ class FigmaModuleScaffold extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 34),
+                      trailing ?? const SizedBox(width: 34),
                     ],
                   ),
                 ),

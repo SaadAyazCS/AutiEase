@@ -1,129 +1,795 @@
+﻿import 'dart:math' as math;
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../services/firebase_service.dart';
-import '../utils/app_colors.dart';
-import '../widgets/figma_home_shell.dart';
-import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
+import 'about_application_screen.dart';
 import 'login_screen.dart';
-import 'settings_screen.dart';
 import 'therapist_chat_screen.dart';
 
-class TherapistHomeScreen extends StatelessWidget {
+class TherapistHomeScreen extends StatefulWidget {
   const TherapistHomeScreen({super.key});
 
-  static const List<AppModule> _fallbackModules = [
-    AppModule(
-      id: 'therapist_dashboard',
-      title: 'Therapist Inbox',
-      subtitle: 'Open therapist conversations and support activity',
-      routeKey: 'therapist_threads',
-      targetRole: 'therapist',
-      sortOrder: 1,
-      isActive: true,
-    ),
-    AppModule(
-      id: 'therapist_settings',
-      title: 'Settings',
-      subtitle: 'Profile, notifications, legal docs, and app info',
-      routeKey: 'settings',
-      targetRole: 'therapist',
-      sortOrder: 2,
-      isActive: true,
-    ),
-  ];
+  @override
+  State<TherapistHomeScreen> createState() => _TherapistHomeScreenState();
+}
 
-  Future<void> _logout(BuildContext context) async {
+class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
+  TherapistProfile? _profile;
+  bool _loading = true;
+  int _years = 0;
+  String _credentials = '';
+  String? _certificatePdfName;
+  List<TherapyPackage> _packages = const <TherapyPackage>[];
+  bool _profilePromptDone = false;
+  Map<String, bool> _notificationPrefs = _defaultTherapistNotificationPrefs;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadState();
+  }
+
+  Future<void> _loadState() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+      return;
+    }
+
+    try {
+      final profile = await AppRepositories.support.getTherapistById(uid);
+      final doc = await FirebaseFirestore.instance
+          .collection(FirestoreCollections.therapistProfiles)
+          .doc(uid)
+          .get();
+      final data = doc.data() ?? <String, dynamic>{};
+      final parsedPackages = _parsePackages(data['servicePackages']);
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _profile = profile ??
+            TherapistProfile(
+              id: uid,
+              displayName: FirebaseAuth.instance.currentUser?.displayName ?? 'Therapist',
+              bio: '',
+              specializations: const <String>[],
+              pricing: '',
+              languages: const <String>['English'],
+              // Hardcoded fallback rating removed for now.
+              rating: 0,
+              availability: 'Open',
+              photoUrl: '',
+              isActive: true,
+            );
+        _years = intFrom(data['yearsOfExperience']);
+        _credentials = (data['credentials'] ?? '').toString();
+        _certificatePdfName = data['certificatePdfName']?.toString();
+        _packages = parsedPackages;
+        _notificationPrefs = {
+          ..._defaultTherapistNotificationPrefs,
+          ...boolMapFrom(data['therapistNotificationPreferences']),
+        };
+        _loading = false;
+      });
+
+      await _maybePromptCompleteProfile();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _maybePromptCompleteProfile() async {
+    if (_profilePromptDone || !mounted || _profile == null) {
+      return;
+    }
+    _profilePromptDone = true;
+
+    final incomplete = _profile!.specializations.isEmpty ||
+        _years <= 0 ||
+        _credentials.trim().isEmpty ||
+        _packages.isEmpty;
+    if (!incomplete) {
+      return;
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    if (!mounted) {
+      return;
+    }
+
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TherapistProfileSettingsScreen(
+          profile: _profile!,
+          setupMode: true,
+          initialYears: _years,
+          initialCredentials: _credentials,
+          initialCertificatePdfName: _certificatePdfName,
+          initialPackages: _packages,
+          onSave: _saveProfileData,
+        ),
+      ),
+    );
+
+    if (saved == true) {
+      await _loadState();
+    }
+  }
+
+  Future<void> _saveProfileData({
+    required TherapistProfile profile,
+    required int years,
+    required String credentials,
+    required List<TherapyPackage> packages,
+    String? certificatePdfName,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      return;
+    }
+
+    final pricing = packages.isEmpty
+        ? profile.pricing
+        : '\$${packages.map((item) => item.price).reduce(math.min).toDouble().toStringAsFixed(0)}/month';
+
+    final normalized = TherapistProfile(
+      id: profile.id,
+      displayName: profile.displayName,
+      bio: profile.bio,
+      specializations: profile.specializations,
+      pricing: pricing,
+      languages: profile.languages.isEmpty ? const ['English'] : profile.languages,
+      // Hardcoded fallback rating removed for now.
+      rating: profile.rating,
+      availability: profile.availability.isEmpty ? 'Open' : profile.availability,
+      photoUrl: profile.photoUrl,
+      isActive: profile.isActive,
+    );
+
+    await AppRepositories.users.upsertTherapistProfile(normalized);
+    await FirebaseFirestore.instance
+        .collection(FirestoreCollections.therapistProfiles)
+        .doc(uid)
+        .set({
+      'yearsOfExperience': years,
+      'credentials': credentials,
+      if (certificatePdfName != null) 'certificatePdfName': certificatePdfName,
+      'servicePackages': packages.map((item) => item.toMap()).toList(),
+      'isActive': normalized.isActive,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _profile = normalized;
+      _years = years;
+      _credentials = credentials;
+      if (certificatePdfName != null) {
+        _certificatePdfName = certificatePdfName;
+      }
+      _packages = packages;
+    });
+  }
+
+  Future<void> _toggleProfileVisibility(bool isActive) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final profile = _profile;
+    if (uid == null || profile == null) {
+      return;
+    }
+    final updated = TherapistProfile(
+      id: profile.id,
+      displayName: profile.displayName,
+      bio: profile.bio,
+      specializations: profile.specializations,
+      pricing: profile.pricing,
+      languages: profile.languages,
+      rating: profile.rating,
+      availability: profile.availability,
+      photoUrl: profile.photoUrl,
+      isActive: isActive,
+    );
+    await AppRepositories.users.upsertTherapistProfile(updated);
+    await FirebaseFirestore.instance
+        .collection(FirestoreCollections.therapistProfiles)
+        .doc(uid)
+        .set({
+      'isActive': isActive,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    if (!mounted) {
+      return;
+    }
+    setState(() => _profile = updated);
+  }
+
+  Future<void> _logout() async {
     await FirebaseService().logout();
-    if (!context.mounted) {
+    if (!mounted) {
       return;
     }
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (route) => false,
+      (_) => false,
     );
   }
 
-  Widget _buildScreenForModule(AppModule module) {
-    switch (module.routeKey) {
-      case 'therapist_threads':
-        return const TherapistThreadsScreen();
-      case 'settings':
-        return const SettingsScreen();
-      default:
-        return _UnavailableModuleScreen(module: module);
-    }
+  Future<void> _openSettingsDialog() async {
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black45,
+      builder: (context) {
+        return _TherapistSettingsDialog(
+          onProfile: () async {
+            Navigator.pop(context);
+            if (_profile == null) return;
+            await Navigator.push<bool>(
+              this.context,
+              MaterialPageRoute(
+                builder: (_) => TherapistProfileSettingsScreen(
+                  profile: _profile!,
+                  setupMode: false,
+                  initialYears: _years,
+                  initialCredentials: _credentials,
+                  initialCertificatePdfName: _certificatePdfName,
+                  initialPackages: _packages,
+                  onSave: _saveProfileData,
+                ),
+              ),
+            );
+            if (mounted) {
+              await _loadState();
+            }
+          },
+          onPackage: () async {
+            Navigator.pop(context);
+            final updated = await Navigator.push<List<TherapyPackage>>(
+              this.context,
+              MaterialPageRoute(
+                builder: (_) => TherapistPackagesScreen(initialPackages: _packages),
+              ),
+            );
+            if (updated != null && _profile != null) {
+              await _saveProfileData(
+                profile: _profile!,
+                years: _years,
+                credentials: _credentials,
+                packages: updated,
+              );
+            }
+          },
+          onAlerts: () async {
+            Navigator.pop(context);
+            final updated = await Navigator.push<Map<String, bool>>(
+              this.context,
+              MaterialPageRoute(
+                builder: (_) => TherapistNotificationSettingsScreen(
+                  initialValues: _notificationPrefs,
+                ),
+              ),
+            );
+            if (updated != null) {
+              await _saveNotificationPreferences(updated);
+            }
+          },
+          onAbout: () async {
+            Navigator.pop(context);
+            await Navigator.push<void>(
+              this.context,
+              MaterialPageRoute(builder: (_) => const AboutApplicationScreen()),
+            );
+          },
+          onLogout: () async {
+            Navigator.pop(context);
+            await _logout();
+          },
+        );
+      },
+    );
   }
 
-  String _assetForModule(AppModule module) {
-    switch (module.routeKey) {
-      case 'settings':
-        return 'assets/images/Settings.png';
-      case 'therapist_threads':
-        return 'assets/images/Professional_Support.png';
-      default:
-        return 'assets/images/Professional_Support.png';
+  Future<void> _saveNotificationPreferences(Map<String, bool> values) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      return;
     }
+    await FirebaseFirestore.instance
+        .collection(FirestoreCollections.therapistProfiles)
+        .doc(uid)
+        .set({
+      'therapistNotificationPreferences': values,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _notificationPrefs = {..._defaultTherapistNotificationPrefs, ...values};
+    });
+  }
+
+  Future<void> _openDashboard() async {
+    if (_profile == null) return;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TherapistDashboardScreen(
+          profile: _profile!,
+          years: _years,
+          onToggleVisibility: _toggleProfileVisibility,
+          onOpenSettings: _openSettingsDialog,
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return SessionGuard(
       role: SessionGuardRole.therapist,
-      child: FigmaHomeShell(
-        title: 'Therapist Home',
-        onLogout: () => _logout(context),
-        avatar: const CircleAvatar(
-          radius: 36,
-          backgroundColor: Colors.white,
-          child: Icon(
-            Icons.medical_services,
-            size: 34,
-            color: AppColors.primaryBlue,
-          ),
-        ),
-        child: StreamBuilder<List<AppModule>>(
-          stream: AppRepositories.content.watchModules('therapist'),
-          builder: (context, snapshot) {
-            final modules = snapshot.data?.isNotEmpty == true
-                ? snapshot.data!
-                : _fallbackModules;
-            if (snapshot.connectionState == ConnectionState.waiting &&
-                modules.isEmpty) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            return ListView.separated(
-              padding: const EdgeInsets.fromLTRB(0, 4, 0, 170),
-              itemCount: modules.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final module = modules[index];
-                return _ModuleCard(
-                  module: module,
-                  assetPath: _assetForModule(module),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => _buildScreenForModule(module),
+      child: Scaffold(
+        backgroundColor: const Color(0xFFAEDFF6),
+        body: Stack(
+          children: [
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              height: 118,
+              child: Container(
+                color: const Color(0xFF82D5F5),
+                alignment: const Alignment(0, 0.45),
+                child: const Text(
+                  'HOME',
+                  style: TextStyle(
+                    fontSize: 30 / 1.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1F375A),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 168,
+              child: ClipPath(
+                clipper: _FooterWaveClipper(),
+                child: const ColoredBox(color: Color(0xFF66C3EE)),
+              ),
+            ),
+            SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final cardWidth =
+                      math.min(360.0, constraints.maxWidth - 28).clamp(250.0, 360.0);
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(0, 148, 0, 180),
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: SizedBox(
+                        width: cardWidth.toDouble(),
+                        child: Column(
+                          children: [
+                            _ModuleCard(
+                              title: 'Dashboard',
+                              color: const Color(0xFFF6B1BF),
+                              asset: 'assets/images/Dashboard.png',
+                              onTap: _openDashboard,
+                            ),
+                            const SizedBox(height: 14),
+                            _ModuleCard(
+                              title: 'Messages',
+                              color: const Color(0xFFA5E876),
+                              asset: 'assets/images/Professional_Support.png',
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const TherapistMessagesScreen()),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            _ModuleCard(
+                              title: 'Settings',
+                              color: const Color(0xFF66D2E8),
+                              asset: 'assets/images/Settings.png',
+                              onTap: _openSettingsDialog,
+                            ),
+                          ],
+                        ),
                       ),
-                    );
-                  },
-                );
-              },
-            );
-          },
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class TherapistThreadsScreen extends StatelessWidget {
-  const TherapistThreadsScreen({super.key});
+class TherapistDashboardScreen extends StatefulWidget {
+  const TherapistDashboardScreen({
+    super.key,
+    required this.profile,
+    required this.years,
+    required this.onToggleVisibility,
+    required this.onOpenSettings,
+  });
+
+  final TherapistProfile profile;
+  final int years;
+  final Future<void> Function(bool isActive) onToggleVisibility;
+  final Future<void> Function() onOpenSettings;
+
+  @override
+  State<TherapistDashboardScreen> createState() =>
+      _TherapistDashboardScreenState();
+}
+
+class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
+  late bool _isActive;
+  bool _updatingVisibility = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _isActive = widget.profile.isActive;
+  }
+
+  @override
+  void didUpdateWidget(covariant TherapistDashboardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.profile.isActive != widget.profile.isActive) {
+      _isActive = widget.profile.isActive;
+    }
+  }
+
+  Future<void> _handleToggleVisibility() async {
+    if (_updatingVisibility) {
+      return;
+    }
+    final nextIsActive = !_isActive;
+    setState(() {
+      _updatingVisibility = true;
+      _isActive = nextIsActive;
+    });
+    try {
+      await widget.onToggleVisibility(nextIsActive);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            nextIsActive
+                ? 'Profile is now visible to all parents.'
+                : 'Profile is now hidden from new parents.',
+          ),
+          backgroundColor:
+              nextIsActive ? const Color(0xFF0B7D3B) : const Color(0xFFB45309),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isActive = !nextIsActive);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to update visibility right now.'),
+          backgroundColor: Color(0xFFFF4D4D),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _updatingVisibility = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = widget.profile;
+    final specialization = profile.specializations.isEmpty
+        ? 'ABA Therapy'
+        : profile.specializations.first;
+    final visibilityBg =
+        _isActive ? const Color(0xFFDDFCEA) : const Color(0xFFFFF1E8);
+    final visibilityBorder =
+        _isActive ? const Color(0xFFA7E9C6) : const Color(0xFFFFC9A7);
+    final statusColor =
+        _isActive ? const Color(0xFF0B7D3B) : const Color(0xFFB45309);
+    final detailColor =
+        _isActive ? const Color(0xFF17924C) : const Color(0xFFC2410C);
+    final actionColor =
+        _isActive ? const Color(0xFF0EA5C6) : const Color(0xFFB45309);
+    return SessionGuard(
+      role: SessionGuardRole.therapist,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF1F3F4),
+        body: SafeArea(
+          child: Column(
+            children: [
+              Container(
+                height: 80,
+                color: const Color(0xFF99E8F2),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back, color: Color(0xFF1F2937)),
+                    ),
+                    const Expanded(
+                      child: Text(
+                        'Dashboard',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 30 / 1.5,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF1F2937),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: widget.onOpenSettings,
+                      icon: const Icon(Icons.menu, color: Color(0xFF1F2937)),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: _cardDeco,
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              const CircleAvatar(
+                                radius: 26,
+                                backgroundColor: Color(0xFFD8F6DF),
+                                backgroundImage: AssetImage('assets/images/therapist.png'),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(profile.displayName,
+                                        style: const TextStyle(
+                                            fontSize: 30 / 1.5,
+                                            fontWeight: FontWeight.w500,
+                                            color: Color(0xFF1F2937))),
+                                    Text(specialization,
+                                        style: const TextStyle(color: Color(0xFF16A34A))),
+                                    Text(
+                                      widget.years > 0
+                                          ? '${widget.years} years exp'
+                                          : 'Experience not set',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Color(0xFF6B7280),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: _cardDeco,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Specializations',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF1F2937),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: (profile.specializations.isEmpty
+                                    ? const [
+                                        'ABA Therapy',
+                                        'Speech Therapy',
+                                        'Social Skills',
+                                      ]
+                                    : profile.specializations)
+                                .map(
+                                  (item) => Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFDDEBFF),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      item,
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        color: Color(0xFF3165C9),
+                                      ),
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: _cardDeco,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Profile Visibility',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF1F2937),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _isActive
+                                ? 'Your profile is visible to parents in the community'
+                                : 'Your profile is hidden from new parent discovery',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF4B5563),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: visibilityBg,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: visibilityBorder),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _isActive
+                                            ? 'Status: Active'
+                                            : 'Status: Inactive',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          color: statusColor,
+                                        ),
+                                      ),
+                                      Text(
+                                        _isActive
+                                            ? 'Parents can discover and contact you'
+                                            : 'Only subscribed parents can continue seeing you',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: detailColor,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                OutlinedButton(
+                                  onPressed: _updatingVisibility
+                                      ? null
+                                      : _handleToggleVisibility,
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: actionColor,
+                                    side: BorderSide(color: actionColor),
+                                    minimumSize: const Size(56, 32),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  ),
+                                  child: _updatingVisibility
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        )
+                                      : Text(_isActive ? 'Hide' : 'Show'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: _cardDeco.copyWith(
+                        color: const Color(0xFFDDF6FF),
+                        border: Border.all(color: const Color(0xFFA8E4F7)),
+                      ),
+                      child: const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Tips to Increase Visibility:',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF1F2937),
+                            ),
+                          ),
+                          SizedBox(height: 6),
+                          Text('✓ Complete all profile sections with detailed information'),
+                          Text('✓ Add multiple service packages to attract different needs'),
+                          Text('✓ Respond quickly to parent inquiries'),
+                          Text('✓ Maintain a high rating through quality service'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+class TherapistMessagesScreen extends StatefulWidget {
+  const TherapistMessagesScreen({super.key});
+
+  @override
+  State<TherapistMessagesScreen> createState() => _TherapistMessagesScreenState();
+}
+
+class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   Future<Map<String, UserProfile>> _loadParentProfiles(
     List<TherapistThread> threads,
@@ -146,208 +812,1221 @@ class TherapistThreadsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return SessionGuard(
       role: SessionGuardRole.therapist,
-      child: FigmaModuleScaffold(
-        title: 'Therapist Inbox',
-        onBack: () => Navigator.pop(context),
-        child: StreamBuilder<List<TherapistThread>>(
-          stream: AppRepositories.support.watchThreadsForRole('therapist'),
-          builder: (context, snapshot) {
-            final threads = snapshot.data ?? const [];
-            if (snapshot.connectionState == ConnectionState.waiting &&
-                threads.isEmpty) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (threads.isEmpty) {
-              return const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'No parent conversations yet. Once a subscribed parent starts a thread, it will appear here.',
-                    textAlign: TextAlign.center,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF1F3F4),
+        body: SafeArea(
+          child: Column(
+            children: [
+              Container(
+                height: 80,
+                color: const Color(0xFF9FE7F2),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back),
+                    ),
+                    const Expanded(
+                      child: Text(
+                        'Messages',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 46 / 1.5, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                    const SizedBox(width: 40),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (value) => setState(() => _query = value.trim().toLowerCase()),
+                  decoration: InputDecoration(
+                    hintText: 'Search conversations...',
+                    filled: true,
+                    fillColor: const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide(color: Colors.grey.shade300),
+                    ),
                   ),
                 ),
-              );
-            }
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: StreamBuilder<List<TherapistThread>>(
+                  stream: AppRepositories.support.watchThreadsForRole('therapist'),
+                  builder: (context, snapshot) {
+                    final threads = snapshot.data ?? const <TherapistThread>[];
+                    if (threads.isEmpty) {
+                      return const Center(child: Text('No parent conversations yet.'));
+                    }
+                    final filtered = threads.where((thread) {
+                      if (_query.isEmpty) return true;
+                      final hay =
+                          '${thread.parentDisplayName} ${thread.lastMessagePreview}'.toLowerCase();
+                      return hay.contains(_query);
+                    }).toList();
 
-            return FutureBuilder<Map<String, UserProfile>>(
-              future: _loadParentProfiles(threads),
-              builder: (context, parentsSnapshot) {
-                final parentMap = parentsSnapshot.data ?? const {};
-                return ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 170),
-                  itemCount: threads.length,
-                  itemBuilder: (context, index) {
-                    final thread = threads[index];
-                    final parentName = thread.parentDisplayName.isNotEmpty
-                        ? thread.parentDisplayName
-                        : (parentMap[thread.parentId]?.fullName.isNotEmpty ==
-                                  true
-                              ? parentMap[thread.parentId]!.fullName
-                              : parentMap[thread.parentId]?.email ??
-                                    'Parent ${thread.parentId.substring(0, 6)}');
+                    return FutureBuilder<Map<String, UserProfile>>(
+                      future: _loadParentProfiles(filtered),
+                      builder: (context, parentSnapshot) {
+                        final parentMap = parentSnapshot.data ?? const <String, UserProfile>{};
+                        return ListView.separated(
+                          itemCount: filtered.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final thread = filtered[index];
+                            final parentProfile = parentMap[thread.parentId];
+                            final parentName = thread.parentDisplayName.isNotEmpty
+                                ? thread.parentDisplayName
+                                : (parentProfile?.fullName.isNotEmpty == true
+                                    ? parentProfile!.fullName
+                                    : parentProfile?.email ?? 'Parent');
 
-                    return InkWell(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => TherapistChatScreen(
-                              thread: thread,
-                              participantName: parentName,
-                              senderRole: 'therapist',
-                            ),
-                          ),
+                            return ListTile(
+                              leading: const CircleAvatar(
+                                backgroundColor: Color(0xFFD9F4DF),
+                                child: Icon(Icons.person, color: Color(0xFF64748B)),
+                              ),
+                              title: Text(parentName,
+                                  style: const TextStyle(fontWeight: FontWeight.w600)),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Parent conversation',
+                                      style: TextStyle(color: Color(0xFF16A34A))),
+                                  Text(
+                                    thread.lastMessagePreview.isEmpty
+                                        ? 'No messages yet'
+                                        : thread.lastMessagePreview,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(_friendlyTime(thread.lastMessageAt),
+                                      style: const TextStyle(color: Color(0xFF9CA3AF))),
+                                ],
+                              ),
+                              trailing: thread.hasOpenEmergency
+                                  ? const CircleAvatar(
+                                      radius: 12,
+                                      backgroundColor: Color(0xFFF85D93),
+                                      child: Text('2',
+                                          style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w700)),
+                                    )
+                                  : null,
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => TherapistChatScreen(
+                                      thread: thread,
+                                      participantName: parentName,
+                                      senderRole: 'therapist',
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          },
                         );
                       },
-                      borderRadius: BorderRadius.circular(22),
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(22),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.08),
-                              blurRadius: 10,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              parentName,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF1A2D4B),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text('Child ID: ${thread.childId}'),
-                            const SizedBox(height: 6),
-                            Text('Status: ${thread.status}'),
-                            const SizedBox(height: 6),
-                            Text(
-                              thread.lastMessagePreview.isEmpty
-                                  ? 'No messages yet'
-                                  : 'Last message: ${thread.lastMessagePreview}',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
                     );
                   },
-                );
-              },
-            );
-          },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+class TherapistProfileSettingsScreen extends StatefulWidget {
+  const TherapistProfileSettingsScreen({
+    super.key,
+    required this.profile,
+    required this.setupMode,
+    required this.initialYears,
+    required this.initialCredentials,
+    required this.initialCertificatePdfName,
+    required this.initialPackages,
+    required this.onSave,
+  });
+
+  final TherapistProfile profile;
+  final bool setupMode;
+  final int initialYears;
+  final String initialCredentials;
+  final String? initialCertificatePdfName;
+  final List<TherapyPackage> initialPackages;
+  final Future<void> Function({
+    required TherapistProfile profile,
+    required int years,
+    required String credentials,
+    required List<TherapyPackage> packages,
+    String? certificatePdfName,
+  }) onSave;
+
+  @override
+  State<TherapistProfileSettingsScreen> createState() =>
+      _TherapistProfileSettingsScreenState();
+}
+
+class _TherapistProfileSettingsScreenState extends State<TherapistProfileSettingsScreen> {
+  final _selected = <String>{};
+  late final TextEditingController _first;
+  late final TextEditingController _last;
+  late final TextEditingController _years;
+  late final TextEditingController _credentials;
+  late final TextEditingController _about;
+  String? _certificatePdfName;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final display = widget.profile.displayName.trim().split(' ');
+    _first = TextEditingController(text: display.isEmpty ? '' : display.first);
+    _last = TextEditingController(text: display.length > 1 ? display.sublist(1).join(' ') : '');
+    _years = TextEditingController(
+        text: widget.initialYears > 0 ? widget.initialYears.toString() : '');
+    _credentials = TextEditingController(text: widget.initialCredentials);
+    _about = TextEditingController(text: widget.profile.bio);
+    _certificatePdfName = widget.initialCertificatePdfName;
+    _selected.addAll(widget.profile.specializations);
+  }
+
+  @override
+  void dispose() {
+    _first.dispose();
+    _last.dispose();
+    _years.dispose();
+    _credentials.dispose();
+    _about.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openPricing() async {
+    final updated = await Navigator.push<List<TherapyPackage>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TherapistPackagesScreen(initialPackages: widget.initialPackages),
+      ),
+    );
+
+    if (updated == null) {
+      return;
+    }
+
+    await _save(updated);
+  }
+
+  Future<void> _save(List<TherapyPackage> packages) async {
+    if (_saving) {
+      return;
+    }
+    if (_first.text.trim().isEmpty || _selected.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please complete required fields.')),
+      );
+      return;
+    }
+
+    final years = int.tryParse(_years.text.trim()) ?? 0;
+
+    setState(() => _saving = true);
+    try {
+      final updated = TherapistProfile(
+        id: widget.profile.id,
+        displayName: '${_first.text.trim()} ${_last.text.trim()}'.trim(),
+        bio: _about.text.trim(),
+        specializations: _selected.toList(growable: false),
+        pricing: widget.profile.pricing,
+        languages: widget.profile.languages,
+        rating: widget.profile.rating,
+        availability: widget.profile.availability,
+        photoUrl: widget.profile.photoUrl,
+        isActive: widget.profile.isActive,
+      );
+
+      await widget.onSave(
+        profile: updated,
+        years: years,
+        credentials: _credentials.text.trim(),
+        packages: packages,
+        certificatePdfName: _certificatePdfName,
+      );
+
+      if (mounted) {
+        Navigator.pop(context, true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  Future<void> _pickCertificatePdf() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['pdf'],
+      withData: false,
+    );
+    if (result == null || result.files.isEmpty) {
+      return;
+    }
+    final fileName = result.files.single.name;
+    setState(() => _certificatePdfName = fileName);
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Selected PDF: $fileName')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SessionGuard(
+      role: SessionGuardRole.therapist,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF1F3F4),
+        body: SafeArea(
+          child: Column(
+            children: [
+              Container(
+                height: 80,
+                color: const Color(0xFF9FE7F2),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back),
+                    ),
+                    Expanded(
+                      child: Text(
+                        widget.setupMode ? 'Complete Your Profile' : 'My Profile',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 30 / 1.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 40),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+                  children: [
+                    const Center(
+                      child: CircleAvatar(
+                        radius: 42,
+                        backgroundImage: AssetImage('assets/images/autiease.png'),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: _cardDeco,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Select Your Specializations',
+                              style: TextStyle(fontWeight: FontWeight.w600)),
+                          for (final item in _specializations)
+                            CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                              value: _selected.contains(item),
+                              onChanged: (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _selected.add(item);
+                                  } else {
+                                    _selected.remove(item);
+                                  }
+                                });
+                              },
+                              title: Text(item, style: const TextStyle(fontSize: 13.5)),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    if (!widget.setupMode) ...[
+                      _input('First Name', _first),
+                      const SizedBox(height: 8),
+                      _input('Last Name', _last),
+                      const SizedBox(height: 8),
+                    ],
+                    _input('Years of Experience', _years, keyboard: TextInputType.number),
+                    const SizedBox(height: 8),
+                    _input('Credentials & Certifications', _credentials, lines: 3),
+                    const SizedBox(height: 8),
+                    _input('About You', _about, lines: 4),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: _pickCertificatePdf,
+                      icon: const Icon(Icons.upload_file_outlined),
+                      label: const Text('Upload Certificate PDF'),
+                    ),
+                    if (_certificatePdfName != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Selected: $_certificatePdfName',
+                        style: const TextStyle(
+                          color: Color(0xFF334155),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    if (widget.setupMode)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Back'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: _saving ? null : _openPricing,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF11B5CF),
+                                foregroundColor: Colors.white,
+                              ),
+                              child: _saving
+                                  ? const SizedBox(
+                                      height: 16,
+                                      width: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Text('Next: Pricing'),
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: _saving
+                              ? null
+                              : () => _save(widget.initialPackages),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF11B5CF),
+                            foregroundColor: Colors.white,
+                          ),
+                          child: _saving
+                              ? const SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Text('Save Changes'),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _input(String label, TextEditingController controller,
+      {int lines = 1, TextInputType? keyboard}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        TextField(
+          controller: controller,
+          maxLines: lines,
+          keyboardType: keyboard,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+class TherapistPackagesScreen extends StatefulWidget {
+  const TherapistPackagesScreen({super.key, required this.initialPackages});
+
+  final List<TherapyPackage> initialPackages;
+
+  @override
+  State<TherapistPackagesScreen> createState() => _TherapistPackagesScreenState();
+}
+
+class _TherapistPackagesScreenState extends State<TherapistPackagesScreen> {
+  late List<TherapyPackage> _packages;
+
+  @override
+  void initState() {
+    super.initState();
+    _packages = widget.initialPackages.isEmpty
+        ? <TherapyPackage>[
+            const TherapyPackage(
+              title: 'Standard Therapy Session',
+              durationMinutes: 60,
+              sessionsPerWeek: 3,
+              price: 75,
+              description:
+                  '1-hour therapy session including assessment, intervention, and parent consultation',
+              visible: true,
+            ),
+          ]
+        : widget.initialPackages.map((item) => item.copy()).toList();
+  }
+
+  Future<void> _addOrEdit({int? index}) async {
+    final initial = index == null ? null : _packages[index];
+    final pkg = await showDialog<TherapyPackage>(
+      context: context,
+      barrierColor: Colors.black45,
+      builder: (_) => _PackageEditor(initial: initial),
+    );
+    if (pkg == null) {
+      return;
+    }
+    setState(() {
+      if (index == null) {
+        _packages.add(pkg);
+      } else {
+        _packages[index] = pkg;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) {
+          Navigator.pop(context, _packages);
+        }
+      },
+      child: SessionGuard(
+        role: SessionGuardRole.therapist,
+        child: Scaffold(
+          backgroundColor: const Color(0xFFF1F3F4),
+          body: SafeArea(
+            child: Column(
+              children: [
+                Container(
+                  height: 80,
+                  color: const Color(0xFF9FE7F2),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.pop(context, _packages),
+                        icon: const Icon(Icons.arrow_back),
+                      ),
+                      const Expanded(
+                        child: Text('Service Packages',
+                            textAlign: TextAlign.center,
+                            style:
+                                TextStyle(fontSize: 46 / 1.5, fontWeight: FontWeight.w500)),
+                      ),
+                      const SizedBox(width: 40),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                    children: [
+                      FilledButton.icon(
+                        onPressed: () => _addOrEdit(),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF10B6CF),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add New Package'),
+                      ),
+                      const SizedBox(height: 12),
+                      for (var i = 0; i < _packages.length; i++) ...[
+                        _PackageTile(
+                          package: _packages[i],
+                          onEdit: () => _addOrEdit(index: i),
+                          onDelete: () => setState(() => _packages.removeAt(i)),
+                          onVisible: (value) =>
+                              setState(() => _packages[i] = _packages[i].copy(visible: value)),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      FilledButton(
+                        onPressed: () => Navigator.pop(context, _packages),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF10B6CF),
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Complete'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class TherapistNotificationSettingsScreen extends StatefulWidget {
+  const TherapistNotificationSettingsScreen({
+    super.key,
+    required this.initialValues,
+  });
+
+  final Map<String, bool> initialValues;
+
+  @override
+  State<TherapistNotificationSettingsScreen> createState() =>
+      _TherapistNotificationSettingsScreenState();
+}
+
+class _TherapistNotificationSettingsScreenState
+    extends State<TherapistNotificationSettingsScreen> {
+  bool email = false;
+  bool sms = false;
+  bool newMessages = false;
+  bool bookings = false;
+  bool reminders = false;
+  bool payments = false;
+  bool emergency = true;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = {..._defaultTherapistNotificationPrefs, ...widget.initialValues};
+    email = initial['email'] ?? false;
+    sms = initial['sms'] ?? false;
+    newMessages = initial['newMessages'] ?? false;
+    bookings = initial['bookings'] ?? false;
+    reminders = initial['reminders'] ?? false;
+    payments = initial['payments'] ?? false;
+    emergency = initial['emergency'] ?? true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SessionGuard(
+      role: SessionGuardRole.therapist,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF1F3F4),
+        body: SafeArea(
+          child: Column(
+            children: [
+              Container(
+                height: 80,
+                color: const Color(0xFF9FE7F2),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back),
+                    ),
+                    const Expanded(
+                      child: Text('Notification Settings',
+                          textAlign: TextAlign.center,
+                          style:
+                              TextStyle(fontSize: 40 / 1.5, fontWeight: FontWeight.w500)),
+                    ),
+                    const SizedBox(width: 40),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                  children: [
+                    _switchTile('Email Notifications', 'Receive updates via email', email,
+                        (v) => setState(() => email = v)),
+                    _switchTile('SMS Notifications', 'Receive text message alerts', sms,
+                        (v) => setState(() => sms = v)),
+                    _switchTile('New Messages', 'When parents send you messages', newMessages,
+                        (v) => setState(() => newMessages = v)),
+                    _switchTile('New Bookings', 'When parents book your sessions', bookings,
+                        (v) => setState(() => bookings = v)),
+                    _switchTile('Session Reminders', 'Upcoming session notifications', reminders,
+                        (v) => setState(() => reminders = v)),
+                    _switchTile('Payment Alerts', 'Payment and transaction updates', payments,
+                        (v) => setState(() => payments = v)),
+                    _switchTile('Emergency Button Alerts',
+                        'Instant alerts for emergency events', emergency,
+                        (v) => setState(() => emergency = v)),
+                    const SizedBox(height: 12),
+                    FilledButton(
+                      onPressed: () {
+                        Navigator.pop(context, <String, bool>{
+                          'email': email,
+                          'sms': sms,
+                          'newMessages': newMessages,
+                          'bookings': bookings,
+                          'reminders': reminders,
+                          'payments': payments,
+                          'emergency': emergency,
+                        });
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF8CC93B),
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('Save Notification Preferences'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _switchTile(String title, String subtitle, bool value, ValueChanged<bool> onChanged) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: _cardDeco,
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
+                Text(subtitle, style: const TextStyle(color: Color(0xFF6B7280))),
+              ],
+            ),
+          ),
+          Switch(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
+}
+
+class _TherapistSettingsDialog extends StatelessWidget {
+  const _TherapistSettingsDialog({
+    required this.onProfile,
+    required this.onPackage,
+    required this.onAlerts,
+    required this.onAbout,
+    required this.onLogout,
+  });
+
+  final VoidCallback onProfile;
+  final VoidCallback onPackage;
+  final VoidCallback onAlerts;
+  final VoidCallback onAbout;
+  final VoidCallback onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Spacer(),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, size: 18),
+                ),
+              ],
+            ),
+            const CircleAvatar(
+              radius: 23,
+              backgroundColor: Color(0xFF10B6CF),
+              child: Icon(Icons.settings, color: Colors.white),
+            ),
+            const SizedBox(height: 8),
+            const Text('Settings',
+                style: TextStyle(fontSize: 36 / 1.5, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                    child: _setBtn('Profile', const Color(0xFF10B6CF), Icons.person_outline,
+                        onProfile)),
+                const SizedBox(width: 8),
+                Expanded(
+                    child: _setBtn('Package', const Color(0xFFFB923C),
+                        Icons.inventory_2_outlined, onPackage)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                    child: _setBtn('Alerts', const Color(0xFF8CC93B),
+                        Icons.notifications_none, onAlerts)),
+                const SizedBox(width: 8),
+                Expanded(
+                    child: _setBtn('About Application', const Color(0xFF60A5FA),
+                        Icons.info_outline, onAbout)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: onLogout,
+                icon: const Icon(Icons.logout),
+                style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF3040), foregroundColor: Colors.white),
+                label: const Text('Logout'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _setBtn(String title, Color color, IconData icon, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Ink(
+        height: 58,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(10)),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: Colors.white, size: 16),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(title,
+                  maxLines: 2,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PackageTile extends StatelessWidget {
+  const _PackageTile({
+    required this.package,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onVisible,
+  });
+
+  final TherapyPackage package;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final ValueChanged<bool> onVisible;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _cardDeco,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFFFB955F),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+            ),
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(package.title,
+                      style: const TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w700, fontSize: 30 / 1.5)),
+                ),
+                IconButton(onPressed: onEdit, icon: const Icon(Icons.edit, color: Colors.white)),
+                IconButton(
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline, color: Colors.white)),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('\$${package.price.toStringAsFixed(0)} /session',
+                    style: const TextStyle(
+                        color: Color(0xFF0EA5C6),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 42 / 1.5)),
+                const SizedBox(height: 6),
+                Text('${package.durationMinutes} min • ${package.sessionsPerWeek} sessions/week'),
+                const SizedBox(height: 6),
+                Text(package.description, style: const TextStyle(color: Color(0xFF6B7280))),
+                Row(
+                  children: [
+                    const Expanded(child: Text('Visible to parents')),
+                    Switch(value: package.visible, onChanged: onVisible),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PackageEditor extends StatefulWidget {
+  const _PackageEditor({this.initial});
+
+  final TherapyPackage? initial;
+
+  @override
+  State<_PackageEditor> createState() => _PackageEditorState();
+}
+
+class _PackageEditorState extends State<_PackageEditor> {
+  late final TextEditingController _title;
+  late final TextEditingController _price;
+  late final TextEditingController _duration;
+  late final TextEditingController _sessions;
+  late final TextEditingController _description;
+
+  @override
+  void initState() {
+    super.initState();
+    _title = TextEditingController(text: widget.initial?.title ?? '');
+    _price = TextEditingController(text: (widget.initial?.price ?? 75).toStringAsFixed(0));
+    _duration = TextEditingController(text: '${widget.initial?.durationMinutes ?? 60}');
+    _sessions = TextEditingController(text: '${widget.initial?.sessionsPerWeek ?? 3}');
+    _description = TextEditingController(text: widget.initial?.description ?? '');
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _price.dispose();
+    _duration.dispose();
+    _sessions.dispose();
+    _description.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final title = _title.text.trim();
+    final price = double.tryParse(_price.text.trim()) ?? 0;
+    if (title.isEmpty || price <= 0) {
+      return;
+    }
+    Navigator.pop(
+      context,
+      TherapyPackage(
+        title: title,
+        durationMinutes: int.tryParse(_duration.text.trim()) ?? 60,
+        sessionsPerWeek: int.tryParse(_sessions.text.trim()) ?? 3,
+        price: price,
+        description: _description.text.trim(),
+        visible: widget.initial?.visible ?? true,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(widget.initial == null ? 'Add New Package' : 'Edit Package',
+                      style:
+                          const TextStyle(fontSize: 34 / 1.5, fontWeight: FontWeight.w700)),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            _field('Package Title', _title),
+            const SizedBox(height: 8),
+            _field('Price per Session (\$)', _price, keyboard: TextInputType.number),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _field('Duration (min)', _duration, keyboard: TextInputType.number),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _field('Sessions/Week', _sessions, keyboard: TextInputType.number),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _field('Description', _description, lines: 3),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _save,
+                style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF11B5CF), foregroundColor: Colors.white),
+                child: Text(widget.initial == null ? 'Add Package' : 'Save Changes'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _field(String label, TextEditingController c,
+      {TextInputType? keyboard, int lines = 1}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        TextField(
+          controller: c,
+          keyboardType: keyboard,
+          maxLines: lines,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
 
 class _ModuleCard extends StatelessWidget {
   const _ModuleCard({
-    required this.module,
-    required this.assetPath,
+    required this.title,
+    required this.color,
+    required this.asset,
     required this.onTap,
   });
 
-  final AppModule module;
-  final String assetPath;
+  final String title;
+  final Color color;
+  final String asset;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Ink(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: module.routeKey == 'settings'
-                ? const Color(0xFFCFC5E5)
-                : const Color(0xFFC5E5C8),
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
-                blurRadius: 10,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 58,
-                height: 58,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                padding: const EdgeInsets.all(10),
-                child: Image.asset(assetPath, fit: BoxFit.contain),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      module.title,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF223651),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      module.subtitle,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF2D3A55),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.arrow_forward_ios, size: 18),
-            ],
-          ),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Ink(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(14)),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(title,
+                  style: const TextStyle(
+                      fontSize: 40 / 1.5,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF111827))),
+            ),
+            SizedBox(height: 34, width: 34, child: Image.asset(asset)),
+          ],
         ),
       ),
     );
   }
 }
 
-class _UnavailableModuleScreen extends StatelessWidget {
-  const _UnavailableModuleScreen({required this.module});
+class TherapyPackage {
+  const TherapyPackage({
+    required this.title,
+    required this.durationMinutes,
+    required this.sessionsPerWeek,
+    required this.price,
+    required this.description,
+    required this.visible,
+  });
 
-  final AppModule module;
+  final String title;
+  final int durationMinutes;
+  final int sessionsPerWeek;
+  final double price;
+  final String description;
+  final bool visible;
+
+  TherapyPackage copy({
+    String? title,
+    int? durationMinutes,
+    int? sessionsPerWeek,
+    double? price,
+    String? description,
+    bool? visible,
+  }) {
+    return TherapyPackage(
+      title: title ?? this.title,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
+      sessionsPerWeek: sessionsPerWeek ?? this.sessionsPerWeek,
+      price: price ?? this.price,
+      description: description ?? this.description,
+      visible: visible ?? this.visible,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'title': title,
+      'durationMinutes': durationMinutes,
+      'sessionsPerWeek': sessionsPerWeek,
+      'price': price,
+      'description': description,
+      'visible': visible,
+    };
+  }
+
+  static TherapyPackage fromMap(Map<String, dynamic> map) {
+    final rawPrice = map.containsKey('price') ? map['price'] : map['pricePerSession'];
+    final price = rawPrice is num ? rawPrice.toDouble() : 0.0;
+    return TherapyPackage(
+      title: (map['title'] ?? '').toString(),
+      durationMinutes: intFrom(map['durationMinutes'], 60),
+      sessionsPerWeek: intFrom(map['sessionsPerWeek'], 3),
+      price: price,
+      description: (map['description'] ?? '').toString(),
+      visible: (map.containsKey('visible') ? map['visible'] : map['isVisible']) != false,
+    );
+  }
+}
+
+List<TherapyPackage> _parsePackages(dynamic raw) {
+  if (raw is! List) {
+    return const <TherapyPackage>[];
+  }
+  final parsed = <TherapyPackage>[];
+  for (final entry in raw) {
+    final map = mapFrom(entry);
+    if (map.isEmpty) continue;
+    parsed.add(TherapyPackage.fromMap(map));
+  }
+  return parsed;
+}
+
+String _friendlyTime(DateTime? time) {
+  if (time == null) return 'Just now';
+  final diff = DateTime.now().difference(time);
+  if (diff.inMinutes < 1) return 'Just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+  if (diff.inHours < 24) return '${diff.inHours} hr ago';
+  if (diff.inDays == 1) return 'Yesterday';
+  return '${diff.inDays} days ago';
+}
+
+class _FooterWaveClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    return Path()
+      ..moveTo(0, 80)
+      ..quadraticBezierTo(size.width * 0.28, 30, size.width * 0.56, 82)
+      ..quadraticBezierTo(size.width * 0.78, 126, size.width, 64)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+  }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(module.title)),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            'The route "${module.routeKey}" is active in Firestore but does not have a Flutter screen mapping yet.',
-            textAlign: TextAlign.center,
-          ),
-        ),
-      ),
-    );
-  }
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
+
+const BoxDecoration _cardDeco = BoxDecoration(
+  color: Colors.white,
+  borderRadius: BorderRadius.all(Radius.circular(14)),
+  boxShadow: [
+    BoxShadow(
+      color: Color(0x1A000000),
+      blurRadius: 10,
+      offset: Offset(0, 2),
+    ),
+  ],
+);
+
+const Map<String, bool> _defaultTherapistNotificationPrefs = <String, bool>{
+  'email': false,
+  'sms': false,
+  'newMessages': false,
+  'bookings': false,
+  'reminders': false,
+  'payments': false,
+  'emergency': true,
+};
+
+const List<String> _specializations = <String>[
+  'Applied Behavior Analysis (ABA)',
+  'Speech and Language Therapy',
+  'Occupational Therapy',
+  'Physical Therapy',
+  'Social Skills Training',
+  'Sensory Integration Therapy',
+  'Cognitive Behavioral Therapy (CBT)',
+  'TEACCH',
+  'PECS',
+  'Floortime (DIR Model)',
+  'Relationship Development Intervention (RDI)',
+  'Developmental Therapy',
+  'Music Therapy',
+  'Art Therapy',
+  'Feeding Therapy',
+];
+
+
+

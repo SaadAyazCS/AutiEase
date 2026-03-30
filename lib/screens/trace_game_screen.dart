@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
+import '../services/trace_path_validator.dart';
 import '../utils/app_colors.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
@@ -44,7 +45,6 @@ class _TraceGameScreenState extends State<TraceGameScreen> {
   int _earnedPoints = 0;
   bool _isSavingProgress = false;
   bool _savedCompletion = false;
-  bool _hasTouchedTarget = false;
 
   _TraceLevel get _currentLevel => _levels[_levelIndex];
 
@@ -67,7 +67,6 @@ class _TraceGameScreenState extends State<TraceGameScreen> {
       _tracePoints
         ..clear()
         ..add(local);
-      _hasTouchedTarget = _isPointInTarget(local, _currentLevel.kind);
     });
   }
 
@@ -78,9 +77,6 @@ class _TraceGameScreenState extends State<TraceGameScreen> {
     }
     setState(() {
       _tracePoints.add(local);
-      if (!_hasTouchedTarget && _isPointInTarget(local, _currentLevel.kind)) {
-        _hasTouchedTarget = true;
-      }
     });
   }
 
@@ -88,7 +84,11 @@ class _TraceGameScreenState extends State<TraceGameScreen> {
     if (_stage != _TraceGameStage.playing) {
       return;
     }
-    if (_hasTouchedTarget) {
+    final result = TracePathValidator.validate(
+      List<Offset>.from(_tracePoints),
+      _kindForLevel(_currentLevel.kind),
+    );
+    if (result.isValid) {
       await _markSuccess();
       return;
     }
@@ -106,31 +106,14 @@ class _TraceGameScreenState extends State<TraceGameScreen> {
     return renderObject.globalToLocal(global);
   }
 
-  bool _isPointInTarget(Offset point, _TraceLevelKind kind) {
+  TracePathKind _kindForLevel(_TraceLevelKind kind) {
     switch (kind) {
       case _TraceLevelKind.line:
-        final targets = <Rect>[
-          Rect.fromLTWH(42, 138, 246, 28),
-          Rect.fromLTWH(42, 198, 246, 28),
-          Rect.fromLTWH(42, 258, 246, 28),
-          Rect.fromLTWH(42, 318, 246, 28),
-        ];
-        return targets.any((rect) => rect.contains(point));
+        return TracePathKind.line;
       case _TraceLevelKind.curves:
-        final zones = <Rect>[
-          Rect.fromLTWH(118, 54, 110, 46),
-          Rect.fromLTWH(38, 124, 182, 166),
-          Rect.fromLTWH(34, 246, 252, 154),
-        ];
-        return zones.any((rect) => rect.contains(point));
+        return TracePathKind.curves;
       case _TraceLevelKind.shapes:
-        final zones = <Rect>[
-          Rect.fromLTWH(30, 120, 170, 170),
-          Rect.fromCircle(center: const Offset(255, 258), radius: 50),
-          Rect.fromLTWH(150, 300, 126, 44),
-          Rect.fromCircle(center: const Offset(150, 392), radius: 64),
-        ];
-        return zones.any((zone) => zone.contains(point));
+        return TracePathKind.shapes;
     }
   }
 
@@ -140,7 +123,6 @@ class _TraceGameScreenState extends State<TraceGameScreen> {
         _earnedPoints += 100;
         _stage = _TraceGameStage.levelCompleted;
         _tracePoints.clear();
-        _hasTouchedTarget = false;
       });
       return;
     }
@@ -149,7 +131,6 @@ class _TraceGameScreenState extends State<TraceGameScreen> {
       _earnedPoints += 100;
       _stage = _TraceGameStage.allLevelsCompleted;
       _tracePoints.clear();
-      _hasTouchedTarget = false;
     });
     await _saveProgressIfNeeded();
   }
@@ -182,7 +163,6 @@ class _TraceGameScreenState extends State<TraceGameScreen> {
     setState(() {
       _stage = _TraceGameStage.playing;
       _tracePoints.clear();
-      _hasTouchedTarget = false;
     });
   }
 
@@ -190,7 +170,6 @@ class _TraceGameScreenState extends State<TraceGameScreen> {
     setState(() {
       _stage = _TraceGameStage.playing;
       _tracePoints.clear();
-      _hasTouchedTarget = false;
     });
   }
 
@@ -200,7 +179,6 @@ class _TraceGameScreenState extends State<TraceGameScreen> {
         _levelIndex += 1;
         _stage = _TraceGameStage.playing;
         _tracePoints.clear();
-        _hasTouchedTarget = false;
       });
       return;
     }

@@ -81,7 +81,9 @@ abstract class PlannerRepository {
 
 abstract class SupportRepository {
   Future<List<TherapistProfile>> listTherapists();
+  Future<TherapistProfile?> getTherapistById(String therapistId);
   Stream<List<TherapistThread>> watchThreadsForRole(String role);
+  Stream<TherapistThread?> watchThread(String threadId);
   Future<TherapistThread> ensureThread({
     required String therapistId,
     required String childId,
@@ -92,6 +94,14 @@ abstract class SupportRepository {
     required String threadId,
     required String senderRole,
     required String body,
+  });
+  Future<void> requestEmergency({
+    required String threadId,
+    required String requestedByRole,
+  });
+  Future<void> resolveEmergency({
+    required String threadId,
+    required String resolvedByRole,
   });
 }
 
@@ -684,6 +694,18 @@ class FirebaseSupportRepository implements SupportRepository {
   }
 
   @override
+  Future<TherapistProfile?> getTherapistById(String therapistId) async {
+    final doc = await _firestore
+        .collection(FirestoreCollections.therapistProfiles)
+        .doc(therapistId)
+        .get();
+    if (!doc.exists || doc.data() == null) {
+      return null;
+    }
+    return TherapistProfile.fromMap(doc.id, doc.data()!);
+  }
+
+  @override
   Future<List<TherapistProfile>> listTherapists() async {
     final snapshot = await _firestore
         .collection(FirestoreCollections.therapistProfiles)
@@ -720,6 +742,20 @@ class FirebaseSupportRepository implements SupportRepository {
             return right.compareTo(left);
           });
           return threads;
+        });
+  }
+
+  @override
+  Stream<TherapistThread?> watchThread(String threadId) {
+    return _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .doc(threadId)
+        .snapshots()
+        .map((doc) {
+          if (!doc.exists || doc.data() == null) {
+            return null;
+          }
+          return TherapistThread.fromMap(doc.id, doc.data()!);
         });
   }
 
@@ -787,6 +823,8 @@ class FirebaseSupportRepository implements SupportRepository {
       parentDisplayName: parentDisplayName,
       therapistDisplayName: therapistDisplayName,
       lastMessageAt: DateTime.now(),
+      emergencyStatus: 'none',
+      postCancelVisible: true,
     );
     await ref.set({
       ...thread.toMap(),
@@ -830,6 +868,8 @@ class FirebaseSupportRepository implements SupportRepository {
           'senderRole': senderRole,
           'body': body,
           'attachments': const <String>[],
+          'messageType': 'text',
+          'deliveryStatus': 'sent',
           'sentAt': FieldValue.serverTimestamp(),
         });
 
@@ -842,6 +882,69 @@ class FirebaseSupportRepository implements SupportRepository {
               ? body
               : '${body.substring(0, 117)}...',
         }, SetOptions(merge: true));
+  }
+
+  @override
+  Future<void> requestEmergency({
+    required String threadId,
+    required String requestedByRole,
+  }) async {
+    final senderId = _auth.currentUser?.uid;
+    if (senderId == null) {
+      throw StateError('No logged in user');
+    }
+    final threadRef = _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .doc(threadId);
+
+    await threadRef.collection('messages').add({
+      'senderId': senderId,
+      'senderRole': requestedByRole,
+      'body': 'Emergency support requested.',
+      'attachments': const <String>[],
+      'messageType': 'system',
+      'deliveryStatus': 'sent',
+      'sentAt': FieldValue.serverTimestamp(),
+    });
+
+    await threadRef.set({
+      'emergencyStatus': 'requested',
+      'emergencyRequestedBy': requestedByRole,
+      'emergencyRequestedAt': FieldValue.serverTimestamp(),
+      'lastMessageAt': FieldValue.serverTimestamp(),
+      'lastMessagePreview': 'Emergency support requested.',
+    }, SetOptions(merge: true));
+  }
+
+  @override
+  Future<void> resolveEmergency({
+    required String threadId,
+    required String resolvedByRole,
+  }) async {
+    final senderId = _auth.currentUser?.uid;
+    if (senderId == null) {
+      throw StateError('No logged in user');
+    }
+    final threadRef = _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .doc(threadId);
+
+    await threadRef.collection('messages').add({
+      'senderId': senderId,
+      'senderRole': resolvedByRole,
+      'body': 'Emergency support responded.',
+      'attachments': const <String>[],
+      'messageType': 'system',
+      'deliveryStatus': 'sent',
+      'sentAt': FieldValue.serverTimestamp(),
+    });
+
+    await threadRef.set({
+      'emergencyStatus': 'responded',
+      'emergencyRespondedAt': FieldValue.serverTimestamp(),
+      'lastMessageAt': FieldValue.serverTimestamp(),
+      'lastMessagePreview': 'Emergency support responded.',
+    }, SetOptions(merge: true));
   }
 }
 
@@ -932,6 +1035,13 @@ class FirebaseBillingRepository implements BillingRepository {
       return;
     }
     await _stripeBackend.cancelSubscription(subscriptionId);
+    await _firestore
+        .collection(FirestoreCollections.subscriptions)
+        .doc(subscriptionId)
+        .set({
+          'cancelAtPeriodEnd': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
   }
 
   @override
@@ -940,5 +1050,12 @@ class FirebaseBillingRepository implements BillingRepository {
       return;
     }
     await _stripeBackend.reactivateSubscription(subscriptionId);
+    await _firestore
+        .collection(FirestoreCollections.subscriptions)
+        .doc(subscriptionId)
+        .set({
+          'cancelAtPeriodEnd': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
   }
 }

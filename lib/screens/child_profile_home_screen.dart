@@ -28,7 +28,7 @@ class ChildProfileHomeScreen extends StatelessWidget {
           }
           final child = snapshot.data?[0] as ChildProfile?;
           return FigmaModuleScaffold(
-            title: child == null ? 'Child Profile' : '${child.name}\'s Profile',
+            title: 'Child Profile',
             onBack: () => Navigator.pop(context),
             child: child == null
                 ? const Center(
@@ -40,71 +40,61 @@ class ChildProfileHomeScreen extends StatelessWidget {
                       ),
                     ),
                   )
-                : FutureBuilder<ChildAssignment?>(
-                    future: AppRepositories.planner.getAssignmentForChild(
-                      child.id,
-                    ),
-                    builder: (context, assignmentSnapshot) {
-                      final assignment = assignmentSnapshot.data;
-                      return ListView(
-                        padding: const EdgeInsets.fromLTRB(8, 6, 8, 170),
-                        children: [
-                          _ChildInfoCard(
-                            title: child.name,
-                            subtitle:
-                                'Assigned support areas: ${child.supportAreas.join(', ')}',
-                          ),
-                          const SizedBox(height: 20),
-                          _ChildModuleCard(
-                            title: 'Communication',
-                            subtitle:
-                                '${assignment?.assignedCategoryIds.length ?? 0} topics assigned',
-                            color: const Color(0xFFD7B3B3),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      CommunicationScreen(childId: child.id),
-                                ),
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          _ChildModuleCard(
-                            title: 'Learning',
-                            subtitle:
-                                '${assignment?.assignedModuleIds.length ?? 0} modules assigned',
-                            color: const Color(0xFF75CC40),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      LearningModulesScreen(childId: child.id),
-                                ),
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          _ChildModuleCard(
-                            title: 'Daily Activities',
-                            subtitle:
-                                '${assignment?.assignedActivityTemplateIds.length ?? 0} activities assigned',
-                            color: const Color(0xFFBBB3D7),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      DailyActivitiesScreen(childId: child.id),
-                                ),
-                              );
-                            },
-                          ),
-                        ],
-                      );
-                    },
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(8, 6, 8, 170),
+                    children: [
+                      const SizedBox(height: 18),
+                      Center(
+                        child: _ChildModuleCard(
+                          title: 'Communication',
+                          iconAssetPath: 'assets/images/Communication.png',
+                          color: const Color(0xFFD9BCC0),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    CommunicationScreen(childId: child.id),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Center(
+                        child: _ChildModuleCard(
+                          title: 'Learn',
+                          iconAssetPath: 'assets/images/Learn.png',
+                          color: const Color(0xFF86D44A),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    LearningModulesScreen(childId: child.id),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Center(
+                        child: _ChildModuleCard(
+                          title: 'Daily Activities',
+                          iconAssetPath: 'assets/images/Daily_Activities.png',
+                          color: const Color(0xFFB7AFD9),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    DailyActivitiesScreen(childId: child.id),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
           );
         },
@@ -113,80 +103,55 @@ class ChildProfileHomeScreen extends StatelessWidget {
   }
 }
 
-class _ChildInfoCard extends StatelessWidget {
-  const _ChildInfoCard({required this.title, required this.subtitle});
-
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Text(subtitle, style: const TextStyle(height: 1.5)),
-        ],
-      ),
-    );
-  }
-}
-
 class _ChildModuleCard extends StatelessWidget {
   const _ChildModuleCard({
     required this.title,
-    required this.subtitle,
+    required this.iconAssetPath,
     required this.color,
     required this.onTap,
   });
 
   final String title;
-  final String subtitle;
+  final String iconAssetPath;
   final Color color;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final cardWidth = (screenWidth - 72).clamp(270.0, 330.0);
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(14),
         child: Ink(
+          width: cardWidth,
+          height: 124,
           decoration: BoxDecoration(
             color: color,
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(14),
           ),
-          padding: const EdgeInsets.all(20),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(subtitle),
-                  ],
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 21 / 1.2,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1B2843),
                 ),
               ),
-              const Icon(Icons.arrow_forward_ios),
+              const SizedBox(height: 8),
+              Image.asset(
+                iconAssetPath,
+                width: 36,
+                height: 36,
+                fit: BoxFit.contain,
+              ),
             ],
           ),
         ),

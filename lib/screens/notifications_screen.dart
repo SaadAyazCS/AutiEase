@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../repositories/app_repositories.dart';
-import '../utils/app_colors.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
 
@@ -14,13 +13,11 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
   Map<String, bool> _preferences = {
-    'pushNotifications': true,
-    'emailNotifications': false,
-    'dailyReminders': true,
-    'activityAlerts': true,
-    'progressUpdates': false,
+    'therapistsUpdate': false,
+    'levelProgressNotification': false,
+    'subscription': false,
+    'routineReminders': false,
   };
-  bool _isSaving = false;
 
   @override
   void initState() {
@@ -30,29 +27,43 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Future<void> _loadPreferences() async {
     final profile = await AppRepositories.users.getCurrentUserProfile();
-    if (profile == null) {
+    if (profile == null || !mounted) {
       return;
     }
-    if (mounted) {
-      setState(() {
-        _preferences = {..._preferences, ...profile.notificationPreferences};
-      });
-    }
+    final saved = profile.notificationPreferences;
+    setState(() {
+      _preferences = {
+        'therapistsUpdate':
+            saved['therapistsUpdate'] ?? saved['pushNotifications'] ?? false,
+        'levelProgressNotification':
+            saved['levelProgressNotification'] ??
+            saved['progressUpdates'] ??
+            false,
+        'subscription':
+            saved['subscription'] ?? saved['emailNotifications'] ?? false,
+        'routineReminders':
+            saved['routineReminders'] ?? saved['dailyReminders'] ?? false,
+      };
+    });
   }
 
-  Future<void> _save() async {
-    setState(() => _isSaving = true);
-    await AppRepositories.users.updateNotificationPreferences(_preferences);
-    if (!mounted) {
-      return;
+  Future<void> _toggle(String key) async {
+    final old = _preferences[key] ?? false;
+    final next = !old;
+    setState(() => _preferences[key] = next);
+    try {
+      await AppRepositories.users.updateNotificationPreferences(_preferences);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _preferences[key] = old);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to save notification preference.'),
+        ),
+      );
     }
-    setState(() => _isSaving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Notification preferences saved to Firestore'),
-        backgroundColor: Colors.green,
-      ),
-    );
   }
 
   @override
@@ -62,64 +73,109 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       child: FigmaModuleScaffold(
         title: 'Notifications',
         onBack: () => Navigator.pop(context),
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(8, 6, 8, 170),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(22),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.08),
-                    blurRadius: 10,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(bottomRight: Radius.circular(38)),
+          ),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 24, 18, 170),
+            children: [
+              _NotificationRow(
+                title: 'Therapists Update',
+                subtitle:
+                    'Ensure smooth communication between parents and therapists',
+                value: _preferences['therapistsUpdate'] ?? false,
+                onToggle: () => _toggle('therapistsUpdate'),
               ),
+              _NotificationRow(
+                title: 'Level Progess Notification',
+                subtitle: 'Motivates the child by celebrating achievements.',
+                value: _preferences['levelProgressNotification'] ?? false,
+                onToggle: () => _toggle('levelProgressNotification'),
+              ),
+              _NotificationRow(
+                title: 'Subscription',
+                subtitle: 'Notifies users about payments',
+                value: _preferences['subscription'] ?? false,
+                onToggle: () => _toggle('subscription'),
+              ),
+              _NotificationRow(
+                title: 'Routine Reminders',
+                subtitle: 'Helps children follow a structured schedule',
+                value: _preferences['routineReminders'] ?? false,
+                onToggle: () => _toggle('routineReminders'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationRow extends StatelessWidget {
+  const _NotificationRow({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onToggle,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool value;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: InkWell(
+        onTap: onToggle,
+        borderRadius: BorderRadius.circular(8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'These switches are stored in Firestore under the current user profile.',
-                    style: TextStyle(height: 1.5),
-                  ),
-                  const SizedBox(height: 14),
-                  for (final entry in _notificationDefinitions)
-                    SwitchListTile(
-                      value: _preferences[entry.key] ?? false,
-                      onChanged: (value) {
-                        setState(() => _preferences[entry.key] = value);
-                      },
-                      title: Text(entry.title),
-                      subtitle: Text(entry.subtitle),
-                      contentPadding: EdgeInsets.zero,
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 37 / 1.5,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1A1A1A),
                     ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 18 / 1.2,
+                      color: Color(0xFF242424),
+                      height: 1.4,
+                    ),
+                  ),
                 ],
               ),
             ),
-            const SizedBox(height: 14),
-            ElevatedButton(
-              onPressed: _isSaving ? null : _save,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primaryBlue,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
+            const SizedBox(width: 14),
+            GestureDetector(
+              onTap: onToggle,
+              child: Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF9A9A9A)),
+                  color: value ? const Color(0xFF2D7CF6) : Colors.white,
                 ),
+                child: value
+                    ? const Icon(Icons.check, size: 14, color: Colors.white)
+                    : null,
               ),
-              child: _isSaving
-                  ? const SizedBox(
-                      height: 18,
-                      width: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Text('Save preferences'),
             ),
           ],
         ),
@@ -127,43 +183,3 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 }
-
-class _NotificationDefinition {
-  const _NotificationDefinition({
-    required this.key,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final String key;
-  final String title;
-  final String subtitle;
-}
-
-const List<_NotificationDefinition> _notificationDefinitions = [
-  _NotificationDefinition(
-    key: 'pushNotifications',
-    title: 'Push Notifications',
-    subtitle: 'Receive push notifications on your device',
-  ),
-  _NotificationDefinition(
-    key: 'emailNotifications',
-    title: 'Email Notifications',
-    subtitle: 'Receive updates via email',
-  ),
-  _NotificationDefinition(
-    key: 'dailyReminders',
-    title: 'Daily Reminders',
-    subtitle: 'Get reminder nudges for assigned activities',
-  ),
-  _NotificationDefinition(
-    key: 'activityAlerts',
-    title: 'Activity Alerts',
-    subtitle: 'Notify when assigned items are completed',
-  ),
-  _NotificationDefinition(
-    key: 'progressUpdates',
-    title: 'Progress Updates',
-    subtitle: 'Receive progress summary updates',
-  ),
-];

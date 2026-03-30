@@ -515,6 +515,11 @@ class TherapistThread {
     this.therapistDisplayName = '',
     this.lastMessagePreview = '',
     this.lastMessageAt,
+    this.emergencyStatus = 'none',
+    this.emergencyRequestedBy,
+    this.emergencyRequestedAt,
+    this.emergencyRespondedAt,
+    this.postCancelVisible = true,
   });
 
   final String id;
@@ -527,6 +532,14 @@ class TherapistThread {
   final String therapistDisplayName;
   final String lastMessagePreview;
   final DateTime? lastMessageAt;
+  final String emergencyStatus;
+  final String? emergencyRequestedBy;
+  final DateTime? emergencyRequestedAt;
+  final DateTime? emergencyRespondedAt;
+  final bool postCancelVisible;
+
+  bool get hasOpenEmergency => emergencyStatus == 'requested';
+  bool get emergencyResponded => emergencyStatus == 'responded';
 
   factory TherapistThread.fromMap(String id, Map<String, dynamic> data) {
     return TherapistThread(
@@ -540,6 +553,11 @@ class TherapistThread {
       therapistDisplayName: (data['therapistDisplayName'] ?? '').toString(),
       lastMessagePreview: (data['lastMessagePreview'] ?? '').toString(),
       lastMessageAt: dateTimeFromFirestore(data['lastMessageAt']),
+      emergencyStatus: (data['emergencyStatus'] ?? 'none').toString(),
+      emergencyRequestedBy: data['emergencyRequestedBy']?.toString(),
+      emergencyRequestedAt: dateTimeFromFirestore(data['emergencyRequestedAt']),
+      emergencyRespondedAt: dateTimeFromFirestore(data['emergencyRespondedAt']),
+      postCancelVisible: data['postCancelVisible'] != false,
     );
   }
 
@@ -548,6 +566,12 @@ class TherapistThread {
     String? therapistDisplayName,
     String? lastMessagePreview,
     DateTime? lastMessageAt,
+    String? status,
+    String? emergencyStatus,
+    String? emergencyRequestedBy,
+    DateTime? emergencyRequestedAt,
+    DateTime? emergencyRespondedAt,
+    bool? postCancelVisible,
   }) {
     return TherapistThread(
       id: id,
@@ -555,11 +579,16 @@ class TherapistThread {
       therapistId: therapistId,
       childId: childId,
       subscriptionId: subscriptionId,
-      status: status,
+      status: status ?? this.status,
       parentDisplayName: parentDisplayName ?? this.parentDisplayName,
       therapistDisplayName: therapistDisplayName ?? this.therapistDisplayName,
       lastMessagePreview: lastMessagePreview ?? this.lastMessagePreview,
       lastMessageAt: lastMessageAt ?? this.lastMessageAt,
+      emergencyStatus: emergencyStatus ?? this.emergencyStatus,
+      emergencyRequestedBy: emergencyRequestedBy ?? this.emergencyRequestedBy,
+      emergencyRequestedAt: emergencyRequestedAt ?? this.emergencyRequestedAt,
+      emergencyRespondedAt: emergencyRespondedAt ?? this.emergencyRespondedAt,
+      postCancelVisible: postCancelVisible ?? this.postCancelVisible,
     );
   }
 
@@ -574,6 +603,11 @@ class TherapistThread {
       'therapistDisplayName': therapistDisplayName,
       'lastMessagePreview': lastMessagePreview,
       'lastMessageAt': lastMessageAt,
+      'emergencyStatus': emergencyStatus,
+      'emergencyRequestedBy': emergencyRequestedBy,
+      'emergencyRequestedAt': emergencyRequestedAt,
+      'emergencyRespondedAt': emergencyRespondedAt,
+      'postCancelVisible': postCancelVisible,
     };
   }
 }
@@ -586,6 +620,9 @@ class TherapistMessage {
     required this.body,
     required this.attachments,
     this.sentAt,
+    this.messageType = 'text',
+    this.deliveryStatus = 'sent',
+    this.deliveryError,
   });
 
   final String id;
@@ -594,6 +631,9 @@ class TherapistMessage {
   final String body;
   final List<String> attachments;
   final DateTime? sentAt;
+  final String messageType;
+  final String deliveryStatus;
+  final String? deliveryError;
 
   factory TherapistMessage.fromMap(String id, Map<String, dynamic> data) {
     return TherapistMessage(
@@ -603,6 +643,9 @@ class TherapistMessage {
       body: (data['body'] ?? '').toString(),
       attachments: stringListFrom(data['attachments']),
       sentAt: dateTimeFromFirestore(data['sentAt']),
+      messageType: (data['messageType'] ?? 'text').toString(),
+      deliveryStatus: (data['deliveryStatus'] ?? 'sent').toString(),
+      deliveryError: data['deliveryError']?.toString(),
     );
   }
 }
