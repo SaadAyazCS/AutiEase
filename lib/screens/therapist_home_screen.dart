@@ -349,23 +349,39 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
     return SessionGuard(
       role: SessionGuardRole.therapist,
       child: Scaffold(
-        backgroundColor: const Color(0xFFAEDFF6),
+        backgroundColor: const Color(0xFFF6F6F6),
         body: Stack(
           children: [
+            const Positioned.fill(
+              child: ColoredBox(color: Color(0xFF9ED7F4)),
+            ),
+            Positioned(
+              top: 96,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(14),
+                  topRight: Radius.circular(14),
+                ),
+                child: const ColoredBox(color: Color(0xFFF6F6F6)),
+              ),
+            ),
             Positioned(
               left: 0,
               right: 0,
               top: 0,
-              height: 118,
-              child: Container(
-                color: const Color(0xFF82D5F5),
-                alignment: const Alignment(0, 0.45),
-                child: const Text(
-                  'HOME',
-                  style: TextStyle(
-                    fontSize: 30 / 1.5,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1F375A),
+              child: SafeArea(
+                bottom: false,
+                child: Container(
+                  height: 92,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF77C6F0),
+                    borderRadius: BorderRadius.only(
+                      bottomLeft: Radius.circular(18),
+                      bottomRight: Radius.circular(18),
+                    ),
                   ),
                 ),
               ),
@@ -374,54 +390,97 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
               left: 0,
               right: 0,
               bottom: 0,
-              height: 168,
+              height: 160,
               child: ClipPath(
                 clipper: _FooterWaveClipper(),
-                child: const ColoredBox(color: Color(0xFF66C3EE)),
+                child: const ColoredBox(color: Color(0xFF60BEEF)),
               ),
             ),
+            const Positioned(
+              left: 44,
+              bottom: 73,
+              child: _DecorSquare(color: Color(0xFFF6E72F), size: 16),
+            ),
+            const Positioned(
+              left: 92,
+              bottom: 84,
+              child: Icon(Icons.star, size: 20, color: Color(0xFFFF4081)),
+            ),
+            const Positioned(
+              left: 165,
+              bottom: 55,
+              child: _DecorTriangle(color: Color(0xFFFF5B47)),
+            ),
+            const Positioned(
+              right: 52,
+              bottom: 54,
+              child: _DecorCircle(color: Color(0xFF24C235), size: 15),
+            ),
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 10,
+              left: 0,
+              right: 0,
+              child: const Center(child: _TherapistHomeBadge()),
+            ),
             SafeArea(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final cardWidth =
-                      math.min(360.0, constraints.maxWidth - 28).clamp(250.0, 360.0);
-                  return SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(0, 148, 0, 180),
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      child: SizedBox(
-                        width: cardWidth.toDouble(),
-                        child: Column(
-                          children: [
-                            _ModuleCard(
-                              title: 'Dashboard',
-                              color: const Color(0xFFF6B1BF),
-                              asset: 'assets/images/Dashboard.png',
-                              onTap: _openDashboard,
+              child: Column(
+                children: [
+                  const SizedBox(height: 140),
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final cardWidth = math.min(
+                          324.0,
+                          constraints.maxWidth - 52,
+                        );
+                        return SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(0, 12, 0, 172),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              minHeight: math.max(0, constraints.maxHeight - 184),
                             ),
-                            const SizedBox(height: 14),
-                            _ModuleCard(
-                              title: 'Messages',
-                              color: const Color(0xFFA5E876),
-                              asset: 'assets/images/Professional_Support.png',
-                              onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => const TherapistMessagesScreen()),
+                            child: Center(
+                              child: SizedBox(
+                                width: cardWidth,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _ModuleCard(
+                                      title: 'Dashboard',
+                                      color: const Color(0xFFF6B1BF),
+                                      asset: 'assets/images/Dashboard.png',
+                                      onTap: _openDashboard,
+                                    ),
+                                    const SizedBox(height: 14),
+                                    _ModuleCard(
+                                      title: 'Messages',
+                                      color: const Color(0xFFA5E876),
+                                      asset: 'assets/images/Professional_Support.png',
+                                      onTap: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              const TherapistMessagesScreen(),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    _ModuleCard(
+                                      title: 'Settings',
+                                      color: const Color(0xFF66D2E8),
+                                      asset: 'assets/images/Settings.png',
+                                      onTap: _openSettingsDialog,
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 14),
-                            _ModuleCard(
-                              title: 'Settings',
-                              color: const Color(0xFF66D2E8),
-                              asset: 'assets/images/Settings.png',
-                              onTap: _openSettingsDialog,
-                            ),
-                          ],
-                        ),
-                      ),
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
+                  ),
+                ],
               ),
             ),
           ],
@@ -576,7 +635,7 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                               const CircleAvatar(
                                 radius: 26,
                                 backgroundColor: Color(0xFFD8F6DF),
-                                backgroundImage: AssetImage('assets/images/therapist.png'),
+                                backgroundImage: AssetImage('assets/images/autiease.png'),
                               ),
                               const SizedBox(width: 10),
                               Expanded(
@@ -722,8 +781,8 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: actionColor,
                                     side: BorderSide(color: actionColor),
-                                    minimumSize: const Size(56, 32),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                                    minimumSize: const Size(86, 40),
+                                    padding: const EdgeInsets.symmetric(horizontal: 16),
                                   ),
                                   child: _updatingVisibility
                                       ? const SizedBox(
@@ -731,7 +790,13 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                                           height: 16,
                                           child: CircularProgressIndicator(strokeWidth: 2),
                                         )
-                                      : Text(_isActive ? 'Hide' : 'Show'),
+                                      : Text(
+                                          _isActive ? 'Hide' : 'Show',
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
                                 ),
                               ],
                             ),
@@ -1851,6 +1916,22 @@ class _PackageEditorState extends State<_PackageEditor> {
   }
 }
 
+class _TherapistHomeBadge extends StatelessWidget {
+  const _TherapistHomeBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipOval(
+      child: Image.asset(
+        'assets/images/autiease.png',
+        width: 124,
+        height: 124,
+        fit: BoxFit.cover,
+      ),
+    );
+  }
+}
+
 class _ModuleCard extends StatelessWidget {
   const _ModuleCard({
     required this.title,
@@ -1866,23 +1947,33 @@ class _ModuleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Ink(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(14)),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(title,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
                   style: const TextStyle(
-                      fontSize: 40 / 1.5,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF111827))),
-            ),
-            SizedBox(height: 34, width: 34, child: Image.asset(asset)),
-          ],
+                    fontSize: 40 / 1.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+              ),
+              SizedBox(height: 44, width: 44, child: Image.asset(asset)),
+            ],
+          ),
         ),
       ),
     );
@@ -1975,17 +2066,76 @@ String _friendlyTime(DateTime? time) {
 class _FooterWaveClipper extends CustomClipper<Path> {
   @override
   Path getClip(Size size) {
-    return Path()
-      ..moveTo(0, 80)
-      ..quadraticBezierTo(size.width * 0.28, 30, size.width * 0.56, 82)
-      ..quadraticBezierTo(size.width * 0.78, 126, size.width, 64)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
+    final path = Path();
+    path.moveTo(0, 48);
+    path.quadraticBezierTo(size.width * 0.18, 72, size.width * 0.48, 104);
+    path.quadraticBezierTo(size.width * 0.78, 138, size.width, 62);
+    path.lineTo(size.width, size.height);
+    path.lineTo(0, size.height);
+    path.close();
+    return path;
   }
 
   @override
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+class _DecorSquare extends StatelessWidget {
+  const _DecorSquare({required this.color, required this.size});
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(width: size, height: size, color: color);
+  }
+}
+
+class _DecorCircle extends StatelessWidget {
+  const _DecorCircle({required this.color, required this.size});
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
+  }
+}
+
+class _DecorTriangle extends StatelessWidget {
+  const _DecorTriangle({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(size: const Size(18, 18), painter: _TrianglePainter(color));
+  }
+}
+
+class _TrianglePainter extends CustomPainter {
+  const _TrianglePainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(size.width / 2, 0)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 const BoxDecoration _cardDeco = BoxDecoration(

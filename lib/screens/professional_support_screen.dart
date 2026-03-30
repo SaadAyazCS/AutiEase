@@ -8,6 +8,37 @@ import '../utils/app_colors.dart';
 import '../widgets/session_guard.dart';
 import 'therapist_chat_screen.dart';
 
+class _TherapistPlaceholderAvatar extends StatelessWidget {
+  const _TherapistPlaceholderAvatar({
+    required this.size,
+    this.backgroundColor = const Color(0xFFDDF7E5),
+    this.padding = 4,
+  });
+
+  final double size;
+  final Color backgroundColor;
+  final double padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: backgroundColor,
+      ),
+      padding: EdgeInsets.all(padding),
+      child: ClipOval(
+        child: Image.asset(
+          'assets/images/autiease.png',
+          fit: BoxFit.cover,
+        ),
+      ),
+    );
+  }
+}
+
 class ProfessionalSupportScreen extends StatefulWidget {
   const ProfessionalSupportScreen({super.key});
 
@@ -554,14 +585,6 @@ class _TherapistListCard extends StatelessWidget {
   final bool isSubscribed;
   final VoidCallback onTap;
 
-  String _emojiForTherapist(TherapistProfile profile) {
-    final name = profile.displayName.toLowerCase();
-    if (name.contains('sarah') || name.contains('emily')) {
-      return '\u{1F469}\u200D\u2695\uFE0F';
-    }
-    return '\u{1F468}\u200D\u2695\uFE0F';
-  }
-
   String _specialization(TherapistProfile profile) {
     if (profile.specializations.isNotEmpty) {
       return profile.specializations.first;
@@ -619,16 +642,7 @@ class _TherapistListCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Color(0xFFDDF7E5),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(_emojiForTherapist(therapist)),
-                ),
+                const _TherapistPlaceholderAvatar(size: 44),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -765,15 +779,7 @@ class _MessageHomeCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(0xFFDDF7E5),
-              ),
-              child: const Icon(Icons.person, color: Color(0xFF2F855A)),
-            ),
+            const _TherapistPlaceholderAvatar(size: 44),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -859,14 +865,6 @@ class _SupportTherapistDetailsScreenState
     _isSubscribed = widget.initiallySubscribed;
   }
 
-  String _emojiForTherapist(TherapistProfile profile) {
-    final name = profile.displayName.toLowerCase();
-    if (name.contains('sarah') || name.contains('emily')) {
-      return '\u{1F469}\u200D\u2695\uFE0F';
-    }
-    return '\u{1F468}\u200D\u2695\uFE0F';
-  }
-
   String _specialization(TherapistProfile profile) {
     if (profile.specializations.isNotEmpty) {
       return profile.specializations.first;
@@ -928,19 +926,7 @@ class _SupportTherapistDetailsScreenState
                   _SupportDetailCard(
                     child: Column(
                       children: [
-                        Container(
-                          width: 82,
-                          height: 82,
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Color(0xFFDDF7E5),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            _emojiForTherapist(therapist),
-                            style: const TextStyle(fontSize: 34),
-                          ),
-                        ),
+                        const _TherapistPlaceholderAvatar(size: 82, padding: 6),
                         const SizedBox(height: 12),
                         Text(
                           therapist.displayName,
@@ -1287,14 +1273,6 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
     return 'Speech & Language Therapy';
   }
 
-  String _emojiForTherapist(TherapistProfile profile) {
-    final name = profile.displayName.toLowerCase();
-    if (name.contains('sarah') || name.contains('emily')) {
-      return '\u{1F469}\u200D\u2695\uFE0F';
-    }
-    return '\u{1F468}\u200D\u2695\uFE0F';
-  }
-
   Future<void> _showTherapistProfileSheet() async {
     await showDialog<void>(
       context: context,
@@ -1328,18 +1306,10 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
                       Align(
                         child: Column(
                           children: [
-                            Container(
-                              width: 70,
-                              height: 70,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF3ACB6D),
-                                shape: BoxShape.circle,
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                _emojiForTherapist(therapist),
-                                style: const TextStyle(fontSize: 32),
-                              ),
+                            const _TherapistPlaceholderAvatar(
+                              size: 70,
+                              backgroundColor: Color(0xFF3ACB6D),
+                              padding: 5,
                             ),
                             const SizedBox(height: 10),
                             Text(
@@ -1597,15 +1567,10 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
                     onTap: _showTherapistProfileSheet,
                     child: Row(
                       children: [
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF00C853),
-                            shape: BoxShape.circle,
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(_emojiForTherapist(therapist)),
+                        const _TherapistPlaceholderAvatar(
+                          size: 38,
+                          backgroundColor: Color(0xFF00C853),
+                          padding: 3,
                         ),
                         const SizedBox(width: 10),
                         Column(
@@ -1757,14 +1722,6 @@ class _SupportCheckoutScreenState extends State<_SupportCheckoutScreen> {
     return '\$${parsed.replaceAll(',', '')}';
   }
 
-  String _emojiForTherapist(TherapistProfile profile) {
-    final name = profile.displayName.toLowerCase();
-    if (name.contains('sarah') || name.contains('emily')) {
-      return '\u{1F469}\u200D\u2695\uFE0F';
-    }
-    return '\u{1F468}\u200D\u2695\uFE0F';
-  }
-
   Future<void> _submit() async {
     if (_cardController.text.trim().isEmpty ||
         _expiryController.text.trim().isEmpty ||
@@ -1827,16 +1784,7 @@ class _SupportCheckoutScreenState extends State<_SupportCheckoutScreen> {
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            Container(
-                              width: 36,
-                              height: 36,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFFDDF7E5),
-                                shape: BoxShape.circle,
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(_emojiForTherapist(therapist)),
-                            ),
+                            const _TherapistPlaceholderAvatar(size: 36, padding: 3),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Column(

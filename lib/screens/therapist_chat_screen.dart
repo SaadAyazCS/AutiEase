@@ -9,6 +9,33 @@ import '../repositories/app_repositories.dart';
 import '../utils/app_colors.dart';
 import '../widgets/session_guard.dart';
 
+class _TherapistPlaceholderAvatar extends StatelessWidget {
+  const _TherapistPlaceholderAvatar({
+    required this.size,
+  });
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: const BoxDecoration(
+        color: Color(0xFF3ACB6D),
+        shape: BoxShape.circle,
+      ),
+      padding: const EdgeInsets.all(5),
+      child: ClipOval(
+        child: Image.asset(
+          'assets/images/autiease.png',
+          fit: BoxFit.cover,
+        ),
+      ),
+    );
+  }
+}
+
 class TherapistChatScreen extends StatefulWidget {
   const TherapistChatScreen({
     super.key,
@@ -384,19 +411,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                     Align(
                       child: Column(
                         children: [
-                          Container(
-                            width: 70,
-                            height: 70,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF3ACB6D),
-                              shape: BoxShape.circle,
-                            ),
-                            alignment: Alignment.center,
-                            child: const Text(
-                              '\u{1F469}\u200D\u2695\uFE0F',
-                              style: TextStyle(fontSize: 32),
-                            ),
-                          ),
+                          const _TherapistPlaceholderAvatar(size: 70),
                           const SizedBox(height: 10),
                           Text(
                             therapist.displayName,
