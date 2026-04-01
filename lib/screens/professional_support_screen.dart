@@ -24,16 +24,10 @@ class _TherapistPlaceholderAvatar extends StatelessWidget {
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: backgroundColor,
-      ),
+      decoration: BoxDecoration(shape: BoxShape.circle, color: backgroundColor),
       padding: EdgeInsets.all(padding),
       child: ClipOval(
-        child: Image.asset(
-          'assets/images/autiease.png',
-          fit: BoxFit.cover,
-        ),
+        child: Image.asset('assets/images/autiease.png', fit: BoxFit.cover),
       ),
     );
   }
@@ -207,26 +201,23 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
           .getCurrentSubscription();
       if (!mounted) return;
 
-      if (child == null || subscription == null || !subscription.isActive) {
-        if (!_subscribedTherapistIds.contains(therapist.id)) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'An active subscription and child profile are required before messaging.',
-              ),
-              backgroundColor: AppColors.errorRed,
-            ),
-          );
-          return;
-        }
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => _DemoTherapistChatScreen(
-              therapist: therapist,
-              onCancelSubscription: () =>
-                  _cancelTherapistSubscription(therapist),
-            ),
+      if (child == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please complete child profile before messaging.'),
+            backgroundColor: AppColors.errorRed,
+          ),
+        );
+        return;
+      }
+
+      final hasActiveBackendSubscription = subscription?.isActive == true;
+      if (!_subscribedTherapistIds.contains(therapist.id) &&
+          !hasActiveBackendSubscription) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please subscribe to this therapist first.'),
+            backgroundColor: AppColors.errorRed,
           ),
         );
         return;
@@ -235,7 +226,9 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
       final thread = await AppRepositories.support.ensureThread(
         therapistId: therapist.id,
         childId: child.id,
-        subscriptionId: subscription.id,
+        subscriptionId: (subscription != null && subscription.isActive)
+            ? subscription.id
+            : 'local-bypass',
       );
       if (!mounted) return;
       Navigator.push(
@@ -281,9 +274,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
   @override
   Widget build(BuildContext context) {
     if (!_stateLoaded) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     return SessionGuard(
       role: SessionGuardRole.parent,
@@ -309,7 +300,8 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
                   const <String, TherapistProfile>{};
               final hasBackendSubscription = subscription?.isActive == true;
               final therapistById = <String, TherapistProfile>{
-                for (final therapist in activeTherapists) therapist.id: therapist,
+                for (final therapist in activeTherapists)
+                  therapist.id: therapist,
                 ...subscribedTherapists,
               };
               final allKnownTherapists = therapistById.values.toList();
@@ -601,16 +593,14 @@ class _TherapistListCard extends StatelessWidget {
   }
 
   int _yearsExp(TherapistProfile profile, int fallback) {
+    if (profile.yearsOfExperience > 0) {
+      return profile.yearsOfExperience;
+    }
     final source = '${profile.availability} ${profile.bio}';
     final match = RegExp(r'(\d{1,2})\s*\+?\s*years?').firstMatch(source);
     if (match != null) {
       return int.tryParse(match.group(1) ?? '') ?? fallback;
     }
-    final lowerName = profile.displayName.toLowerCase();
-    if (lowerName.contains('sarah')) return 12;
-    if (lowerName.contains('michael')) return 8;
-    if (lowerName.contains('emily')) return 15;
-    if (lowerName.contains('james')) return 10;
     return fallback;
   }
 
@@ -625,7 +615,7 @@ class _TherapistListCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final specialization = _specialization(therapist);
     final price = _priceLabel(therapist);
-    final years = _yearsExp(therapist, 8);
+    final years = _yearsExp(therapist, 0);
 
     return InkWell(
       onTap: onTap,
@@ -678,7 +668,9 @@ class _TherapistListCard extends StatelessWidget {
                         children: [
                           // Hardcoded rating fallback removed for now.
                           Text(
-                            '$years years exp',
+                            years > 0
+                                ? '$years years exp'
+                                : 'Experience not set',
                             style: const TextStyle(
                               fontSize: 12.5,
                               color: Color(0xFF6B7280),
@@ -866,11 +858,90 @@ class _SupportTherapistDetailsScreenState
     extends State<_SupportTherapistDetailsScreen> {
   late bool _isSubscribed;
   bool _isSubscribing = false;
+  bool _loadingTherapistMeta = true;
+  int _yearsFromProfile = 0;
+  String _credentialsFromProfile = '';
+  List<_SupportServicePackage> _packages = const <_SupportServicePackage>[];
+  int _activePackageIndex = 0;
 
   @override
   void initState() {
     super.initState();
     _isSubscribed = widget.initiallySubscribed;
+    _loadTherapistMeta();
+  }
+
+  Future<void> _loadTherapistMeta() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection(FirestoreCollections.therapistProfiles)
+          .doc(widget.therapist.id)
+          .get();
+      final data = doc.data() ?? <String, dynamic>{};
+      final parsed = _parsePackages(data['servicePackages']);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _yearsFromProfile = intFrom(data['yearsOfExperience']);
+        _credentialsFromProfile = (data['credentials'] ?? '').toString();
+        _packages = parsed;
+        _loadingTherapistMeta = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _loadingTherapistMeta = false);
+      }
+    }
+  }
+
+  List<_SupportServicePackage> _parsePackages(dynamic raw) {
+    if (raw is! List) {
+      return const <_SupportServicePackage>[];
+    }
+    return raw
+        .whereType<Map>()
+        .map(
+          (entry) =>
+              _SupportServicePackage.fromMap(Map<String, dynamic>.from(entry)),
+        )
+        .toList(growable: false);
+  }
+
+  List<_SupportServicePackage> _visiblePackages(TherapistProfile profile) {
+    final visible = _packages
+        .where((package) => package.visible)
+        .toList(growable: false);
+    if (visible.isNotEmpty) {
+      return visible;
+    }
+    final fallbackPrice = _priceLabel(profile).replaceAll('\$', '');
+    final parsedPrice =
+        double.tryParse(fallbackPrice.replaceAll(',', '')) ?? 49.99;
+    return <_SupportServicePackage>[
+      _SupportServicePackage(
+        title: 'Standard Therapy Session',
+        durationMinutes: 60,
+        sessionsPerWeek: 3,
+        price: parsedPrice,
+        description:
+            '1-hour therapy session including assessment, intervention, and parent consultation',
+        visible: true,
+      ),
+    ];
+  }
+
+  int _selectedPackageIndexWithin(int count) {
+    if (count <= 0) {
+      return 0;
+    }
+    if (_activePackageIndex < 0) {
+      return 0;
+    }
+    if (_activePackageIndex >= count) {
+      return count - 1;
+    }
+    return _activePackageIndex;
   }
 
   List<String> _specializations(TherapistProfile profile) {
@@ -889,17 +960,18 @@ class _SupportTherapistDetailsScreenState
   }
 
   int _yearsExp(TherapistProfile profile) {
+    if (_yearsFromProfile > 0) {
+      return _yearsFromProfile;
+    }
+    if (profile.yearsOfExperience > 0) {
+      return profile.yearsOfExperience;
+    }
     final source = '${profile.availability} ${profile.bio}';
     final match = RegExp(r'(\d{1,2})\s*\+?\s*years?').firstMatch(source);
     if (match != null) {
       return int.tryParse(match.group(1) ?? '') ?? 8;
     }
-    final lowerName = profile.displayName.toLowerCase();
-    if (lowerName.contains('sarah')) return 12;
-    if (lowerName.contains('michael')) return 8;
-    if (lowerName.contains('emily')) return 15;
-    if (lowerName.contains('james')) return 10;
-    return 8;
+    return 0;
   }
 
   String _priceLabel(TherapistProfile profile) {
@@ -924,8 +996,10 @@ class _SupportTherapistDetailsScreenState
     final therapist = widget.therapist;
     final allSpecializations = _specializations(therapist);
     final specialization = _specialization(therapist);
+    final packages = _visiblePackages(therapist);
+    final safePackageIndex = _selectedPackageIndexWithin(packages.length);
+    final selectedPackage = packages[safePackageIndex];
     final years = _yearsExp(therapist);
-    final price = _priceLabel(therapist);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F3),
@@ -1045,13 +1119,17 @@ class _SupportTherapistDetailsScreenState
                         _DetailLine(
                           icon: Icons.access_time_rounded,
                           title: 'Experience',
-                          value: '$years years of practice',
+                          value: years > 0
+                              ? '$years years of practice'
+                              : 'Experience not set',
                         ),
                         const SizedBox(height: 10),
-                        const _DetailLine(
+                        _DetailLine(
                           icon: Icons.verified_outlined,
                           title: 'Certifications',
-                          value: 'Board Certified, Licensed Therapist',
+                          value: _credentialsFromProfile.trim().isEmpty
+                              ? 'Board Certified, Licensed Therapist'
+                              : _credentialsFromProfile.trim(),
                         ),
                       ],
                     ),
@@ -1114,45 +1192,34 @@ class _SupportTherapistDetailsScreenState
                           style: TextStyle(color: Colors.white, fontSize: 18),
                         ),
                         const SizedBox(height: 10),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF3ACB6D),
-                            borderRadius: BorderRadius.circular(10),
+                        if (_loadingTherapistMeta)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 26),
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                                color: Colors.white,
+                              ),
+                            ),
+                          )
+                        else
+                          _PackageSwipeCard(
+                            packages: packages,
+                            currentIndex: safePackageIndex,
+                            onPageChanged: (index) {
+                              if (!mounted) {
+                                return;
+                              }
+                              setState(() => _activePackageIndex = index);
+                            },
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              RichText(
-                                text: TextSpan(
-                                  text: price,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 25.5,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                  children: const [
-                                    TextSpan(
-                                      text: '/month',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w400,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              const _FeatureLine(
-                                text: 'Unlimited messaging with therapist',
-                              ),
-                              const _FeatureLine(text: '24-hour response time'),
-                              const _FeatureLine(
-                                text: 'Progress tracking & reports',
-                              ),
-                              const _FeatureLine(text: 'Cancel anytime'),
-                            ],
+                        const SizedBox(height: 12),
+                        Text(
+                          selectedPackage.title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -1229,7 +1296,9 @@ class _SupportTherapistDetailsScreenState
                                         color: Color(0xFF00A63E),
                                       ),
                                     )
-                                  : const Text('Subscribe Now'),
+                                  : Text(
+                                      'Subscribe ${selectedPackage.priceLabel}/month',
+                                    ),
                             ),
                           ),
                       ],
@@ -1249,6 +1318,136 @@ class _SupportTherapistDetailsScreenState
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PackageSwipeCard extends StatelessWidget {
+  const _PackageSwipeCard({
+    required this.packages,
+    required this.currentIndex,
+    required this.onPageChanged,
+  });
+
+  final List<_SupportServicePackage> packages;
+  final int currentIndex;
+  final ValueChanged<int> onPageChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SizedBox(
+          height: 212,
+          child: PageView.builder(
+            onPageChanged: onPageChanged,
+            itemCount: packages.length,
+            itemBuilder: (context, index) {
+              final package = packages[index];
+              return Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF3ACB6D),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RichText(
+                      text: TextSpan(
+                        text: package.priceLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 25.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        children: const [
+                          TextSpan(
+                            text: '/month',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    _FeatureLine(
+                      text:
+                          '${package.durationMinutes} min/session • ${package.sessionsPerWeek} sessions/week',
+                    ),
+                    if (package.description.trim().isNotEmpty)
+                      _FeatureLine(text: package.description.trim()),
+                    const _FeatureLine(
+                      text: 'Unlimited messaging with therapist',
+                    ),
+                    const _FeatureLine(text: '24-hour response time'),
+                    const _FeatureLine(text: 'Progress tracking & reports'),
+                    const _FeatureLine(text: 'Cancel anytime'),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        if (packages.length > 1) ...[
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List<Widget>.generate(
+              packages.length,
+              (index) => Container(
+                width: 7,
+                height: 7,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: index == currentIndex
+                      ? Colors.white
+                      : Colors.white.withValues(alpha: 0.45),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SupportServicePackage {
+  const _SupportServicePackage({
+    required this.title,
+    required this.durationMinutes,
+    required this.sessionsPerWeek,
+    required this.price,
+    required this.description,
+    required this.visible,
+  });
+
+  final String title;
+  final int durationMinutes;
+  final int sessionsPerWeek;
+  final double price;
+  final String description;
+  final bool visible;
+
+  String get priceLabel => '\$${price.toStringAsFixed(price % 1 == 0 ? 0 : 2)}';
+
+  factory _SupportServicePackage.fromMap(Map<String, dynamic> data) {
+    final rawPrice = data['price'];
+    final parsedPrice = rawPrice is num
+        ? rawPrice.toDouble()
+        : double.tryParse(rawPrice?.toString() ?? '') ?? 49.99;
+    return _SupportServicePackage(
+      title: (data['title'] ?? 'Therapy Package').toString(),
+      durationMinutes: intFrom(data['durationMinutes'], 60),
+      sessionsPerWeek: intFrom(data['sessionsPerWeek'], 3),
+      price: parsedPrice,
+      description: (data['description'] ?? '').toString(),
+      visible: data['visible'] != false,
     );
   }
 }
@@ -1321,6 +1520,9 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
       barrierColor: Colors.black54,
       builder: (context) {
         final therapist = widget.therapist;
+        final yearsText = therapist.yearsOfExperience > 0
+            ? '${therapist.yearsOfExperience} years of practice'
+            : 'Experience not set';
         return Dialog(
           insetPadding: const EdgeInsets.symmetric(
             horizontal: 16,
@@ -1397,9 +1599,9 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
                       const SizedBox(height: 12),
                       const Divider(height: 1),
                       const SizedBox(height: 10),
-                      const Text(
-                        'Experience\n12 years of practice',
-                        style: TextStyle(height: 1.4),
+                      Text(
+                        'Experience\n$yearsText',
+                        style: const TextStyle(height: 1.4),
                       ),
                       const SizedBox(height: 8),
                       const Text(
@@ -1426,7 +1628,7 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
                       const SizedBox(height: 10),
                       const Center(
                         child: Text(
-                          '• Active now',
+                          '- Active now',
                           style: TextStyle(color: Color(0xFF00A63E)),
                         ),
                       ),
@@ -1826,7 +2028,10 @@ class _SupportCheckoutScreenState extends State<_SupportCheckoutScreen> {
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            const _TherapistPlaceholderAvatar(size: 36, padding: 3),
+                            const _TherapistPlaceholderAvatar(
+                              size: 36,
+                              padding: 3,
+                            ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Column(

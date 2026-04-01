@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -10,9 +10,7 @@ import '../utils/app_colors.dart';
 import '../widgets/session_guard.dart';
 
 class _TherapistPlaceholderAvatar extends StatelessWidget {
-  const _TherapistPlaceholderAvatar({
-    required this.size,
-  });
+  const _TherapistPlaceholderAvatar({required this.size});
 
   final double size;
 
@@ -27,10 +25,7 @@ class _TherapistPlaceholderAvatar extends StatelessWidget {
       ),
       padding: const EdgeInsets.all(5),
       child: ClipOval(
-        child: Image.asset(
-          'assets/images/autiease.png',
-          fit: BoxFit.cover,
-        ),
+        child: Image.asset('assets/images/autiease.png', fit: BoxFit.cover),
       ),
     );
   }
@@ -83,7 +78,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
     }
 
     final isSameEvent = _lastResolvedAtSeen == respondedAt;
-    if (isSameEvent && _showResolvedBanner) {
+    // Do not retrigger banner for the same resolved event on rebuilds.
+    if (isSameEvent) {
       return;
     }
 
@@ -98,7 +94,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
       });
     }
 
-    _resolvedBannerTimer = Timer(const Duration(seconds: 10), () {
+    _resolvedBannerTimer = Timer(const Duration(minutes: 1), () {
       if (mounted) {
         setState(() => _showResolvedBanner = false);
       }
@@ -251,7 +247,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
       barrierColor: Colors.black54,
       builder: (context) {
         return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -264,7 +262,11 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                 ),
                 child: const Column(
                   children: [
-                    Icon(Icons.warning_amber_rounded, color: Colors.white, size: 46),
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.white,
+                      size: 46,
+                    ),
                     SizedBox(height: 8),
                     Text(
                       'Cancel Subscription?',
@@ -292,7 +294,10 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                       ),
                       child: const Text(
                         'Please note: You will lose access to:\n- Direct messaging with therapist\n- 24-hour response time\n- Progress tracking & reports\n- Future session scheduling',
-                        style: TextStyle(height: 1.45, color: Color(0xFF4B5563)),
+                        style: TextStyle(
+                          height: 1.45,
+                          color: Color(0xFF4B5563),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -392,10 +397,18 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
       builder: (context) {
         final specialization = therapist.specializations.isNotEmpty
             ? therapist.specializations.first
-            : 'Speech & Language Therapy';
+            : 'Specialization not set';
+        final yearsText = therapist.yearsOfExperience > 0
+            ? '${therapist.yearsOfExperience} years of practice'
+            : 'Experience not set';
         return Dialog(
-          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -456,9 +469,11 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                     const SizedBox(height: 12),
                     const Divider(height: 1),
                     const SizedBox(height: 10),
-                    const Text('Experience\n12 years of practice'),
+                    Text('Experience\n$yearsText'),
                     const SizedBox(height: 8),
-                    const Text('Certifications\nBoard Certified, Licensed Therapist'),
+                    const Text(
+                      'Certifications\nBoard Certified, Licensed Therapist',
+                    ),
                     const SizedBox(height: 10),
                     const Divider(height: 1),
                     const SizedBox(height: 10),
@@ -795,4 +810,3 @@ class _ChatStateBanner extends StatelessWidget {
     );
   }
 }
-

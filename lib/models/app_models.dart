@@ -473,6 +473,7 @@ class TherapistProfile {
     required this.availability,
     required this.photoUrl,
     required this.isActive,
+    this.yearsOfExperience = 0,
   });
 
   final String id;
@@ -485,6 +486,7 @@ class TherapistProfile {
   final String availability;
   final String photoUrl;
   final bool isActive;
+  final int yearsOfExperience;
 
   factory TherapistProfile.fromMap(String id, Map<String, dynamic> data) {
     final rawRating = data['rating'];
@@ -499,6 +501,7 @@ class TherapistProfile {
       availability: (data['availability'] ?? '').toString(),
       photoUrl: (data['photoUrl'] ?? '').toString(),
       isActive: data['isActive'] != false,
+      yearsOfExperience: intFrom(data['yearsOfExperience']),
     );
   }
 }

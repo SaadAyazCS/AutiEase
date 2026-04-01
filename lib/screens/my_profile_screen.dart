@@ -231,14 +231,14 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         _buildLabel('Last Name'),
         _buildField(_lastNameController),
         _buildLabel('Email'),
-        _buildField(_emailController, enabled: false),
+        _buildField(_emailController, readOnly: true),
         _buildLabel('Phone Number'),
         _buildField(_phoneController),
         _buildLabel('Password'),
         _buildField(
           _passwordController,
           obscureText: !_showPassword,
-          enabled: false,
+          readOnly: true,
           trailing: TextButton(
             onPressed: () => setState(() => _showPassword = !_showPassword),
             child: Text(
@@ -390,12 +390,14 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   Widget _buildField(
     TextEditingController controller, {
     bool enabled = true,
+    bool readOnly = false,
     bool obscureText = false,
     Widget? trailing,
   }) {
+    final inert = !enabled || readOnly;
     return Container(
       decoration: BoxDecoration(
-        color: enabled ? Colors.white : const Color(0xFFF5F5F7),
+        color: inert ? const Color(0xFFF5F5F7) : Colors.white,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFD9DEE8)),
         boxShadow: [
@@ -409,6 +411,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       child: TextField(
         controller: controller,
         enabled: enabled,
+        readOnly: readOnly,
         obscureText: obscureText,
         decoration: InputDecoration(
           contentPadding: const EdgeInsets.symmetric(

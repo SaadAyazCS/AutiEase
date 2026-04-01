@@ -12,6 +12,7 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
+  bool _isSaving = false;
   Map<String, bool> _preferences = {
     'therapistsUpdate': false,
     'levelProgressNotification': false,
@@ -47,22 +48,36 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
   }
 
-  Future<void> _toggle(String key) async {
-    final old = _preferences[key] ?? false;
-    final next = !old;
-    setState(() => _preferences[key] = next);
+  void _toggle(String key) {
+    setState(() => _preferences[key] = !(_preferences[key] ?? false));
+  }
+
+  Future<void> _savePreferences() async {
+    if (_isSaving) {
+      return;
+    }
+    setState(() => _isSaving = true);
     try {
       await AppRepositories.users.updateNotificationPreferences(_preferences);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Notification preferences saved.')),
+      );
     } catch (_) {
       if (!mounted) {
         return;
       }
-      setState(() => _preferences[key] = old);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Unable to save notification preference.'),
+          content: Text('Unable to save notification preferences.'),
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
     }
   }
 
@@ -105,6 +120,34 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 subtitle: 'Helps children follow a structured schedule',
                 value: _preferences['routineReminders'] ?? false,
                 onToggle: () => _toggle('routineReminders'),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isSaving ? null : _savePreferences,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4EA9E3),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: _isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          'Save Changes',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                ),
               ),
             ],
           ),
