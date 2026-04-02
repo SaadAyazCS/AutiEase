@@ -50,6 +50,15 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
   bool _showFindTherapist = false;
   bool _stateLoaded = false;
 
+  void _showComingSoon() {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Coming soon')));
+  }
+
   @override
   void initState() {
     super.initState();
@@ -179,7 +188,15 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
     );
   }
 
-  void _openExistingThread(TherapistThread thread, TherapistProfile therapist) {
+  void _openExistingThread(
+    TherapistThread thread,
+    TherapistProfile therapist, {
+    required bool chatEnabled,
+  }) {
+    if (!chatEnabled) {
+      _showComingSoon();
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -193,7 +210,14 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
     );
   }
 
-  Future<void> _openTherapistChat(TherapistProfile therapist) async {
+  Future<void> _openTherapistChat(
+    TherapistProfile therapist, {
+    required bool chatEnabled,
+  }) async {
+    if (!chatEnabled) {
+      _showComingSoon();
+      return;
+    }
     try {
       final child = await AppRepositories.users
           .getActiveChildForCurrentParent();
@@ -256,6 +280,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
   Future<void> _openTherapistDetails(
     TherapistProfile therapist,
     bool isSubscribed,
+    ProfessionalSupportFeatureFlags featureFlags,
   ) async {
     await Navigator.push<void>(
       context,
@@ -263,9 +288,14 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
         builder: (_) => _SupportTherapistDetailsScreen(
           therapist: therapist,
           initiallySubscribed: isSubscribed,
+          chatEnabled: featureFlags.chatEnabled,
+          paymentsEnabled: featureFlags.paymentsEnabled,
           onSubscribe: () => _openCheckoutForTherapist(therapist),
           onCancelSubscription: () => _cancelTherapistSubscription(therapist),
-          onOpenMessages: () => _openTherapistChat(therapist),
+          onOpenMessages: () => _openTherapistChat(
+            therapist,
+            chatEnabled: featureFlags.chatEnabled,
+          ),
         ),
       ),
     );
@@ -281,59 +311,74 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xFFF1F5F3),
         body: SafeArea(
-          child: FutureBuilder<List<Object?>>(
-            future: Future.wait<Object?>([
-              AppRepositories.support.listTherapists(),
-              AppRepositories.billing.getCurrentSubscription(),
-              _loadSubscribedTherapistsIncludingInactive(),
-            ]),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
+          child: StreamBuilder<ProfessionalSupportFeatureFlags>(
+            stream: AppRepositories.content
+                .watchProfessionalSupportFeatureFlags(),
+            initialData: ProfessionalSupportFeatureFlags.enabled,
+            builder: (context, featureSnapshot) {
+              final featureFlags =
+                  featureSnapshot.data ??
+                  ProfessionalSupportFeatureFlags.enabled;
+              return FutureBuilder<List<Object?>>(
+                future: Future.wait<Object?>([
+                  AppRepositories.support.listTherapists(),
+                  AppRepositories.billing.getCurrentSubscription(),
+                  _loadSubscribedTherapistsIncludingInactive(),
+                ]),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
-              final activeTherapists =
-                  snapshot.data?[0] as List<TherapistProfile>? ?? const [];
-              final subscription = snapshot.data?[1] as UserSubscription?;
-              final subscribedTherapists =
-                  snapshot.data?[2] as Map<String, TherapistProfile>? ??
-                  const <String, TherapistProfile>{};
-              final hasBackendSubscription = subscription?.isActive == true;
-              final therapistById = <String, TherapistProfile>{
-                for (final therapist in activeTherapists)
-                  therapist.id: therapist,
-                ...subscribedTherapists,
-              };
-              final allKnownTherapists = therapistById.values.toList();
+                  final activeTherapists =
+                      snapshot.data?[0] as List<TherapistProfile>? ?? const [];
+                  final subscription = snapshot.data?[1] as UserSubscription?;
+                  final subscribedTherapists =
+                      snapshot.data?[2] as Map<String, TherapistProfile>? ??
+                      const <String, TherapistProfile>{};
+                  final hasBackendSubscription = subscription?.isActive == true;
+                  final therapistById = <String, TherapistProfile>{
+                    for (final therapist in activeTherapists)
+                      therapist.id: therapist,
+                    ...subscribedTherapists,
+                  };
+                  final allKnownTherapists = therapistById.values.toList();
 
-              return Column(
-                children: [
-                  _SupportHeaderCard(
-                    title: _showFindTherapist
-                        ? 'Find a Therapist'
-                        : 'Professional Support',
-                    subtitle: _showFindTherapist
-                        ? 'Choose your specialist'
-                        : 'Your therapist conversations',
-                    onBack: () {
-                      if (_showFindTherapist) {
-                        setState(() => _showFindTherapist = false);
-                        return;
-                      }
-                      Navigator.pop(context);
-                    },
-                    showAdd: !_showFindTherapist,
-                    onAdd: () => setState(() => _showFindTherapist = true),
-                  ),
-                  Expanded(
-                    child: _showFindTherapist
-                        ? _buildFindTherapists(
-                            activeTherapists,
-                            hasBackendSubscription,
-                          )
-                        : _buildMessagesHome(allKnownTherapists, therapistById),
-                  ),
-                ],
+                  return Column(
+                    children: [
+                      _SupportHeaderCard(
+                        title: _showFindTherapist
+                            ? 'Find a Therapist'
+                            : 'Professional Support',
+                        subtitle: _showFindTherapist
+                            ? 'Choose your specialist'
+                            : 'Your therapist conversations',
+                        onBack: () {
+                          if (_showFindTherapist) {
+                            setState(() => _showFindTherapist = false);
+                            return;
+                          }
+                          Navigator.pop(context);
+                        },
+                        showAdd: !_showFindTherapist,
+                        onAdd: () => setState(() => _showFindTherapist = true),
+                      ),
+                      Expanded(
+                        child: _showFindTherapist
+                            ? _buildFindTherapists(
+                                activeTherapists,
+                                hasBackendSubscription,
+                                featureFlags,
+                              )
+                            : _buildMessagesHome(
+                                allKnownTherapists,
+                                therapistById,
+                                featureFlags.chatEnabled,
+                              ),
+                      ),
+                    ],
+                  );
+                },
               );
             },
           ),
@@ -345,6 +390,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
   Widget _buildFindTherapists(
     List<TherapistProfile> therapists,
     bool hasBackendSubscription,
+    ProfessionalSupportFeatureFlags featureFlags,
   ) {
     if (therapists.isEmpty) {
       return const Center(
@@ -371,7 +417,8 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
         return _TherapistListCard(
           therapist: therapist,
           isSubscribed: isSubscribed,
-          onTap: () => _openTherapistDetails(therapist, isSubscribed),
+          onTap: () =>
+              _openTherapistDetails(therapist, isSubscribed, featureFlags),
         );
       },
     );
@@ -380,6 +427,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
   Widget _buildMessagesHome(
     List<TherapistProfile> therapists,
     Map<String, TherapistProfile> therapistById,
+    bool chatEnabled,
   ) {
     final subscribedVisibleIds = _subscribedTherapistIds
         .where((id) => !_hiddenTherapistIds.contains(id))
@@ -456,7 +504,11 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
                   if (therapist == null) {
                     return;
                   }
-                  _openExistingThread(thread, therapist);
+                  _openExistingThread(
+                    thread,
+                    therapist,
+                    chatEnabled: chatEnabled,
+                  );
                 },
               ),
             for (final therapist in localSubscribedWithoutThread)
@@ -465,7 +517,8 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
                 preview:
                     "I'd recommend continuing with the communication exercises at home.",
                 timeLabel: '10:40 AM',
-                onTap: () => _openTherapistChat(therapist),
+                onTap: () =>
+                    _openTherapistChat(therapist, chatEnabled: chatEnabled),
               ),
           ],
         );
@@ -838,6 +891,8 @@ class _SupportTherapistDetailsScreen extends StatefulWidget {
   const _SupportTherapistDetailsScreen({
     required this.therapist,
     required this.initiallySubscribed,
+    required this.chatEnabled,
+    required this.paymentsEnabled,
     required this.onSubscribe,
     required this.onCancelSubscription,
     required this.onOpenMessages,
@@ -845,6 +900,8 @@ class _SupportTherapistDetailsScreen extends StatefulWidget {
 
   final TherapistProfile therapist;
   final bool initiallySubscribed;
+  final bool chatEnabled;
+  final bool paymentsEnabled;
   final Future<bool> Function() onSubscribe;
   final Future<void> Function() onCancelSubscription;
   final Future<void> Function() onOpenMessages;
@@ -982,6 +1039,12 @@ class _SupportTherapistDetailsScreenState
   }
 
   Future<void> _subscribe() async {
+    if (!widget.paymentsEnabled) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Coming soon')));
+      return;
+    }
     setState(() => _isSubscribing = true);
     final subscribed = await widget.onSubscribe();
     if (!mounted) return;
@@ -1233,7 +1296,17 @@ class _SupportTherapistDetailsScreenState
                           const SizedBox(height: 2),
                           Center(
                             child: TextButton(
-                              onPressed: () => widget.onOpenMessages(),
+                              onPressed: widget.chatEnabled
+                                  ? () => widget.onOpenMessages()
+                                  : () {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Coming soon'),
+                                        ),
+                                      );
+                                    },
                               style: TextButton.styleFrom(
                                 foregroundColor: Colors.white,
                                 textStyle: const TextStyle(
@@ -1250,15 +1323,25 @@ class _SupportTherapistDetailsScreenState
                           SizedBox(
                             width: double.infinity,
                             child: OutlinedButton(
-                              onPressed: () async {
-                                await widget.onCancelSubscription();
-                                if (!mounted) {
-                                  return;
-                                }
-                                setState(() {
-                                  _isSubscribed = false;
-                                });
-                              },
+                              onPressed: widget.paymentsEnabled
+                                  ? () async {
+                                      await widget.onCancelSubscription();
+                                      if (!mounted) {
+                                        return;
+                                      }
+                                      setState(() {
+                                        _isSubscribed = false;
+                                      });
+                                    }
+                                  : () {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Coming soon'),
+                                        ),
+                                      );
+                                    },
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.white,
                                 side: const BorderSide(
@@ -1276,7 +1359,19 @@ class _SupportTherapistDetailsScreenState
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
-                              onPressed: _isSubscribing ? null : _subscribe,
+                              onPressed: _isSubscribing
+                                  ? null
+                                  : (widget.paymentsEnabled
+                                        ? _subscribe
+                                        : () {
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              const SnackBar(
+                                                content: Text('Coming soon'),
+                                              ),
+                                            );
+                                          }),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.white,
                                 foregroundColor: const Color(0xFF00A63E),
@@ -1306,10 +1401,15 @@ class _SupportTherapistDetailsScreenState
                   ),
                   if (!_isSubscribed) ...[
                     const SizedBox(height: 10),
-                    const Text(
-                      'Secure payment powered by Stripe. Cancel your subscription anytime from your account settings.',
+                    Text(
+                      widget.paymentsEnabled
+                          ? 'Secure payment powered by Stripe. Cancel your subscription anytime from your account settings.'
+                          : 'Coming soon',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF6B7280),
+                      ),
                     ),
                   ],
                 ],

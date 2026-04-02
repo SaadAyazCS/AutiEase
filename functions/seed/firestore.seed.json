@@ -28,6 +28,8 @@
       "targetRole": "parent",
       "sortOrder": 3,
       "isActive": true,
+      "chatEnabled": true,
+      "paymentsEnabled": true,
       "imageAsset": "assets/images/Professional_Support.png"
     },
     {

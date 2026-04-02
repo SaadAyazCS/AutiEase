@@ -233,6 +233,30 @@ class AppModule {
   }
 }
 
+class ProfessionalSupportFeatureFlags {
+  const ProfessionalSupportFeatureFlags({
+    required this.chatEnabled,
+    required this.paymentsEnabled,
+  });
+
+  final bool chatEnabled;
+  final bool paymentsEnabled;
+
+  static const enabled = ProfessionalSupportFeatureFlags(
+    chatEnabled: true,
+    paymentsEnabled: true,
+  );
+
+  factory ProfessionalSupportFeatureFlags.fromAppModuleMap(
+    Map<String, dynamic> data,
+  ) {
+    return ProfessionalSupportFeatureFlags(
+      chatEnabled: data['chatEnabled'] != false,
+      paymentsEnabled: data['paymentsEnabled'] != false,
+    );
+  }
+}
+
 class ContentCategory {
   const ContentCategory({
     required this.id,

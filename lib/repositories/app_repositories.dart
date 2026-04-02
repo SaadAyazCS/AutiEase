@@ -48,6 +48,9 @@ abstract class UserRepository {
 
 abstract class ContentRepository {
   Stream<List<AppModule>> watchModules(String targetRole);
+  Stream<ProfessionalSupportFeatureFlags>
+  watchProfessionalSupportFeatureFlags();
+  Future<ProfessionalSupportFeatureFlags> getProfessionalSupportFeatureFlags();
   Future<List<ContentCategory>> getAssignedCategories(
     String childId, {
     String? type,
@@ -381,6 +384,7 @@ class FirebaseContentRepository implements ContentRepository {
   FirebaseContentRepository(this._firestore);
 
   final FirebaseFirestore _firestore;
+  static const _professionalSupportModuleId = 'professional_support';
 
   @override
   Stream<List<AppModule>> watchModules(String targetRole) {
@@ -396,6 +400,38 @@ class FirebaseContentRepository implements ContentRepository {
           modules.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
           return modules;
         });
+  }
+
+  @override
+  Stream<ProfessionalSupportFeatureFlags>
+  watchProfessionalSupportFeatureFlags() {
+    return _firestore
+        .collection(FirestoreCollections.appModules)
+        .doc(_professionalSupportModuleId)
+        .snapshots()
+        .map((snapshot) {
+          if (!snapshot.exists || snapshot.data() == null) {
+            return ProfessionalSupportFeatureFlags.enabled;
+          }
+          return ProfessionalSupportFeatureFlags.fromAppModuleMap(
+            mapFrom(snapshot.data()),
+          );
+        });
+  }
+
+  @override
+  Future<ProfessionalSupportFeatureFlags>
+  getProfessionalSupportFeatureFlags() async {
+    final snapshot = await _firestore
+        .collection(FirestoreCollections.appModules)
+        .doc(_professionalSupportModuleId)
+        .get();
+    if (!snapshot.exists || snapshot.data() == null) {
+      return ProfessionalSupportFeatureFlags.enabled;
+    }
+    return ProfessionalSupportFeatureFlags.fromAppModuleMap(
+      mapFrom(snapshot.data()),
+    );
   }
 
   @override
@@ -679,21 +715,15 @@ class FirebasePlannerRepository implements PlannerRepository {
         }
       }
 
-      final progressSub = progressStream.listen(
-        (snapshot) {
-          latestProgress = snapshot;
-          emitIfReady();
-        },
-        onError: controller.addError,
-      );
+      final progressSub = progressStream.listen((snapshot) {
+        latestProgress = snapshot;
+        emitIfReady();
+      }, onError: controller.addError);
 
-      final moodSub = moodStream.listen(
-        (snapshot) {
-          latestMoods = snapshot;
-          emitIfReady();
-        },
-        onError: controller.addError,
-      );
+      final moodSub = moodStream.listen((snapshot) {
+        latestMoods = snapshot;
+        emitIfReady();
+      }, onError: controller.addError);
 
       controller.onCancel = () async {
         cancelled = true;

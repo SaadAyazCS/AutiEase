@@ -564,6 +564,12 @@ class _ReportDetailScreenState extends State<_ReportDetailScreen> {
   bool _loadingTherapists = true;
   bool _downloadingPdf = false;
 
+  Future<bool> _isChatEnabled() async {
+    final flags = await AppRepositories.content
+        .getProfessionalSupportFeatureFlags();
+    return flags.chatEnabled;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -662,7 +668,17 @@ class _ReportDetailScreenState extends State<_ReportDetailScreen> {
     }
   }
 
-  void _openShareSheet() {
+  void _openShareSheet() async {
+    final chatEnabled = await _isChatEnabled();
+    if (!mounted) {
+      return;
+    }
+    if (!chatEnabled) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Coming soon')));
+      return;
+    }
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -679,6 +695,10 @@ class _ReportDetailScreenState extends State<_ReportDetailScreen> {
   }
 
   Future<void> _shareReportToTherapist(String therapistId) async {
+    final chatEnabled = await _isChatEnabled();
+    if (!chatEnabled) {
+      throw StateError('Coming soon');
+    }
     final subscription = await AppRepositories.billing.getCurrentSubscription();
     final thread = await AppRepositories.support.ensureThread(
       therapistId: therapistId,
@@ -1336,9 +1356,13 @@ class _ShareReportSheetState extends State<_ShareReportSheet> {
         return;
       }
       setState(() => _phase = _ShareSheetPhase.selecting);
+      final raw = error.toString();
+      final message = raw.contains('Coming soon')
+          ? 'Coming soon'
+          : 'Unable to share report: $error';
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Unable to share report: $error')));
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 

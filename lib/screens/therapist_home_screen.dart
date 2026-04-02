@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
@@ -61,10 +61,12 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
         return;
       }
       setState(() {
-        _profile = profile ??
+        _profile =
+            profile ??
             TherapistProfile(
               id: uid,
-              displayName: FirebaseAuth.instance.currentUser?.displayName ?? 'Therapist',
+              displayName:
+                  FirebaseAuth.instance.currentUser?.displayName ?? 'Therapist',
               bio: '',
               specializations: const <String>[],
               pricing: '',
@@ -77,16 +79,18 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
             );
         _years = intFrom(data['yearsOfExperience']);
         _credentials = (data['credentials'] ?? '').toString();
-        _contactEmail = (data['contactEmail'] ??
-                userProfile?.email ??
-                FirebaseAuth.instance.currentUser?.email ??
-                '')
-            .toString();
-        _contactPhone = (data['contactPhone'] ??
-                userProfile?.phone ??
-                FirebaseAuth.instance.currentUser?.phoneNumber ??
-                '')
-            .toString();
+        _contactEmail =
+            (data['contactEmail'] ??
+                    userProfile?.email ??
+                    FirebaseAuth.instance.currentUser?.email ??
+                    '')
+                .toString();
+        _contactPhone =
+            (data['contactPhone'] ??
+                    userProfile?.phone ??
+                    FirebaseAuth.instance.currentUser?.phoneNumber ??
+                    '')
+                .toString();
         _certificatePdfName = data['certificatePdfName']?.toString();
         _packages = parsedPackages;
         _notificationPrefs = {
@@ -110,7 +114,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
     }
     _profilePromptDone = true;
 
-    final incomplete = _profile!.specializations.isEmpty ||
+    final incomplete =
+        _profile!.specializations.isEmpty ||
         _years <= 0 ||
         _credentials.trim().isEmpty ||
         _packages.isEmpty;
@@ -169,10 +174,14 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
       bio: profile.bio,
       specializations: profile.specializations,
       pricing: pricing,
-      languages: profile.languages.isEmpty ? const ['English'] : profile.languages,
+      languages: profile.languages.isEmpty
+          ? const ['English']
+          : profile.languages,
       // Hardcoded fallback rating removed for now.
       rating: profile.rating,
-      availability: profile.availability.isEmpty ? 'Open' : profile.availability,
+      availability: profile.availability.isEmpty
+          ? 'Open'
+          : profile.availability,
       photoUrl: profile.photoUrl,
       isActive: profile.isActive,
     );
@@ -182,15 +191,16 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
         .collection(FirestoreCollections.therapistProfiles)
         .doc(uid)
         .set({
-      'yearsOfExperience': years,
-      'credentials': credentials,
-      'contactEmail': contactEmail,
-      'contactPhone': contactPhone,
-      if (certificatePdfName != null) 'certificatePdfName': certificatePdfName,
-      'servicePackages': packages.map((item) => item.toMap()).toList(),
-      'isActive': normalized.isActive,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+          'yearsOfExperience': years,
+          'credentials': credentials,
+          'contactEmail': contactEmail,
+          'contactPhone': contactPhone,
+          if (certificatePdfName != null)
+            'certificatePdfName': certificatePdfName,
+          'servicePackages': packages.map((item) => item.toMap()).toList(),
+          'isActive': normalized.isActive,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
 
     if (!mounted) {
       return;
@@ -231,9 +241,9 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
         .collection(FirestoreCollections.therapistProfiles)
         .doc(uid)
         .set({
-      'isActive': isActive,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+          'isActive': isActive,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
     if (!mounted) {
       return;
     }
@@ -286,7 +296,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
             final updated = await Navigator.push<List<TherapyPackage>>(
               this.context,
               MaterialPageRoute(
-                builder: (_) => TherapistPackagesScreen(initialPackages: _packages),
+                builder: (_) =>
+                    TherapistPackagesScreen(initialPackages: _packages),
               ),
             );
             if (updated != null && _profile != null) {
@@ -339,9 +350,9 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
         .collection(FirestoreCollections.therapistProfiles)
         .doc(uid)
         .set({
-      'therapistNotificationPreferences': values,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+          'therapistNotificationPreferences': values,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
     if (!mounted) {
       return;
     }
@@ -365,6 +376,15 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
     );
   }
 
+  void _showComingSoon() {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Coming soon')));
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -377,9 +397,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
         backgroundColor: const Color(0xFFF6F6F6),
         body: Stack(
           children: [
-            const Positioned.fill(
-              child: ColoredBox(color: Color(0xFF9ED7F4)),
-            ),
+            const Positioned.fill(child: ColoredBox(color: Color(0xFF9ED7F4))),
             Positioned(
               top: 96,
               left: 0,
@@ -452,55 +470,72 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
                 children: [
                   const SizedBox(height: 140),
                   Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final cardWidth = math.min(
-                          324.0,
-                          constraints.maxWidth - 52,
-                        );
-                        return SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(0, 12, 0, 172),
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              minHeight: math.max(0, constraints.maxHeight - 184),
-                            ),
-                            child: Center(
-                              child: SizedBox(
-                                width: cardWidth,
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    _ModuleCard(
-                                      title: 'Dashboard',
-                                      color: const Color(0xFFF6B1BF),
-                                      asset: 'assets/images/Dashboard.png',
-                                      onTap: _openDashboard,
-                                    ),
-                                    const SizedBox(height: 14),
-                                    _ModuleCard(
-                                      title: 'Messages',
-                                      color: const Color(0xFFA5E876),
-                                      asset: 'assets/images/Professional_Support.png',
-                                      onTap: () => Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              const TherapistMessagesScreen(),
+                    child: StreamBuilder<ProfessionalSupportFeatureFlags>(
+                      stream: AppRepositories.content
+                          .watchProfessionalSupportFeatureFlags(),
+                      initialData: ProfessionalSupportFeatureFlags.enabled,
+                      builder: (context, flagsSnapshot) {
+                        final featureFlags =
+                            flagsSnapshot.data ??
+                            ProfessionalSupportFeatureFlags.enabled;
+                        return LayoutBuilder(
+                          builder: (context, constraints) {
+                            final cardWidth = math.min(
+                              324.0,
+                              constraints.maxWidth - 52,
+                            );
+                            return SingleChildScrollView(
+                              padding: const EdgeInsets.fromLTRB(0, 12, 0, 172),
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  minHeight: math.max(
+                                    0,
+                                    constraints.maxHeight - 184,
+                                  ),
+                                ),
+                                child: Center(
+                                  child: SizedBox(
+                                    width: cardWidth,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        _ModuleCard(
+                                          title: 'Dashboard',
+                                          color: const Color(0xFFF6B1BF),
+                                          asset: 'assets/images/Dashboard.png',
+                                          onTap: _openDashboard,
                                         ),
-                                      ),
+                                        const SizedBox(height: 14),
+                                        _ModuleCard(
+                                          title: 'Messages',
+                                          color: const Color(0xFFA5E876),
+                                          asset:
+                                              'assets/images/Professional_Support.png',
+                                          enabled: featureFlags.chatEnabled,
+                                          onTap: featureFlags.chatEnabled
+                                              ? () => Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        const TherapistMessagesScreen(),
+                                                  ),
+                                                )
+                                              : _showComingSoon,
+                                        ),
+                                        const SizedBox(height: 14),
+                                        _ModuleCard(
+                                          title: 'Settings',
+                                          color: const Color(0xFF66D2E8),
+                                          asset: 'assets/images/Settings.png',
+                                          onTap: _openSettingsDialog,
+                                        ),
+                                      ],
                                     ),
-                                    const SizedBox(height: 14),
-                                    _ModuleCard(
-                                      title: 'Settings',
-                                      color: const Color(0xFF66D2E8),
-                                      asset: 'assets/images/Settings.png',
-                                      onTap: _openSettingsDialog,
-                                    ),
-                                  ],
+                                  ),
                                 ),
                               ),
-                            ),
-                          ),
+                            );
+                          },
                         );
                       },
                     ),
@@ -573,8 +608,9 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                 ? 'Profile is now visible to all parents.'
                 : 'Profile is now hidden from new parents.',
           ),
-          backgroundColor:
-              nextIsActive ? const Color(0xFF0B7D3B) : const Color(0xFFB45309),
+          backgroundColor: nextIsActive
+              ? const Color(0xFF0B7D3B)
+              : const Color(0xFFB45309),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -602,16 +638,21 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
     final specialization = profile.specializations.isEmpty
         ? 'ABA Therapy'
         : profile.specializations.first;
-    final visibilityBg =
-        _isActive ? const Color(0xFFDDFCEA) : const Color(0xFFFFF1E8);
-    final visibilityBorder =
-        _isActive ? const Color(0xFFA7E9C6) : const Color(0xFFFFC9A7);
-    final statusColor =
-        _isActive ? const Color(0xFF0B7D3B) : const Color(0xFFB45309);
-    final detailColor =
-        _isActive ? const Color(0xFF17924C) : const Color(0xFFC2410C);
-    final actionColor =
-        _isActive ? const Color(0xFF0EA5C6) : const Color(0xFFB45309);
+    final visibilityBg = _isActive
+        ? const Color(0xFFDDFCEA)
+        : const Color(0xFFFFF1E8);
+    final visibilityBorder = _isActive
+        ? const Color(0xFFA7E9C6)
+        : const Color(0xFFFFC9A7);
+    final statusColor = _isActive
+        ? const Color(0xFF0B7D3B)
+        : const Color(0xFFB45309);
+    final detailColor = _isActive
+        ? const Color(0xFF17924C)
+        : const Color(0xFFC2410C);
+    final actionColor = _isActive
+        ? const Color(0xFF0EA5C6)
+        : const Color(0xFFB45309);
     return SessionGuard(
       role: SessionGuardRole.therapist,
       child: Scaffold(
@@ -626,7 +667,10 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                   children: [
                     IconButton(
                       onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back, color: Color(0xFF1F2937)),
+                      icon: const Icon(
+                        Icons.arrow_back,
+                        color: Color(0xFF1F2937),
+                      ),
                     ),
                     const Expanded(
                       child: Text(
@@ -660,20 +704,29 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                               const CircleAvatar(
                                 radius: 26,
                                 backgroundColor: Color(0xFFD8F6DF),
-                                backgroundImage: AssetImage('assets/images/autiease.png'),
+                                backgroundImage: AssetImage(
+                                  'assets/images/autiease.png',
+                                ),
                               ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(profile.displayName,
-                                        style: const TextStyle(
-                                            fontSize: 30 / 1.5,
-                                            fontWeight: FontWeight.w500,
-                                            color: Color(0xFF1F2937))),
-                                    Text(specialization,
-                                        style: const TextStyle(color: Color(0xFF16A34A))),
+                                    Text(
+                                      profile.displayName,
+                                      style: const TextStyle(
+                                        fontSize: 30 / 1.5,
+                                        fontWeight: FontWeight.w500,
+                                        color: Color(0xFF1F2937),
+                                      ),
+                                    ),
+                                    Text(
+                                      specialization,
+                                      style: const TextStyle(
+                                        color: Color(0xFF16A34A),
+                                      ),
+                                    ),
                                     Text(
                                       widget.years > 0
                                           ? '${widget.years} years exp'
@@ -709,33 +762,36 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                           Wrap(
                             spacing: 8,
                             runSpacing: 8,
-                            children: (profile.specializations.isEmpty
-                                    ? const [
-                                        'ABA Therapy',
-                                        'Speech Therapy',
-                                        'Social Skills',
-                                      ]
-                                    : profile.specializations)
-                                .map(
-                                  (item) => Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFDDEBFF),
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: Text(
-                                      item,
-                                      style: const TextStyle(
-                                        fontSize: 11.5,
-                                        color: Color(0xFF3165C9),
+                            children:
+                                (profile.specializations.isEmpty
+                                        ? const [
+                                            'ABA Therapy',
+                                            'Speech Therapy',
+                                            'Social Skills',
+                                          ]
+                                        : profile.specializations)
+                                    .map(
+                                      (item) => Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFDDEBFF),
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          item,
+                                          style: const TextStyle(
+                                            fontSize: 11.5,
+                                            color: Color(0xFF3165C9),
+                                          ),
+                                        ),
                                       ),
-                                    ),
-                                  ),
-                                )
-                                .toList(),
+                                    )
+                                    .toList(),
                           ),
                         ],
                       ),
@@ -776,7 +832,8 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         _isActive
@@ -807,13 +864,17 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                                     foregroundColor: actionColor,
                                     side: BorderSide(color: actionColor),
                                     minimumSize: const Size(86, 40),
-                                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                    ),
                                   ),
                                   child: _updatingVisibility
                                       ? const SizedBox(
                                           width: 16,
                                           height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
                                         )
                                       : Text(
                                           _isActive ? 'Hide' : 'Show',
@@ -847,10 +908,16 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                             ),
                           ),
                           SizedBox(height: 6),
-                          Text('✓ Complete all profile sections with detailed information'),
-                          Text('✓ Add multiple service packages to attract different needs'),
+                          Text(
+                            '✓ Complete all profile sections with detailed information',
+                          ),
+                          Text(
+                            '✓ Add multiple service packages to attract different needs',
+                          ),
                           Text('✓ Respond quickly to parent inquiries'),
-                          Text('✓ Maintain a high rating through quality service'),
+                          Text(
+                            '✓ Maintain a high rating through quality service',
+                          ),
                         ],
                       ),
                     ),
@@ -864,11 +931,13 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
     );
   }
 }
+
 class TherapistMessagesScreen extends StatefulWidget {
   const TherapistMessagesScreen({super.key});
 
   @override
-  State<TherapistMessagesScreen> createState() => _TherapistMessagesScreenState();
+  State<TherapistMessagesScreen> createState() =>
+      _TherapistMessagesScreenState();
 }
 
 class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
@@ -920,7 +989,10 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
                       child: Text(
                         'Messages',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 46 / 1.5, fontWeight: FontWeight.w500),
+                        style: TextStyle(
+                          fontSize: 46 / 1.5,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 40),
@@ -931,7 +1003,8 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
                 child: TextField(
                   controller: _searchController,
-                  onChanged: (value) => setState(() => _query = value.trim().toLowerCase()),
+                  onChanged: (value) =>
+                      setState(() => _query = value.trim().toLowerCase()),
                   decoration: InputDecoration(
                     hintText: 'Search conversations...',
                     filled: true,
@@ -946,47 +1019,64 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
               const Divider(height: 1),
               Expanded(
                 child: StreamBuilder<List<TherapistThread>>(
-                  stream: AppRepositories.support.watchThreadsForRole('therapist'),
+                  stream: AppRepositories.support.watchThreadsForRole(
+                    'therapist',
+                  ),
                   builder: (context, snapshot) {
                     final threads = snapshot.data ?? const <TherapistThread>[];
                     if (threads.isEmpty) {
-                      return const Center(child: Text('No parent conversations yet.'));
+                      return const Center(
+                        child: Text('No parent conversations yet.'),
+                      );
                     }
                     final filtered = threads.where((thread) {
                       if (_query.isEmpty) return true;
                       final hay =
-                          '${thread.parentDisplayName} ${thread.lastMessagePreview}'.toLowerCase();
+                          '${thread.parentDisplayName} ${thread.lastMessagePreview}'
+                              .toLowerCase();
                       return hay.contains(_query);
                     }).toList();
 
                     return FutureBuilder<Map<String, UserProfile>>(
                       future: _loadParentProfiles(filtered),
                       builder: (context, parentSnapshot) {
-                        final parentMap = parentSnapshot.data ?? const <String, UserProfile>{};
+                        final parentMap =
+                            parentSnapshot.data ??
+                            const <String, UserProfile>{};
                         return ListView.separated(
                           itemCount: filtered.length,
                           separatorBuilder: (_, __) => const Divider(height: 1),
                           itemBuilder: (context, index) {
                             final thread = filtered[index];
                             final parentProfile = parentMap[thread.parentId];
-                            final parentName = thread.parentDisplayName.isNotEmpty
+                            final parentName =
+                                thread.parentDisplayName.isNotEmpty
                                 ? thread.parentDisplayName
                                 : (parentProfile?.fullName.isNotEmpty == true
-                                    ? parentProfile!.fullName
-                                    : parentProfile?.email ?? 'Parent');
+                                      ? parentProfile!.fullName
+                                      : parentProfile?.email ?? 'Parent');
 
                             return ListTile(
                               leading: const CircleAvatar(
                                 backgroundColor: Color(0xFFD9F4DF),
-                                child: Icon(Icons.person, color: Color(0xFF64748B)),
+                                child: Icon(
+                                  Icons.person,
+                                  color: Color(0xFF64748B),
+                                ),
                               ),
-                              title: Text(parentName,
-                                  style: const TextStyle(fontWeight: FontWeight.w600)),
+                              title: Text(
+                                parentName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Parent conversation',
-                                      style: TextStyle(color: Color(0xFF16A34A))),
+                                  const Text(
+                                    'Parent conversation',
+                                    style: TextStyle(color: Color(0xFF16A34A)),
+                                  ),
                                   Text(
                                     thread.lastMessagePreview.isEmpty
                                         ? 'No messages yet'
@@ -994,19 +1084,26 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                  Text(_friendlyTime(thread.lastMessageAt),
-                                      style: const TextStyle(color: Color(0xFF9CA3AF))),
+                                  Text(
+                                    _friendlyTime(thread.lastMessageAt),
+                                    style: const TextStyle(
+                                      color: Color(0xFF9CA3AF),
+                                    ),
+                                  ),
                                 ],
                               ),
                               trailing: thread.hasOpenEmergency
                                   ? const CircleAvatar(
                                       radius: 12,
                                       backgroundColor: Color(0xFFF85D93),
-                                      child: Text('2',
-                                          style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w700)),
+                                      child: Text(
+                                        '2',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
                                     )
                                   : null,
                               onTap: () {
@@ -1067,14 +1164,16 @@ class TherapistProfileSettingsScreen extends StatefulWidget {
     required String contactPhone,
     required List<TherapyPackage> packages,
     String? certificatePdfName,
-  }) onSave;
+  })
+  onSave;
 
   @override
   State<TherapistProfileSettingsScreen> createState() =>
       _TherapistProfileSettingsScreenState();
 }
 
-class _TherapistProfileSettingsScreenState extends State<TherapistProfileSettingsScreen> {
+class _TherapistProfileSettingsScreenState
+    extends State<TherapistProfileSettingsScreen> {
   final _selected = <String>{};
   late final TextEditingController _first;
   late final TextEditingController _last;
@@ -1091,11 +1190,14 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
     super.initState();
     final display = widget.profile.displayName.trim().split(' ');
     _first = TextEditingController(text: display.isEmpty ? '' : display.first);
-    _last = TextEditingController(text: display.length > 1 ? display.sublist(1).join(' ') : '');
+    _last = TextEditingController(
+      text: display.length > 1 ? display.sublist(1).join(' ') : '',
+    );
     _email = TextEditingController(text: widget.initialEmail);
     _phone = TextEditingController(text: widget.initialPhone);
     _years = TextEditingController(
-        text: widget.initialYears > 0 ? widget.initialYears.toString() : '');
+      text: widget.initialYears > 0 ? widget.initialYears.toString() : '',
+    );
     _credentials = TextEditingController(text: widget.initialCredentials);
     _about = TextEditingController(text: widget.profile.bio);
     _certificatePdfName = widget.initialCertificatePdfName;
@@ -1118,7 +1220,8 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
     final updated = await Navigator.push<List<TherapyPackage>>(
       context,
       MaterialPageRoute(
-        builder: (_) => TherapistPackagesScreen(initialPackages: widget.initialPackages),
+        builder: (_) =>
+            TherapistPackagesScreen(initialPackages: widget.initialPackages),
       ),
     );
 
@@ -1207,9 +1310,9 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Selected PDF: $fileName')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Selected PDF: $fileName')));
   }
 
   @override
@@ -1239,7 +1342,9 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
                     ),
                     Expanded(
                       child: Text(
-                        widget.setupMode ? 'Complete Your Profile' : 'My Profile',
+                        widget.setupMode
+                            ? 'Complete Your Profile'
+                            : 'My Profile',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 30 / 1.5,
@@ -1258,7 +1363,9 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
                     const Center(
                       child: CircleAvatar(
                         radius: 42,
-                        backgroundImage: AssetImage('assets/images/autiease.png'),
+                        backgroundImage: AssetImage(
+                          'assets/images/autiease.png',
+                        ),
                       ),
                     ),
                     Container(
@@ -1267,8 +1374,10 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Select Your Specializations',
-                              style: TextStyle(fontWeight: FontWeight.w600)),
+                          const Text(
+                            'Select Your Specializations',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
                           for (final item in _specializations)
                             CheckboxListTile(
                               contentPadding: EdgeInsets.zero,
@@ -1283,7 +1392,10 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
                                   }
                                 });
                               },
-                              title: Text(item, style: const TextStyle(fontSize: 13.5)),
+                              title: Text(
+                                item,
+                                style: const TextStyle(fontSize: 13.5),
+                              ),
                             ),
                         ],
                       ),
@@ -1295,9 +1407,17 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
                       _input('Last Name', _last),
                       const SizedBox(height: 8),
                     ],
-                    _input('Years of Experience', _years, keyboard: TextInputType.number),
+                    _input(
+                      'Years of Experience',
+                      _years,
+                      keyboard: TextInputType.number,
+                    ),
                     const SizedBox(height: 8),
-                    _input('Credentials & Certifications', _credentials, lines: 3),
+                    _input(
+                      'Credentials & Certifications',
+                      _credentials,
+                      lines: 3,
+                    ),
                     const SizedBox(height: 8),
                     _input('About You', _about, lines: 4),
                     const SizedBox(height: 10),
@@ -1339,7 +1459,9 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
                                       height: 16,
                                       width: 16,
                                       child: CircularProgressIndicator(
-                                          strokeWidth: 2, color: Colors.white),
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
                                     )
                                   : const Text('Next: Pricing'),
                             ),
@@ -1362,7 +1484,9 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
                                   height: 16,
                                   width: 16,
                                   child: CircularProgressIndicator(
-                                      strokeWidth: 2, color: Colors.white),
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
                                 )
                               : const Text('Save Changes'),
                         ),
@@ -1431,8 +1555,9 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
                                 children: [
                                   const CircleAvatar(
                                     radius: 26,
-                                    backgroundImage:
-                                        AssetImage('assets/images/autiease.png'),
+                                    backgroundImage: AssetImage(
+                                      'assets/images/autiease.png',
+                                    ),
                                   ),
                                   Positioned(
                                     right: 0,
@@ -1463,9 +1588,12 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      '${_first.text.trim()} ${_last.text.trim()}'.trim().isEmpty
+                                      '${_first.text.trim()} ${_last.text.trim()}'
+                                              .trim()
+                                              .isEmpty
                                           ? widget.profile.displayName
-                                          : '${_first.text.trim()} ${_last.text.trim()}'.trim(),
+                                          : '${_first.text.trim()} ${_last.text.trim()}'
+                                                .trim(),
                                       style: const TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
@@ -1495,19 +1623,9 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
                           const SizedBox(height: 10),
                           Row(
                             children: [
-                              Expanded(
-                                child: _input(
-                                  'First Name',
-                                  _first,
-                                ),
-                              ),
+                              Expanded(child: _input('First Name', _first)),
                               const SizedBox(width: 8),
-                              Expanded(
-                                child: _input(
-                                  'Last Name',
-                                  _last,
-                                ),
-                              ),
+                              Expanded(child: _input('Last Name', _last)),
                             ],
                           ),
                           const SizedBox(height: 8),
@@ -1589,7 +1707,9 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
                               margin: const EdgeInsets.only(bottom: 7),
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFFE5E7EB)),
+                                border: Border.all(
+                                  color: const Color(0xFFE5E7EB),
+                                ),
                                 color: Colors.white,
                               ),
                               child: CheckboxListTile(
@@ -1599,7 +1719,8 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
                                   horizontal: 8,
                                   vertical: 0,
                                 ),
-                                controlAffinity: ListTileControlAffinity.leading,
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
                                 activeColor: const Color(0xFF11B5CF),
                                 onChanged: (value) {
                                   setState(() {
@@ -1627,7 +1748,9 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: _saving ? null : () => _save(widget.initialPackages),
+                        onPressed: _saving
+                            ? null
+                            : () => _save(widget.initialPackages),
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFF11B5CF),
                           foregroundColor: Colors.white,
@@ -1658,8 +1781,12 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
     );
   }
 
-  Widget _input(String label, TextEditingController controller,
-      {int lines = 1, TextInputType? keyboard}) {
+  Widget _input(
+    String label,
+    TextEditingController controller, {
+    int lines = 1,
+    TextInputType? keyboard,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1739,13 +1866,15 @@ class _TherapistProfileSettingsScreenState extends State<TherapistProfileSetting
     return phoneRegex.hasMatch(phone);
   }
 }
+
 class TherapistPackagesScreen extends StatefulWidget {
   const TherapistPackagesScreen({super.key, required this.initialPackages});
 
   final List<TherapyPackage> initialPackages;
 
   @override
-  State<TherapistPackagesScreen> createState() => _TherapistPackagesScreenState();
+  State<TherapistPackagesScreen> createState() =>
+      _TherapistPackagesScreenState();
 }
 
 class _TherapistPackagesScreenState extends State<TherapistPackagesScreen> {
@@ -1814,10 +1943,14 @@ class _TherapistPackagesScreenState extends State<TherapistPackagesScreen> {
                         icon: const Icon(Icons.arrow_back),
                       ),
                       const Expanded(
-                        child: Text('Service Packages',
-                            textAlign: TextAlign.center,
-                            style:
-                                TextStyle(fontSize: 46 / 1.5, fontWeight: FontWeight.w500)),
+                        child: Text(
+                          'Service Packages',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 46 / 1.5,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 40),
                     ],
@@ -1843,8 +1976,11 @@ class _TherapistPackagesScreenState extends State<TherapistPackagesScreen> {
                           package: _packages[i],
                           onEdit: () => _addOrEdit(index: i),
                           onDelete: () => setState(() => _packages.removeAt(i)),
-                          onVisible: (value) =>
-                              setState(() => _packages[i] = _packages[i].copy(visible: value)),
+                          onVisible: (value) => setState(
+                            () => _packages[i] = _packages[i].copy(
+                              visible: value,
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 12),
                       ],
@@ -1894,7 +2030,10 @@ class _TherapistNotificationSettingsScreenState
   @override
   void initState() {
     super.initState();
-    final initial = {..._defaultTherapistNotificationPrefs, ...widget.initialValues};
+    final initial = {
+      ..._defaultTherapistNotificationPrefs,
+      ...widget.initialValues,
+    };
     email = initial['email'] ?? false;
     sms = initial['sms'] ?? false;
     newMessages = initial['newMessages'] ?? false;
@@ -1923,10 +2062,14 @@ class _TherapistNotificationSettingsScreenState
                       icon: const Icon(Icons.arrow_back),
                     ),
                     const Expanded(
-                      child: Text('Notification Settings',
-                          textAlign: TextAlign.center,
-                          style:
-                              TextStyle(fontSize: 40 / 1.5, fontWeight: FontWeight.w500)),
+                      child: Text(
+                        'Notification Settings',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 40 / 1.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 40),
                   ],
@@ -1936,21 +2079,48 @@ class _TherapistNotificationSettingsScreenState
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
                   children: [
-                    _switchTile('Email Notifications', 'Receive updates via email', email,
-                        (v) => setState(() => email = v)),
-                    _switchTile('SMS Notifications', 'Receive text message alerts', sms,
-                        (v) => setState(() => sms = v)),
-                    _switchTile('New Messages', 'When parents send you messages', newMessages,
-                        (v) => setState(() => newMessages = v)),
-                    _switchTile('New Bookings', 'When parents book your sessions', bookings,
-                        (v) => setState(() => bookings = v)),
-                    _switchTile('Session Reminders', 'Upcoming session notifications', reminders,
-                        (v) => setState(() => reminders = v)),
-                    _switchTile('Payment Alerts', 'Payment and transaction updates', payments,
-                        (v) => setState(() => payments = v)),
-                    _switchTile('Emergency Button Alerts',
-                        'Instant alerts for emergency events', emergency,
-                        (v) => setState(() => emergency = v)),
+                    _switchTile(
+                      'Email Notifications',
+                      'Receive updates via email',
+                      email,
+                      (v) => setState(() => email = v),
+                    ),
+                    _switchTile(
+                      'SMS Notifications',
+                      'Receive text message alerts',
+                      sms,
+                      (v) => setState(() => sms = v),
+                    ),
+                    _switchTile(
+                      'New Messages',
+                      'When parents send you messages',
+                      newMessages,
+                      (v) => setState(() => newMessages = v),
+                    ),
+                    _switchTile(
+                      'New Bookings',
+                      'When parents book your sessions',
+                      bookings,
+                      (v) => setState(() => bookings = v),
+                    ),
+                    _switchTile(
+                      'Session Reminders',
+                      'Upcoming session notifications',
+                      reminders,
+                      (v) => setState(() => reminders = v),
+                    ),
+                    _switchTile(
+                      'Payment Alerts',
+                      'Payment and transaction updates',
+                      payments,
+                      (v) => setState(() => payments = v),
+                    ),
+                    _switchTile(
+                      'Emergency Button Alerts',
+                      'Instant alerts for emergency events',
+                      emergency,
+                      (v) => setState(() => emergency = v),
+                    ),
                     const SizedBox(height: 12),
                     FilledButton(
                       onPressed: () {
@@ -1980,7 +2150,12 @@ class _TherapistNotificationSettingsScreenState
     );
   }
 
-  Widget _switchTile(String title, String subtitle, bool value, ValueChanged<bool> onChanged) {
+  Widget _switchTile(
+    String title,
+    String subtitle,
+    bool value,
+    ValueChanged<bool> onChanged,
+  ) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -1991,8 +2166,14 @@ class _TherapistNotificationSettingsScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
-                Text(subtitle, style: const TextStyle(color: Color(0xFF6B7280))),
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Color(0xFF6B7280)),
+                ),
               ],
             ),
           ),
@@ -2042,30 +2223,52 @@ class _TherapistSettingsDialog extends StatelessWidget {
               child: Icon(Icons.settings, color: Colors.white),
             ),
             const SizedBox(height: 8),
-            const Text('Settings',
-                style: TextStyle(fontSize: 36 / 1.5, fontWeight: FontWeight.w700)),
+            const Text(
+              'Settings',
+              style: TextStyle(fontSize: 36 / 1.5, fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
-                    child: _setBtn('Profile', const Color(0xFF10B6CF), Icons.person_outline,
-                        onProfile)),
+                  child: _setBtn(
+                    'Profile',
+                    const Color(0xFF10B6CF),
+                    Icons.person_outline,
+                    onProfile,
+                  ),
+                ),
                 const SizedBox(width: 8),
                 Expanded(
-                    child: _setBtn('Package', const Color(0xFFFB923C),
-                        Icons.inventory_2_outlined, onPackage)),
+                  child: _setBtn(
+                    'Package',
+                    const Color(0xFFFB923C),
+                    Icons.inventory_2_outlined,
+                    onPackage,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
-                    child: _setBtn('Alerts', const Color(0xFF8CC93B),
-                        Icons.notifications_none, onAlerts)),
+                  child: _setBtn(
+                    'Alerts',
+                    const Color(0xFF8CC93B),
+                    Icons.notifications_none,
+                    onAlerts,
+                  ),
+                ),
                 const SizedBox(width: 8),
                 Expanded(
-                    child: _setBtn('About Application', const Color(0xFF60A5FA),
-                        Icons.info_outline, onAbout)),
+                  child: _setBtn(
+                    'About Application',
+                    const Color(0xFF60A5FA),
+                    Icons.info_outline,
+                    onAbout,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 10),
@@ -2075,7 +2278,9 @@ class _TherapistSettingsDialog extends StatelessWidget {
                 onPressed: onLogout,
                 icon: const Icon(Icons.logout),
                 style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF3040), foregroundColor: Colors.white),
+                  backgroundColor: const Color(0xFFFF3040),
+                  foregroundColor: Colors.white,
+                ),
                 label: const Text('Logout'),
               ),
             ),
@@ -2092,17 +2297,25 @@ class _TherapistSettingsDialog extends StatelessWidget {
       child: Ink(
         height: 58,
         padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(10)),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(10),
+        ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, color: Colors.white, size: 16),
             const SizedBox(width: 6),
             Flexible(
-              child: Text(title,
-                  maxLines: 2,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+              child: Text(
+                title,
+                maxLines: 2,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ],
         ),
@@ -2140,14 +2353,23 @@ class _PackageTile extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: Text(package.title,
-                      style: const TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w700, fontSize: 30 / 1.5)),
+                  child: Text(
+                    package.title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 30 / 1.5,
+                    ),
+                  ),
                 ),
-                IconButton(onPressed: onEdit, icon: const Icon(Icons.edit, color: Colors.white)),
                 IconButton(
-                    onPressed: onDelete,
-                    icon: const Icon(Icons.delete_outline, color: Colors.white)),
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit, color: Colors.white),
+                ),
+                IconButton(
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline, color: Colors.white),
+                ),
               ],
             ),
           ),
@@ -2156,15 +2378,23 @@ class _PackageTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('\$${package.price.toStringAsFixed(0)} /session',
-                    style: const TextStyle(
-                        color: Color(0xFF0EA5C6),
-                        fontWeight: FontWeight.w700,
-                        fontSize: 42 / 1.5)),
+                Text(
+                  '\$${package.price.toStringAsFixed(0)} /session',
+                  style: const TextStyle(
+                    color: Color(0xFF0EA5C6),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 42 / 1.5,
+                  ),
+                ),
                 const SizedBox(height: 6),
-                Text('${package.durationMinutes} min • ${package.sessionsPerWeek} sessions/week'),
+                Text(
+                  '${package.durationMinutes} min • ${package.sessionsPerWeek} sessions/week',
+                ),
                 const SizedBox(height: 6),
-                Text(package.description, style: const TextStyle(color: Color(0xFF6B7280))),
+                Text(
+                  package.description,
+                  style: const TextStyle(color: Color(0xFF6B7280)),
+                ),
                 Row(
                   children: [
                     const Expanded(child: Text('Visible to parents')),
@@ -2200,10 +2430,18 @@ class _PackageEditorState extends State<_PackageEditor> {
   void initState() {
     super.initState();
     _title = TextEditingController(text: widget.initial?.title ?? '');
-    _price = TextEditingController(text: (widget.initial?.price ?? 75).toStringAsFixed(0));
-    _duration = TextEditingController(text: '${widget.initial?.durationMinutes ?? 60}');
-    _sessions = TextEditingController(text: '${widget.initial?.sessionsPerWeek ?? 3}');
-    _description = TextEditingController(text: widget.initial?.description ?? '');
+    _price = TextEditingController(
+      text: (widget.initial?.price ?? 75).toStringAsFixed(0),
+    );
+    _duration = TextEditingController(
+      text: '${widget.initial?.durationMinutes ?? 60}',
+    );
+    _sessions = TextEditingController(
+      text: '${widget.initial?.sessionsPerWeek ?? 3}',
+    );
+    _description = TextEditingController(
+      text: widget.initial?.description ?? '',
+    );
   }
 
   @override
@@ -2247,9 +2485,13 @@ class _PackageEditorState extends State<_PackageEditor> {
             Row(
               children: [
                 Expanded(
-                  child: Text(widget.initial == null ? 'Add New Package' : 'Edit Package',
-                      style:
-                          const TextStyle(fontSize: 34 / 1.5, fontWeight: FontWeight.w700)),
+                  child: Text(
+                    widget.initial == null ? 'Add New Package' : 'Edit Package',
+                    style: const TextStyle(
+                      fontSize: 34 / 1.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
                 IconButton(
                   onPressed: () => Navigator.pop(context),
@@ -2260,16 +2502,28 @@ class _PackageEditorState extends State<_PackageEditor> {
             const SizedBox(height: 6),
             _field('Package Title', _title),
             const SizedBox(height: 8),
-            _field('Price per Session (\$)', _price, keyboard: TextInputType.number),
+            _field(
+              'Price per Session (\$)',
+              _price,
+              keyboard: TextInputType.number,
+            ),
             const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
-                  child: _field('Duration (min)', _duration, keyboard: TextInputType.number),
+                  child: _field(
+                    'Duration (min)',
+                    _duration,
+                    keyboard: TextInputType.number,
+                  ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: _field('Sessions/Week', _sessions, keyboard: TextInputType.number),
+                  child: _field(
+                    'Sessions/Week',
+                    _sessions,
+                    keyboard: TextInputType.number,
+                  ),
                 ),
               ],
             ),
@@ -2281,8 +2535,12 @@ class _PackageEditorState extends State<_PackageEditor> {
               child: FilledButton(
                 onPressed: _save,
                 style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF11B5CF), foregroundColor: Colors.white),
-                child: Text(widget.initial == null ? 'Add Package' : 'Save Changes'),
+                  backgroundColor: const Color(0xFF11B5CF),
+                  foregroundColor: Colors.white,
+                ),
+                child: Text(
+                  widget.initial == null ? 'Add Package' : 'Save Changes',
+                ),
               ),
             ),
           ],
@@ -2291,8 +2549,12 @@ class _PackageEditorState extends State<_PackageEditor> {
     );
   }
 
-  Widget _field(String label, TextEditingController c,
-      {TextInputType? keyboard, int lines = 1}) {
+  Widget _field(
+    String label,
+    TextEditingController c, {
+    TextInputType? keyboard,
+    int lines = 1,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2338,15 +2600,21 @@ class _ModuleCard extends StatelessWidget {
     required this.color,
     required this.asset,
     required this.onTap,
+    this.enabled = true,
   });
 
   final String title;
   final Color color;
   final String asset;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
+    final cardColor = enabled ? color : color.withValues(alpha: 0.6);
+    final textColor = enabled
+        ? const Color(0xFF111827)
+        : const Color(0xFF4B5563);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -2356,7 +2624,7 @@ class _ModuleCard extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
           decoration: BoxDecoration(
-            color: color,
+            color: cardColor,
             borderRadius: BorderRadius.circular(14),
           ),
           child: Row(
@@ -2364,10 +2632,10 @@ class _ModuleCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 40 / 1.5,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF111827),
+                    color: textColor,
                   ),
                 ),
               ),
@@ -2427,7 +2695,9 @@ class TherapyPackage {
   }
 
   static TherapyPackage fromMap(Map<String, dynamic> map) {
-    final rawPrice = map.containsKey('price') ? map['price'] : map['pricePerSession'];
+    final rawPrice = map.containsKey('price')
+        ? map['price']
+        : map['pricePerSession'];
     final price = rawPrice is num ? rawPrice.toDouble() : 0.0;
     return TherapyPackage(
       title: (map['title'] ?? '').toString(),
@@ -2435,7 +2705,9 @@ class TherapyPackage {
       sessionsPerWeek: intFrom(map['sessionsPerWeek'], 3),
       price: price,
       description: (map['description'] ?? '').toString(),
-      visible: (map.containsKey('visible') ? map['visible'] : map['isVisible']) != false,
+      visible:
+          (map.containsKey('visible') ? map['visible'] : map['isVisible']) !=
+          false,
     );
   }
 }
@@ -2515,7 +2787,10 @@ class _DecorTriangle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(size: const Size(18, 18), painter: _TrianglePainter(color));
+    return CustomPaint(
+      size: const Size(18, 18),
+      painter: _TrianglePainter(color),
+    );
   }
 }
 
@@ -2542,11 +2817,7 @@ const BoxDecoration _cardDeco = BoxDecoration(
   color: Colors.white,
   borderRadius: BorderRadius.all(Radius.circular(14)),
   boxShadow: [
-    BoxShadow(
-      color: Color(0x1A000000),
-      blurRadius: 10,
-      offset: Offset(0, 2),
-    ),
+    BoxShadow(color: Color(0x1A000000), blurRadius: 10, offset: Offset(0, 2)),
   ],
 );
 
@@ -2577,6 +2848,3 @@ const List<String> _specializations = <String>[
   'Art Therapy',
   'Feeding Therapy',
 ];
-
-
-
