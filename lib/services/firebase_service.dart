@@ -8,6 +8,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 
 import '../firebase_options.dart';
+import '../config/communication_figma_catalog.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import 'auth_verification_policy.dart';
@@ -317,17 +318,15 @@ class FirebaseService {
           (entry) => entry.toLowerCase().contains('learning'),
         );
 
-        final defaultCategories = wantsCommunication
-            ? await AppRepositories.content.getAllCategories(
-                type: 'communication',
-              )
-            : const <ContentCategory>[];
         final defaultModules = wantsLearning
             ? await AppRepositories.content.getAllLearningModules()
             : const <LearningModuleModel>[];
         final defaultActivities = wantsLearning
             ? await AppRepositories.content.getAllActivityTemplates()
             : const <DailyActivityTemplate>[];
+        final defaultCommunicationIds = wantsCommunication
+            ? List<String>.from(CommunicationFigmaCatalog.homeBoardOrder)
+            : const <String>[];
 
         await AppRepositories.users.upsertParentProfile(profile);
         await _users.doc(user.uid).set({
@@ -339,9 +338,7 @@ class FirebaseService {
             id: childProfile.id,
             childId: childProfile.id,
             parentId: user.uid,
-            assignedCategoryIds: defaultCategories
-                .map((category) => category.id)
-                .toList(),
+            assignedCategoryIds: defaultCommunicationIds,
             assignedModuleIds: defaultModules
                 .map((module) => module.id)
                 .toList(),

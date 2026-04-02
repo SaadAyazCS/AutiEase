@@ -383,6 +383,38 @@ class DailyActivityTemplate {
   }
 }
 
+class CustomDailyActivity {
+  const CustomDailyActivity({
+    required this.id,
+    required this.title,
+    required this.timeLabel,
+    this.createdAt,
+  });
+
+  final String id;
+  final String title;
+  final String timeLabel;
+  final DateTime? createdAt;
+
+  factory CustomDailyActivity.fromMap(Map<String, dynamic> data) {
+    return CustomDailyActivity(
+      id: (data['id'] ?? '').toString(),
+      title: (data['title'] ?? '').toString(),
+      timeLabel: (data['timeLabel'] ?? '').toString(),
+      createdAt: dateTimeFromFirestore(data['createdAt']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'timeLabel': timeLabel,
+      'createdAt': createdAt,
+    };
+  }
+}
+
 class ChildAssignment {
   const ChildAssignment({
     required this.id,
@@ -392,6 +424,7 @@ class ChildAssignment {
     required this.assignedModuleIds,
     required this.assignedActivityTemplateIds,
     required this.status,
+    this.customDailyActivities = const <CustomDailyActivity>[],
     this.effectiveFrom,
   });
 
@@ -402,6 +435,7 @@ class ChildAssignment {
   final List<String> assignedModuleIds;
   final List<String> assignedActivityTemplateIds;
   final String status;
+  final List<CustomDailyActivity> customDailyActivities;
   final DateTime? effectiveFrom;
 
   factory ChildAssignment.fromMap(String id, Map<String, dynamic> data) {
@@ -415,6 +449,12 @@ class ChildAssignment {
         data['assignedActivityTemplateIds'],
       ),
       status: (data['status'] ?? 'draft').toString(),
+      customDailyActivities: (data['customDailyActivities'] is List)
+          ? (data['customDailyActivities'] as List)
+                .map((item) => CustomDailyActivity.fromMap(mapFrom(item)))
+                .where((item) => item.id.isNotEmpty && item.title.isNotEmpty)
+                .toList()
+          : const <CustomDailyActivity>[],
       effectiveFrom: dateTimeFromFirestore(data['effectiveFrom']),
     );
   }
@@ -427,6 +467,9 @@ class ChildAssignment {
       'assignedModuleIds': assignedModuleIds,
       'assignedActivityTemplateIds': assignedActivityTemplateIds,
       'status': status,
+      'customDailyActivities': customDailyActivities
+          .map((item) => item.toMap())
+          .toList(),
       'effectiveFrom': effectiveFrom,
     };
   }
@@ -457,6 +500,189 @@ class DashboardSnapshot {
       streakDays: intFrom(data['streakDays']),
       moodEntries: intFrom(data['moodEntries']),
       lastUpdated: dateTimeFromFirestore(data['lastUpdated']),
+    );
+  }
+}
+
+class ActivityProgressEntry {
+  const ActivityProgressEntry({
+    required this.id,
+    required this.childId,
+    required this.itemId,
+    required this.moduleId,
+    required this.status,
+    required this.score,
+    required this.attempts,
+    this.completedAt,
+  });
+
+  final String id;
+  final String childId;
+  final String itemId;
+  final String? moduleId;
+  final String status;
+  final int score;
+  final int attempts;
+  final DateTime? completedAt;
+
+  factory ActivityProgressEntry.fromMap(String id, Map<String, dynamic> data) {
+    return ActivityProgressEntry(
+      id: id,
+      childId: (data['childId'] ?? '').toString(),
+      itemId: (data['itemId'] ?? '').toString(),
+      moduleId: data['moduleId']?.toString(),
+      status: (data['status'] ?? 'completed').toString(),
+      score: intFrom(data['score']),
+      attempts: intFrom(data['attempts'], 1),
+      completedAt: dateTimeFromFirestore(data['completedAt']),
+    );
+  }
+}
+
+class MoodLogEntry {
+  const MoodLogEntry({
+    required this.id,
+    required this.childId,
+    required this.emotion,
+    required this.note,
+    this.createdAt,
+  });
+
+  final String id;
+  final String childId;
+  final String emotion;
+  final String note;
+  final DateTime? createdAt;
+
+  factory MoodLogEntry.fromMap(String id, Map<String, dynamic> data) {
+    return MoodLogEntry(
+      id: id,
+      childId: (data['childId'] ?? '').toString(),
+      emotion: (data['emotion'] ?? '').toString(),
+      note: (data['note'] ?? '').toString(),
+      createdAt: dateTimeFromFirestore(data['createdAt']),
+    );
+  }
+}
+
+class DashboardReportSection {
+  const DashboardReportSection({
+    required this.title,
+    required this.progressValue,
+    required this.body,
+    required this.statusLabel,
+  });
+
+  final String title;
+  final double progressValue;
+  final String body;
+  final String statusLabel;
+}
+
+class DashboardReport {
+  const DashboardReport({
+    required this.title,
+    required this.dateLabel,
+    required this.summarySubtitle,
+    required this.summaryText,
+    required this.sections,
+    required this.recommendations,
+  });
+
+  final String title;
+  final String dateLabel;
+  final String summarySubtitle;
+  final String summaryText;
+  final List<DashboardReportSection> sections;
+  final List<String> recommendations;
+}
+
+class DashboardMetrics {
+  const DashboardMetrics({
+    required this.childId,
+    required this.completedActivities,
+    required this.weeklyMinutes,
+    required this.monthlyCompletedActivities,
+    required this.monthlyMinutes,
+    required this.activityLevel,
+    required this.moodLabel,
+    required this.movePlayProgress,
+    required this.talkExpressProgress,
+    required this.focusGamesProgress,
+    required this.weeklyReport,
+    required this.monthlyReport,
+    required this.generatedAt,
+  });
+
+  final String childId;
+  final int completedActivities;
+  final int weeklyMinutes;
+  final int monthlyCompletedActivities;
+  final int monthlyMinutes;
+  final String activityLevel;
+  final String moodLabel;
+  final double movePlayProgress;
+  final double talkExpressProgress;
+  final double focusGamesProgress;
+  final DashboardReport weeklyReport;
+  final DashboardReport monthlyReport;
+  final DateTime generatedAt;
+
+  factory DashboardMetrics.empty(String childId) {
+    const emptySections = <DashboardReportSection>[
+      DashboardReportSection(
+        title: 'Move & Play',
+        progressValue: 0,
+        body: 'No tracked activity yet.',
+        statusLabel: 'No Data',
+      ),
+      DashboardReportSection(
+        title: 'Talk & Express',
+        progressValue: 0,
+        body: 'No tracked activity yet.',
+        statusLabel: 'No Data',
+      ),
+      DashboardReportSection(
+        title: 'Focus Games',
+        progressValue: 0,
+        body: 'No tracked activity yet.',
+        statusLabel: 'No Data',
+      ),
+    ];
+    return DashboardMetrics(
+      childId: childId,
+      completedActivities: 0,
+      weeklyMinutes: 0,
+      monthlyCompletedActivities: 0,
+      monthlyMinutes: 0,
+      activityLevel: 'Low',
+      moodLabel: 'Not set',
+      movePlayProgress: 0,
+      talkExpressProgress: 0,
+      focusGamesProgress: 0,
+      weeklyReport: const DashboardReport(
+        title: 'Weekly Progress Report',
+        dateLabel: '',
+        summarySubtitle: 'Progress',
+        summaryText: 'No activity has been tracked this week yet.',
+        sections: emptySections,
+        recommendations: <String>[
+          'Start with one short learning session today.',
+          'Use Learning Planner to assign activities.',
+        ],
+      ),
+      monthlyReport: const DashboardReport(
+        title: 'Monthly Assessment',
+        dateLabel: '',
+        summarySubtitle: 'Assessment',
+        summaryText: 'No activity has been tracked this month yet.',
+        sections: emptySections,
+        recommendations: <String>[
+          'Assign modules and daily activities in Learning Planner.',
+          'Track a few sessions to unlock monthly insights.',
+        ],
+      ),
+      generatedAt: DateTime.fromMillisecondsSinceEpoch(0),
     );
   }
 }

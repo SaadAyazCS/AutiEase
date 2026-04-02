@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../config/app_runtime_config.dart';
 import '../models/app_models.dart';
 import '../services/auth_verification_policy.dart';
+import '../services/dashboard_metrics_calculator.dart';
 import '../services/stripe_backend_client.dart';
 
 class FirestoreCollections {
@@ -66,6 +67,7 @@ abstract class PlannerRepository {
   Future<ChildAssignment?> getAssignmentForChild(String childId);
   Future<void> saveAssignment(ChildAssignment assignment);
   Stream<DashboardSnapshot?> watchDashboard(String childId);
+  Stream<DashboardMetrics?> watchDashboardMetrics(String childId);
   Future<void> recordMood({
     required String childId,
     required String emotion,
@@ -602,6 +604,7 @@ class FirebasePlannerRepository implements PlannerRepository {
   FirebasePlannerRepository(this._firestore);
 
   final FirebaseFirestore _firestore;
+  final DashboardMetricsCalculator _calculator = DashboardMetricsCalculator();
 
   @override
   Future<ChildAssignment?> getAssignmentForChild(String childId) async {
@@ -638,6 +641,161 @@ class FirebasePlannerRepository implements PlannerRepository {
           }
           return DashboardSnapshot.fromMap(doc.id, doc.data()!);
         });
+  }
+
+  @override
+  Stream<DashboardMetrics?> watchDashboardMetrics(String childId) {
+    final progressStream = _firestore
+        .collection(FirestoreCollections.activityProgress)
+        .where('childId', isEqualTo: childId)
+        .snapshots();
+    final moodStream = _firestore
+        .collection(FirestoreCollections.moodLogs)
+        .where('childId', isEqualTo: childId)
+        .snapshots();
+
+    return Stream<DashboardMetrics?>.multi((controller) {
+      QuerySnapshot<Map<String, dynamic>>? latestProgress;
+      QuerySnapshot<Map<String, dynamic>>? latestMoods;
+      var cancelled = false;
+
+      Future<void> emitIfReady() async {
+        if (cancelled || latestProgress == null || latestMoods == null) {
+          return;
+        }
+        try {
+          final metrics = await _buildMetrics(
+            childId: childId,
+            progressSnapshot: latestProgress!,
+            moodSnapshot: latestMoods!,
+          );
+          if (!cancelled) {
+            controller.add(metrics);
+          }
+        } catch (error, stackTrace) {
+          if (!cancelled) {
+            controller.addError(error, stackTrace);
+          }
+        }
+      }
+
+      final progressSub = progressStream.listen(
+        (snapshot) {
+          latestProgress = snapshot;
+          emitIfReady();
+        },
+        onError: controller.addError,
+      );
+
+      final moodSub = moodStream.listen(
+        (snapshot) {
+          latestMoods = snapshot;
+          emitIfReady();
+        },
+        onError: controller.addError,
+      );
+
+      controller.onCancel = () async {
+        cancelled = true;
+        await progressSub.cancel();
+        await moodSub.cancel();
+      };
+    });
+  }
+
+  Future<DashboardMetrics> _buildMetrics({
+    required String childId,
+    required QuerySnapshot<Map<String, dynamic>> progressSnapshot,
+    required QuerySnapshot<Map<String, dynamic>> moodSnapshot,
+  }) async {
+    final activityEvents = progressSnapshot.docs
+        .map((doc) => ActivityProgressEntry.fromMap(doc.id, doc.data()))
+        .toList();
+    final moodLogs = moodSnapshot.docs
+        .map((doc) => MoodLogEntry.fromMap(doc.id, doc.data()))
+        .toList();
+
+    final assignment = await getAssignmentForChild(childId);
+    final assignedModules = await _fetchLearningModules(
+      assignment?.assignedModuleIds ?? const <String>[],
+    );
+    final assignedTemplates = await _fetchActivityTemplates(
+      assignment?.assignedActivityTemplateIds ?? const <String>[],
+    );
+
+    return _calculator.build(
+      childId: childId,
+      activityEvents: activityEvents,
+      moodLogs: moodLogs,
+      assignedModules: assignedModules,
+      assignedTemplates: assignedTemplates,
+    );
+  }
+
+  Future<List<LearningModuleModel>> _fetchLearningModules(
+    List<String> moduleIds,
+  ) async {
+    final normalizedIds = moduleIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (normalizedIds.isEmpty) {
+      return const <LearningModuleModel>[];
+    }
+    final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    for (final chunk in _chunkIds(normalizedIds)) {
+      final snapshot = await _firestore
+          .collection(FirestoreCollections.learningModules)
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get();
+      docs.addAll(snapshot.docs);
+    }
+    final modules = docs
+        .map((doc) => LearningModuleModel.fromMap(doc.id, doc.data()))
+        .where((module) => module.isActive)
+        .toList();
+    modules.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    return modules;
+  }
+
+  Future<List<DailyActivityTemplate>> _fetchActivityTemplates(
+    List<String> templateIds,
+  ) async {
+    final normalizedIds = templateIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (normalizedIds.isEmpty) {
+      return const <DailyActivityTemplate>[];
+    }
+    final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    for (final chunk in _chunkIds(normalizedIds)) {
+      final snapshot = await _firestore
+          .collection(FirestoreCollections.dailyActivityTemplates)
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get();
+      docs.addAll(snapshot.docs);
+    }
+    final templates = docs
+        .map((doc) => DailyActivityTemplate.fromMap(doc.id, doc.data()))
+        .where((template) => template.isActive)
+        .toList();
+    templates.sort((a, b) => a.title.compareTo(b.title));
+    return templates;
+  }
+
+  Iterable<List<String>> _chunkIds(List<String> ids, {int size = 10}) sync* {
+    if (ids.isEmpty) {
+      return;
+    }
+    var index = 0;
+    while (index < ids.length) {
+      final end = (index + size) < ids.length ? index + size : ids.length;
+      yield ids.sublist(index, end);
+      index = end;
+    }
   }
 
   @override

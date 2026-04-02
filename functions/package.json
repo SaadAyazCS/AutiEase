@@ -7,7 +7,12 @@
   "main": "index.js",
   "scripts": {
     "seed": "node scripts/seed-firestore.js",
-    "cleanup:user": "node scripts/cleanup-user.js"
+    "cleanup:user": "node scripts/cleanup-user.js",
+    "seed:dashboard": "node scripts/seed-dashboard-test-data.js",
+    "clear:activity": "node scripts/clear-activity-data.js",
+    "clear:activity:daily": "node scripts/clear-activity-data.js --scope daily",
+    "clear:activity:weekly": "node scripts/clear-activity-data.js --scope weekly",
+    "clear:activity:all": "node scripts/clear-activity-data.js --scope all"
   },
   "dependencies": {
     "firebase-admin": "^13.0.2",

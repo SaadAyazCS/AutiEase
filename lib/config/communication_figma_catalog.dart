@@ -45,9 +45,7 @@ class CommunicationFigmaCatalog {
     'animals',
     'feelings',
     'alphabets',
-    'emergency',
-    'food',
-    'family',
+    'clothes',
   ];
 
   static const List<CommunicationBoardDefinition> boards =
@@ -272,6 +270,38 @@ class CommunicationFigmaCatalog {
             CommunicationBoardItem(id: 'letter-x', label: 'X', speakText: 'X'),
             CommunicationBoardItem(id: 'letter-y', label: 'Y', speakText: 'Y'),
             CommunicationBoardItem(id: 'letter-z', label: 'Z', speakText: 'Z'),
+          ],
+        ),
+        CommunicationBoardDefinition(
+          id: 'clothes',
+          title: 'Clothes',
+          homeEmoji: '\u{1F455}',
+          layout: CommunicationBoardLayout.grid,
+          items: <CommunicationBoardItem>[
+            CommunicationBoardItem(
+              id: 'cloth-shirt',
+              label: 'Shirt',
+              speakText: 'Shirt',
+              emoji: '\u{1F455}',
+            ),
+            CommunicationBoardItem(
+              id: 'cloth-pants',
+              label: 'Pants',
+              speakText: 'Pants',
+              emoji: '\u{1F456}',
+            ),
+            CommunicationBoardItem(
+              id: 'cloth-shoes',
+              label: 'Shoes',
+              speakText: 'Shoes',
+              emoji: '\u{1F45F}',
+            ),
+            CommunicationBoardItem(
+              id: 'cloth-jacket',
+              label: 'Jacket',
+              speakText: 'Jacket',
+              emoji: '\u{1F9E5}',
+            ),
           ],
         ),
         CommunicationBoardDefinition(

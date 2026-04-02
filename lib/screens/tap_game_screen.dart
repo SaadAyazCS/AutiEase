@@ -169,9 +169,8 @@ class _TapGameScreenState extends State<TapGameScreen> {
 
   int _levelIndex = 0;
   _TapGameStage _stage = _TapGameStage.playing;
-  int _earnedPoints = 0;
   bool _isSavingProgress = false;
-  bool _savedCompletion = false;
+  final Set<int> _recordedLevelNumbers = <int>{};
 
   _TapLevel get _currentLevel => _levels[_levelIndex];
 
@@ -198,22 +197,23 @@ class _TapGameScreenState extends State<TapGameScreen> {
     }
 
     if (_levelIndex < _levels.length - 1) {
+      final completedLevel = _levelIndex + 1;
       setState(() {
-        _earnedPoints += 100;
         _stage = _TapGameStage.levelCompleted;
       });
+      await _recordLevelCompletion(completedLevel);
       return;
     }
 
+    final completedLevel = _levelIndex + 1;
     setState(() {
-      _earnedPoints += 100;
       _stage = _TapGameStage.allLevelsCompleted;
     });
-    await _saveProgressIfNeeded();
+    await _recordLevelCompletion(completedLevel);
   }
 
-  Future<void> _saveProgressIfNeeded() async {
-    if (_savedCompletion || _isSavingProgress) {
+  Future<void> _recordLevelCompletion(int levelNumber) async {
+    if (_isSavingProgress || _recordedLevelNumbers.contains(levelNumber)) {
       return;
     }
 
@@ -223,11 +223,11 @@ class _TapGameScreenState extends State<TapGameScreen> {
     try {
       await AppRepositories.planner.recordActivityCompletion(
         childId: widget.childId,
-        itemId: widget.module.id,
+        itemId: '${widget.module.id}-level-$levelNumber',
         moduleId: widget.module.id,
-        score: _earnedPoints,
+        score: levelNumber * 100,
       );
-      _savedCompletion = true;
+      _recordedLevelNumbers.add(levelNumber);
     } finally {
       if (mounted) {
         setState(() {

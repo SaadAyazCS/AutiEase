@@ -1,4 +1,9 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
@@ -51,10 +56,11 @@ class DashboardScreen extends StatelessWidget {
             );
           }
 
-          return StreamBuilder<DashboardSnapshot?>(
-            stream: AppRepositories.planner.watchDashboard(child.id),
+          return StreamBuilder<DashboardMetrics?>(
+            stream: AppRepositories.planner.watchDashboardMetrics(child.id),
             builder: (context, snapshot) {
-              final dashboard = snapshot.data;
+              final dashboard =
+                  snapshot.data ?? DashboardMetrics.empty(child.id);
               return _DashboardHomeBody(
                 childProfile: child,
                 dashboard: dashboard,
@@ -74,16 +80,18 @@ class _DashboardHomeBody extends StatelessWidget {
   });
 
   final ChildProfile childProfile;
-  final DashboardSnapshot? dashboard;
+  final DashboardMetrics dashboard;
 
   @override
   Widget build(BuildContext context) {
-    final completedActivities = dashboard == null
-        ? 45
-        : dashboard!.completedTasks;
-    final weeklyHours = dashboard == null
-        ? 8.5
-        : (dashboard!.weeklyMinutes / 60.0);
+    final completedActivities = dashboard.completedActivities;
+    final weeklyHours = dashboard.weeklyMinutes / 60.0;
+    final weeklyReport = _ReportData.fromDashboardReport(
+      dashboard.weeklyReport,
+    );
+    final monthlyReport = _ReportData.fromDashboardReport(
+      dashboard.monthlyReport,
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1EFF0),
@@ -100,14 +108,20 @@ class _DashboardHomeBody extends StatelessWidget {
                 color: Color(0xFFFF3B3B),
                 size: 22,
               ),
-              child: const Row(
+              child: Row(
                 children: [
                   Expanded(
-                    child: _HealthPill(label: 'Activity Level', value: 'High'),
+                    child: _HealthPill(
+                      label: 'Activity Level',
+                      value: dashboard.activityLevel,
+                    ),
                   ),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: _HealthPill(label: 'Mood', value: 'Happy'),
+                    child: _HealthPill(
+                      label: 'Mood',
+                      value: dashboard.moodLabel,
+                    ),
                   ),
                 ],
               ),
@@ -120,27 +134,30 @@ class _DashboardHomeBody extends StatelessWidget {
                 color: Color(0xFF2F6FFF),
                 size: 20,
               ),
-              child: const Column(
+              child: Column(
                 children: [
                   _LearningProgressRow(
                     label: 'Move & Play',
-                    value: 0.85,
-                    percentText: '85%',
-                    barColor: Color(0xFF2F6FFF),
+                    value: dashboard.movePlayProgress,
+                    percentText:
+                        '${(dashboard.movePlayProgress * 100).round()}%',
+                    barColor: const Color(0xFF2F6FFF),
                   ),
-                  SizedBox(height: 10),
+                  const SizedBox(height: 10),
                   _LearningProgressRow(
                     label: 'Talk & Express',
-                    value: 0.72,
-                    percentText: '72%',
-                    barColor: Color(0xFF0FB247),
+                    value: dashboard.talkExpressProgress,
+                    percentText:
+                        '${(dashboard.talkExpressProgress * 100).round()}%',
+                    barColor: const Color(0xFF0FB247),
                   ),
-                  SizedBox(height: 10),
+                  const SizedBox(height: 10),
                   _LearningProgressRow(
                     label: 'Focus Games',
-                    value: 0.90,
-                    percentText: '90%',
-                    barColor: Color(0xFF8C3DE0),
+                    value: dashboard.focusGamesProgress,
+                    percentText:
+                        '${(dashboard.focusGamesProgress * 100).round()}%',
+                    barColor: const Color(0xFF8C3DE0),
                   ),
                 ],
               ),
@@ -156,30 +173,33 @@ class _DashboardHomeBody extends StatelessWidget {
               child: Column(
                 children: [
                   _RecentReportTile(
-                    title: 'Weekly Progress Report',
-                    date: 'Jan 1, 2026',
-                    chipLabel: 'Progress',
+                    title: weeklyReport.title,
+                    date: weeklyReport.dateLabel,
+                    chipLabel: weeklyReport.summarySubtitle,
                     onTap: () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) =>
-                              _ReportDetailScreen(report: _ReportData.weekly()),
+                          builder: (_) => _ReportDetailScreen(
+                            report: weeklyReport,
+                            childProfile: childProfile,
+                          ),
                         ),
                       );
                     },
                   ),
                   const SizedBox(height: 10),
                   _RecentReportTile(
-                    title: 'Monthly Assessment',
-                    date: 'Dec 15, 2025',
-                    chipLabel: 'Assessment',
+                    title: monthlyReport.title,
+                    date: monthlyReport.dateLabel,
+                    chipLabel: monthlyReport.summarySubtitle,
                     onTap: () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (_) => _ReportDetailScreen(
-                            report: _ReportData.monthly(),
+                            report: monthlyReport,
+                            childProfile: childProfile,
                           ),
                         ),
                       );
@@ -530,9 +550,10 @@ class _WeekStatCard extends StatelessWidget {
 }
 
 class _ReportDetailScreen extends StatefulWidget {
-  const _ReportDetailScreen({required this.report});
+  const _ReportDetailScreen({required this.report, required this.childProfile});
 
   final _ReportData report;
+  final ChildProfile childProfile;
 
   @override
   State<_ReportDetailScreen> createState() => _ReportDetailScreenState();
@@ -541,6 +562,7 @@ class _ReportDetailScreen extends StatefulWidget {
 class _ReportDetailScreenState extends State<_ReportDetailScreen> {
   List<TherapistProfile> _therapists = const <TherapistProfile>[];
   bool _loadingTherapists = true;
+  bool _downloadingPdf = false;
 
   @override
   void initState() {
@@ -550,7 +572,78 @@ class _ReportDetailScreenState extends State<_ReportDetailScreen> {
 
   Future<void> _loadTherapists() async {
     try {
-      final therapists = await AppRepositories.support.listTherapists();
+      final uid = AppRepositories.authClient.currentUser?.uid;
+      if (uid == null) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _therapists = const <TherapistProfile>[];
+          _loadingTherapists = false;
+        });
+        return;
+      }
+
+      final userDoc = await AppRepositories.firestore
+          .collection(FirestoreCollections.users)
+          .doc(uid)
+          .get();
+      final userData = userDoc.data() ?? const <String, dynamic>{};
+      final subscribedIds = stringListFrom(
+        userData['proSupportSubscribedTherapistIds'],
+      ).map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
+      final hiddenIds = stringListFrom(
+        userData['proSupportHiddenTherapistIds'],
+      ).map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
+
+      final threadsSnapshot = await AppRepositories.firestore
+          .collection(FirestoreCollections.therapistThreads)
+          .where('parentId', isEqualTo: uid)
+          .get();
+      final activeThreadTherapistIds = threadsSnapshot.docs
+          .where((doc) => (doc.data()['status'] ?? '').toString() == 'active')
+          .map((doc) => (doc.data()['therapistId'] ?? '').toString().trim())
+          .where((id) => id.isNotEmpty)
+          .toSet();
+
+      final candidateIds = <String>{
+        ...subscribedIds,
+        ...activeThreadTherapistIds,
+      }..removeWhere(hiddenIds.contains);
+      if (candidateIds.isEmpty) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _therapists = const <TherapistProfile>[];
+          _loadingTherapists = false;
+        });
+        return;
+      }
+
+      final activeTherapists = await AppRepositories.support.listTherapists();
+      final activeById = <String, TherapistProfile>{
+        for (final therapist in activeTherapists) therapist.id: therapist,
+      };
+
+      final missingIds = candidateIds
+          .where((id) => !activeById.containsKey(id))
+          .toList();
+      final extraProfiles = await Future.wait(
+        missingIds.map((id) => AppRepositories.support.getTherapistById(id)),
+      );
+      final allById = <String, TherapistProfile>{
+        ...activeById,
+        for (final profile in extraProfiles.whereType<TherapistProfile>())
+          profile.id: profile,
+      };
+      final therapists =
+          candidateIds
+              .map((id) => allById[id])
+              .whereType<TherapistProfile>()
+              .toList()
+            ..sort((a, b) => a.displayName.compareTo(b.displayName));
+
       if (!mounted) {
         return;
       }
@@ -579,15 +672,187 @@ class _ReportDetailScreenState extends State<_ReportDetailScreen> {
           reportTitle: widget.report.title,
           isLoadingTherapists: _loadingTherapists,
           therapists: _therapists,
+          onShareTherapist: _shareReportToTherapist,
         );
       },
     );
   }
 
-  void _downloadReport() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Preparing PDF download...')));
+  Future<void> _shareReportToTherapist(String therapistId) async {
+    final subscription = await AppRepositories.billing.getCurrentSubscription();
+    final thread = await AppRepositories.support.ensureThread(
+      therapistId: therapistId,
+      childId: widget.childProfile.id,
+      subscriptionId: (subscription != null && subscription.isActive)
+          ? subscription.id
+          : 'local-bypass',
+    );
+    await AppRepositories.support.sendMessage(
+      threadId: thread.id,
+      senderRole: 'parent',
+      body: _buildShareMessage(widget.report),
+    );
+  }
+
+  Future<void> _downloadReport() async {
+    if (_downloadingPdf) {
+      return;
+    }
+    setState(() {
+      _downloadingPdf = true;
+    });
+    try {
+      final bytes = await _buildPdfBytes(widget.report);
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: _pdfFileName(widget.report),
+      );
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('PDF ready. Use the share sheet to save or send it.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Unable to generate PDF: $error')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _downloadingPdf = false;
+        });
+      }
+    }
+  }
+
+  String _buildShareMessage(_ReportData report) {
+    final sectionSummary = report.sections
+        .map((section) => '${section.title}: ${section.percentLabel}')
+        .join(' | ');
+    final recommendation = report.recommendations.isNotEmpty
+        ? report.recommendations.first
+        : 'No recommendations available.';
+    return [
+      'Shared Report: ${report.title} (${report.dateLabel})',
+      report.summaryText,
+      sectionSummary,
+      'Top Recommendation: $recommendation',
+    ].join('\n');
+  }
+
+  Future<Uint8List> _buildPdfBytes(_ReportData report) async {
+    final pdf = pw.Document();
+    final baseStyle = pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey800);
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(24),
+        build: (context) => [
+          pw.Text(
+            report.title,
+            style: pw.TextStyle(
+              fontSize: 20,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.blueGrey900,
+            ),
+          ),
+          pw.SizedBox(height: 4),
+          pw.Text(report.dateLabel, style: baseStyle),
+          pw.SizedBox(height: 16),
+          pw.Text(
+            'Summary',
+            style: pw.TextStyle(
+              fontSize: 14,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.blueGrey900,
+            ),
+          ),
+          pw.SizedBox(height: 6),
+          pw.Text(report.summaryText, style: baseStyle),
+          pw.SizedBox(height: 16),
+          pw.Text(
+            'Progress by Section',
+            style: pw.TextStyle(
+              fontSize: 14,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.blueGrey900,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          ...report.sections.map(
+            (section) => pw.Container(
+              margin: const pw.EdgeInsets.only(bottom: 8),
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.blueGrey100),
+                borderRadius: pw.BorderRadius.circular(6),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(
+                        section.title,
+                        style: pw.TextStyle(
+                          fontWeight: pw.FontWeight.bold,
+                          fontSize: 11,
+                        ),
+                      ),
+                      pw.Text(section.percentLabel, style: baseStyle),
+                    ],
+                  ),
+                  pw.SizedBox(height: 4),
+                  pw.Text(section.body, style: baseStyle),
+                  pw.SizedBox(height: 4),
+                  pw.Text('Status: ${section.statusLabel}', style: baseStyle),
+                ],
+              ),
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Text(
+            'Therapist Recommendations',
+            style: pw.TextStyle(
+              fontSize: 14,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.blueGrey900,
+            ),
+          ),
+          pw.SizedBox(height: 6),
+          ...report.recommendations.map(
+            (item) => pw.Padding(
+              padding: const pw.EdgeInsets.only(bottom: 4),
+              child: pw.Text('• $item', style: baseStyle),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  String _pdfFileName(_ReportData report) {
+    final titleSlug = report.title
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+    final dateSlug = report.dateLabel
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+    return '${[titleSlug, dateSlug].join('_')}.pdf';
   }
 
   @override
@@ -1027,11 +1292,13 @@ class _ShareReportSheet extends StatefulWidget {
     required this.reportTitle,
     required this.isLoadingTherapists,
     required this.therapists,
+    required this.onShareTherapist,
   });
 
   final String reportTitle;
   final bool isLoadingTherapists;
   final List<TherapistProfile> therapists;
+  final Future<void> Function(String therapistId) onShareTherapist;
 
   @override
   State<_ShareReportSheet> createState() => _ShareReportSheetState();
@@ -1058,11 +1325,21 @@ class _ShareReportSheetState extends State<_ShareReportSheet> {
       return;
     }
     setState(() => _phase = _ShareSheetPhase.sharing);
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
-    if (!mounted) {
-      return;
+    try {
+      await widget.onShareTherapist(_selectedTherapistId!);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _phase = _ShareSheetPhase.success);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _phase = _ShareSheetPhase.selecting);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Unable to share report: $error')));
     }
-    setState(() => _phase = _ShareSheetPhase.success);
   }
 
   @override
@@ -1329,119 +1606,67 @@ class _ReportData {
   final List<_ReportSectionData> sections;
   final List<String> recommendations;
 
-  factory _ReportData.weekly() {
+  factory _ReportData.fromDashboardReport(DashboardReport report) {
     return _ReportData(
-      title: 'Weekly Progress Report',
-      dateLabel: 'Jan 1, 2026',
-      summarySubtitle: 'Progress',
-      summaryText:
-          'This week has shown remarkable improvements across multiple developmental areas. Your child has demonstrated increased engagement in social activities and improved communication skills during therapy sessions.',
-      sections: const [
-        _ReportSectionData(
-          title: 'Move & Play',
-          icon: Icons.check_circle_outline_rounded,
-          iconColor: Color(0xFF1EA955),
-          percentLabel: '85%',
-          percentBgColor: Color(0xFFCBEFD5),
-          percentTextColor: Color(0xFF198C45),
-          body:
-              'Significant progress observed in verbal expression and vocabulary usage. Your child has been using more complex sentences and showing better understanding of context. They initiated conversations 12 times this week, up from 8 last week.',
-          statusLabel: 'Excellent Progress',
-          statusChipBgColor: Color(0xFFCFEFD2),
-          statusChipTextColor: Color(0xFF198C45),
-        ),
-        _ReportSectionData(
-          title: 'Talk & Express',
-          icon: Icons.trending_up_rounded,
-          iconColor: Color(0xFF2C64F5),
-          percentLabel: '72%',
-          percentBgColor: Color(0xFFD8E4FB),
-          percentTextColor: Color(0xFF2C64F5),
-          body:
-              'Good improvement in peer interactions during group activities. Your child participated in 4 out of 5 group sessions and showed willingness to share toys with others. Some hesitation remains in larger groups.',
-          statusLabel: 'Good Progress',
-          statusChipBgColor: Color(0xFFD8E4FB),
-          statusChipTextColor: Color(0xFF2C64F5),
-        ),
-        _ReportSectionData(
-          title: 'Focus Games',
-          icon: Icons.check_circle_outline_rounded,
-          iconColor: Color(0xFF1EA955),
-          percentLabel: '90%',
-          percentBgColor: Color(0xFFCBEFD5),
-          percentTextColor: Color(0xFF198C45),
-          body:
-              'Excellent progress in fine motor skills development. Successfully completed all hand-eye coordination exercises. Drawing and writing activities show marked improvement with better grip and control.',
-          statusLabel: 'Excellent Progress',
-          statusChipBgColor: Color(0xFFCFEFD2),
-          statusChipTextColor: Color(0xFF198C45),
-        ),
-      ],
-      recommendations: const [
-        'Continue with daily communication exercises for 15-20 minutes',
-        'Practice social scenarios through role-play activities',
-        'Maintain consistent sleep schedule to support cognitive development',
-        'Schedule follow-up assessment in 2 weeks',
-      ],
+      title: report.title,
+      dateLabel: report.dateLabel,
+      summarySubtitle: report.summarySubtitle,
+      summaryText: report.summaryText,
+      sections: report.sections
+          .map((section) => _ReportSectionData.fromDashboardSection(section))
+          .toList(),
+      recommendations: report.recommendations,
     );
   }
+}
 
-  factory _ReportData.monthly() {
-    return _ReportData(
-      title: 'Monthly Assessment',
-      dateLabel: 'Dec 15, 2025',
-      summarySubtitle: 'Assessment',
-      summaryText:
-          'Comprehensive monthly evaluation showing overall positive developmental trajectory. Your child has met 75% of the monthly goals and is progressing well towards the quarterly objectives.',
-      sections: const [
-        _ReportSectionData(
-          title: 'Overall Development',
-          icon: Icons.check_circle_outline_rounded,
-          iconColor: Color(0xFF1EA955),
-          percentLabel: '82%',
-          percentBgColor: Color(0xFFCBEFD5),
-          percentTextColor: Color(0xFF198C45),
-          body:
-              'Your child has made consistent progress across all developmental domains. Particularly strong performance in motor skills and communication. Social skills are developing steadily with increased confidence in group settings.',
-          statusLabel: 'Excellent Progress',
-          statusChipBgColor: Color(0xFFCFEFD2),
-          statusChipTextColor: Color(0xFF198C45),
-        ),
-        _ReportSectionData(
-          title: 'Goal Achievement',
-          icon: Icons.trending_up_rounded,
-          iconColor: Color(0xFF2C64F5),
-          percentLabel: '75%',
-          percentBgColor: Color(0xFFD8E4FB),
-          percentTextColor: Color(0xFF2C64F5),
-          body:
-              'Achieved 9 out of 12 monthly goals. Excellent progress in self-help skills and following routines. Communication goals are on track. Social interaction goals need continued focus and practice.',
-          statusLabel: 'Good Progress',
-          statusChipBgColor: Color(0xFFD8E4FB),
-          statusChipTextColor: Color(0xFF2C64F5),
-        ),
-        _ReportSectionData(
-          title: 'Areas for Growth',
-          icon: Icons.error_outline_rounded,
-          iconColor: Color(0xFFFF8D2D),
-          percentLabel: '65%',
-          percentBgColor: Color(0xFFF9E2CF),
-          percentTextColor: Color(0xFFCF7020),
-          body:
-              'Continue working on emotional regulation during transitions. Practice sharing and turn-taking in various settings. Increase exposure to diverse social situations gradually.',
-          statusLabel: 'Needs Improvement',
-          statusChipBgColor: Color(0xFFF9E2CF),
-          statusChipTextColor: Color(0xFFCF7020),
-        ),
-      ],
-      recommendations: const [
-        'Continue with daily communication exercises for 15-20 minutes',
-        'Practice social scenarios through role-play activities',
-        'Maintain consistent sleep schedule to support cognitive development',
-        'Schedule follow-up assessment in 2 weeks',
-      ],
+class _SectionVisualStyle {
+  const _SectionVisualStyle({
+    required this.icon,
+    required this.iconColor,
+    required this.percentBgColor,
+    required this.percentTextColor,
+    required this.statusChipBgColor,
+    required this.statusChipTextColor,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final Color percentBgColor;
+  final Color percentTextColor;
+  final Color statusChipBgColor;
+  final Color statusChipTextColor;
+}
+
+_SectionVisualStyle _styleForProgress(double value) {
+  if (value >= 0.8) {
+    return const _SectionVisualStyle(
+      icon: Icons.check_circle_outline_rounded,
+      iconColor: Color(0xFF1EA955),
+      percentBgColor: Color(0xFFCBEFD5),
+      percentTextColor: Color(0xFF198C45),
+      statusChipBgColor: Color(0xFFCFEFD2),
+      statusChipTextColor: Color(0xFF198C45),
     );
   }
+  if (value >= 0.6) {
+    return const _SectionVisualStyle(
+      icon: Icons.trending_up_rounded,
+      iconColor: Color(0xFF2C64F5),
+      percentBgColor: Color(0xFFD8E4FB),
+      percentTextColor: Color(0xFF2C64F5),
+      statusChipBgColor: Color(0xFFD8E4FB),
+      statusChipTextColor: Color(0xFF2C64F5),
+    );
+  }
+  return const _SectionVisualStyle(
+    icon: Icons.error_outline_rounded,
+    iconColor: Color(0xFFFF8D2D),
+    percentBgColor: Color(0xFFF9E2CF),
+    percentTextColor: Color(0xFFCF7020),
+    statusChipBgColor: Color(0xFFF9E2CF),
+    statusChipTextColor: Color(0xFFCF7020),
+  );
 }
 
 class _ReportSectionData {
@@ -1457,6 +1682,24 @@ class _ReportSectionData {
     required this.statusChipBgColor,
     required this.statusChipTextColor,
   });
+
+  factory _ReportSectionData.fromDashboardSection(
+    DashboardReportSection section,
+  ) {
+    final style = _styleForProgress(section.progressValue);
+    return _ReportSectionData(
+      title: section.title,
+      icon: style.icon,
+      iconColor: style.iconColor,
+      percentLabel: '${(section.progressValue * 100).round()}%',
+      percentBgColor: style.percentBgColor,
+      percentTextColor: style.percentTextColor,
+      body: section.body,
+      statusLabel: section.statusLabel,
+      statusChipBgColor: style.statusChipBgColor,
+      statusChipTextColor: style.statusChipTextColor,
+    );
+  }
 
   final String title;
   final IconData icon;

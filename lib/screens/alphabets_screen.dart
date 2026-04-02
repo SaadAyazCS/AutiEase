@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
+import '../models/app_models.dart';
+import '../repositories/app_repositories.dart';
 import '../utils/app_colors.dart';
 import '../services/tts_service.dart';
 
 class AlphabetsScreen extends StatefulWidget {
-  const AlphabetsScreen({super.key});
+  const AlphabetsScreen({
+    super.key,
+    this.childId,
+    this.module,
+  });
+
+  final String? childId;
+  final LearningModuleModel? module;
 
   @override
   State<AlphabetsScreen> createState() => _AlphabetsScreenState();
@@ -11,6 +20,8 @@ class AlphabetsScreen extends StatefulWidget {
 
 class _AlphabetsScreenState extends State<AlphabetsScreen> {
   final TtsService tts = TtsService();
+  bool _savedCompletion = false;
+  bool _savingCompletion = false;
 
   final List<String> alphabets = [
     'A','B','C','D','E','F','G','H','I','J','K','L','M',
@@ -40,6 +51,37 @@ class _AlphabetsScreenState extends State<AlphabetsScreen> {
 
   Future<void> _speakLetter(String letter) async {
     await tts.speak(letter);
+    await _recordCompletionIfNeeded();
+  }
+
+  Future<void> _recordCompletionIfNeeded() async {
+    final childId = widget.childId;
+    final module = widget.module;
+    if (_savedCompletion ||
+        _savingCompletion ||
+        childId == null ||
+        childId.isEmpty ||
+        module == null) {
+      return;
+    }
+    setState(() {
+      _savingCompletion = true;
+    });
+    try {
+      await AppRepositories.planner.recordActivityCompletion(
+        childId: childId,
+        itemId: module.id,
+        moduleId: module.id,
+        score: 1,
+      );
+      _savedCompletion = true;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _savingCompletion = false;
+        });
+      }
+    }
   }
 
   @override

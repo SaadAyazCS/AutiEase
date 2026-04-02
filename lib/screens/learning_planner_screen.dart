@@ -45,6 +45,7 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
   List<LearningModuleModel> _modules = const <LearningModuleModel>[];
   List<_PlannerDailyActivity> _dailyActivities =
       const <_PlannerDailyActivity>[];
+  final Set<String> _savingDailyCompletionIds = <String>{};
 
   @override
   void initState() {
@@ -77,12 +78,14 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
       AppRepositories.content.getAllLearningModules(),
       AppRepositories.content.getAllActivityTemplates(),
       AppRepositories.planner.getAssignmentForChild(child.id),
+      _loadCompletedActivityIdsForToday(child.id),
     ]);
 
     final categories = results[0] as List<ContentCategory>;
     final modules = results[1] as List<LearningModuleModel>;
     final activities = results[2] as List<DailyActivityTemplate>;
     final assignment = results[3] as ChildAssignment?;
+    final completedTodayIds = results[4] as Set<String>;
 
     _selectedCategoryIds
       ..clear()
@@ -96,7 +99,8 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
 
     final dailyActivities = _buildDailyActivities(
       activities,
-      _selectedActivityIds,
+      assignment: assignment,
+      completedTodayIds: completedTodayIds,
     );
 
     if (!mounted) {
@@ -130,69 +134,70 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
 
   List<_PlannerDailyActivity> _buildDailyActivities(
     List<DailyActivityTemplate> templates,
-    Set<String> selectedIds,
+    {
+    required ChildAssignment? assignment,
+    required Set<String> completedTodayIds,
+  }
   ) {
-    if (templates.isEmpty) {
-      const fallback = <_PlannerDailyActivity>[
+    final templateById = <String, DailyActivityTemplate>{
+      for (final template in templates) template.id: template,
+    };
+    final assignedTemplateIds = assignment?.assignedActivityTemplateIds ??
+        templateById.keys.toList();
+
+    final templateActivities = <_PlannerDailyActivity>[];
+    var slotIndex = 0;
+    for (final templateId in assignedTemplateIds) {
+      final template = templateById[templateId];
+      if (template == null) {
+        continue;
+      }
+      templateActivities.add(
         _PlannerDailyActivity(
-          id: 'daily-morning-exercise',
-          title: 'Morning Exercise',
-          timeLabel: '8:00 AM',
-          isTemplate: false,
+          id: template.id,
+          title: template.title,
+          timeLabel: _dailyTimeSlots[slotIndex % _dailyTimeSlots.length],
+          isTemplate: true,
+          isCompleted: completedTodayIds.contains(template.id),
         ),
-        _PlannerDailyActivity(
-          id: 'daily-speech-therapy',
-          title: 'Speech Therapy Session',
-          timeLabel: '10:00 AM',
-          isTemplate: false,
-        ),
-        _PlannerDailyActivity(
-          id: 'daily-lunch',
-          title: 'Lunch Time',
-          timeLabel: '12:30 PM',
-          isTemplate: false,
-        ),
-        _PlannerDailyActivity(
-          id: 'daily-educational-games',
-          title: 'Educational Games',
-          timeLabel: '2:00 PM',
-          isTemplate: false,
-        ),
-        _PlannerDailyActivity(
-          id: 'daily-social-skills',
-          title: 'Social Skills Practice',
-          timeLabel: '3:30 PM',
-          isTemplate: false,
-        ),
-        _PlannerDailyActivity(
-          id: 'daily-reading',
-          title: 'Reading Time',
-          timeLabel: '5:00 PM',
-          isTemplate: false,
-        ),
-      ];
-      return fallback
-          .map(
-            (item) => item.copyWith(isCompleted: selectedIds.contains(item.id)),
-          )
-          .toList();
+      );
+      slotIndex += 1;
     }
 
-    final sorted = List<DailyActivityTemplate>.from(templates)
-      ..sort((a, b) => a.title.compareTo(b.title));
-    return sorted
-        .asMap()
-        .entries
+    final customActivities = (assignment?.customDailyActivities ??
+            const <CustomDailyActivity>[])
         .map(
-          (entry) => _PlannerDailyActivity(
-            id: entry.value.id,
-            title: entry.value.title,
-            timeLabel: _dailyTimeSlots[entry.key % _dailyTimeSlots.length],
-            isTemplate: true,
-            isCompleted: selectedIds.contains(entry.value.id),
+          (activity) => _PlannerDailyActivity(
+            id: activity.id,
+            title: activity.title,
+            timeLabel: activity.timeLabel,
+            isTemplate: false,
+            isCompleted: completedTodayIds.contains(activity.id),
           ),
         )
         .toList();
+
+    return <_PlannerDailyActivity>[
+      ...customActivities,
+      ...templateActivities,
+    ];
+  }
+
+  Future<Set<String>> _loadCompletedActivityIdsForToday(String childId) async {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final snapshot = await AppRepositories.firestore
+        .collection(FirestoreCollections.activityProgress)
+        .where('childId', isEqualTo: childId)
+        .get();
+    return snapshot.docs
+        .where((doc) {
+          final completedAt = dateTimeFromFirestore(doc.data()['completedAt']);
+          return completedAt != null && !completedAt.isBefore(todayStart);
+        })
+        .map((doc) => (doc.data()['itemId'] ?? '').toString())
+        .where((id) => id.isNotEmpty)
+        .toSet();
   }
 
   Future<void> _savePlan({bool showFeedback = true}) async {
@@ -202,8 +207,19 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
     setState(() => _isSaving = true);
     try {
       final selectedTemplateIds = _dailyActivities
-          .where((activity) => activity.isTemplate && activity.isCompleted)
+          .where((activity) => activity.isTemplate)
           .map((activity) => activity.id)
+          .toList();
+      final customActivities = _dailyActivities
+          .where((activity) => !activity.isTemplate)
+          .map(
+            (activity) => CustomDailyActivity(
+              id: activity.id,
+              title: activity.title,
+              timeLabel: activity.timeLabel,
+              createdAt: DateTime.now(),
+            ),
+          )
           .toList();
       _selectedActivityIds
         ..clear()
@@ -217,6 +233,7 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
           assignedCategoryIds: _selectedCategoryIds.toList(),
           assignedModuleIds: _selectedModuleIds.toList(),
           assignedActivityTemplateIds: _selectedActivityIds.toList(),
+          customDailyActivities: customActivities,
           status: 'active',
           effectiveFrom: DateTime.now(),
         ),
@@ -303,18 +320,39 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
   }
 
   void _toggleDailyActivityCompletion(String activityId, bool selected) {
+    if (_child == null) {
+      return;
+    }
+    final index = _dailyActivities.indexWhere((item) => item.id == activityId);
+    if (index == -1) {
+      return;
+    }
+    final current = _dailyActivities[index];
+    if (current.isCompleted || !selected || _savingDailyCompletionIds.contains(activityId)) {
+      return;
+    }
     setState(() {
-      final index = _dailyActivities.indexWhere(
-        (item) => item.id == activityId,
-      );
-      if (index == -1) {
-        return;
-      }
       _dailyActivities[index] = _dailyActivities[index].copyWith(
-        isCompleted: selected,
+        isCompleted: true,
       );
+      _savingDailyCompletionIds.add(activityId);
     });
-    _showCompletionDialogIfNeeded();
+    AppRepositories.planner
+        .recordActivityCompletion(
+          childId: _child!.id,
+          itemId: current.id,
+          moduleId: current.id,
+          score: 1,
+        )
+        .whenComplete(() {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _savingDailyCompletionIds.remove(activityId);
+          });
+          _showCompletionDialogIfNeeded();
+        });
   }
 
   void _removeDailyActivity(String activityId) {
@@ -324,6 +362,7 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
           .toList();
       _selectedActivityIds.remove(activityId);
     });
+    _savePlan(showFeedback: false);
   }
 
   void _addDailyActivity() {
@@ -344,6 +383,7 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
           title: name,
           timeLabel: time,
           isTemplate: false,
+          isCompleted: false,
         ),
         ..._dailyActivities,
       ];
@@ -351,6 +391,7 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
       _activityNameController.clear();
       _activityTimeController.clear();
     });
+    _savePlan(showFeedback: false);
   }
 
   Future<void> _showCompletionDialogIfNeeded() async {
@@ -674,6 +715,21 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
           visual: board?.homeEmoji ?? '\u{1F5E3}',
         ),
       );
+    }
+
+    final seenIds = ordered.map((item) => item.id).toSet();
+    for (final board in CommunicationFigmaCatalog.boards) {
+      if (seenIds.contains(board.id)) {
+        continue;
+      }
+      ordered.add(
+        _PlannerCommunicationItem(
+          id: board.id,
+          title: board.title,
+          visual: board.homeEmoji,
+        ),
+      );
+      seenIds.add(board.id);
     }
     return ordered;
   }
@@ -1096,6 +1152,7 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
         for (final activity in _dailyActivities) ...[
           _DailyActivityTile(
             activity: activity,
+            isSaving: _savingDailyCompletionIds.contains(activity.id),
             onToggle: (value) =>
                 _toggleDailyActivityCompletion(activity.id, value),
             onDelete: () => _removeDailyActivity(activity.id),
@@ -1350,11 +1407,13 @@ class _LearnOption {
 class _DailyActivityTile extends StatelessWidget {
   const _DailyActivityTile({
     required this.activity,
+    required this.isSaving,
     required this.onToggle,
     required this.onDelete,
   });
 
   final _PlannerDailyActivity activity;
+  final bool isSaving;
   final ValueChanged<bool> onToggle;
   final VoidCallback onDelete;
 
@@ -1376,15 +1435,21 @@ class _DailyActivityTile extends StatelessWidget {
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => onToggle(!activity.isCompleted),
-            child: Icon(
-              activity.isCompleted
-                  ? Icons.check_circle
-                  : Icons.radio_button_unchecked,
-              color: activity.isCompleted
-                  ? const Color(0xFF0DBBDB)
-                  : const Color(0xFFBCC2CD),
-            ),
+            onTap: activity.isCompleted ? null : () => onToggle(true),
+            child: isSaving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    activity.isCompleted
+                        ? Icons.check_circle
+                        : Icons.radio_button_unchecked,
+                    color: activity.isCompleted
+                        ? const Color(0xFF0DBBDB)
+                        : const Color(0xFFBCC2CD),
+                  ),
           ),
           const SizedBox(width: 10),
           Expanded(

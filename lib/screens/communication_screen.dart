@@ -105,10 +105,10 @@ class CommunicationScreen extends StatelessWidget {
     required ChildAssignment? assignment,
     required List<ContentCategory> categories,
   }) {
+    final defaultBoardIds = <String>{
+      ...CommunicationFigmaCatalog.homeBoardOrder,
+    };
     final selectedIds = assignment?.assignedCategoryIds ?? const <String>[];
-    if (selectedIds.isEmpty) {
-      return <String>{};
-    }
 
     final boardById = <String, CommunicationBoardDefinition>{
       for (final board in CommunicationFigmaCatalog.boards) board.id: board,
@@ -131,7 +131,10 @@ class CommunicationScreen extends StatelessWidget {
       }
     }
 
-    final allowed = <String>{};
+    final allowed = <String>{...defaultBoardIds};
+    if (selectedIds.isEmpty) {
+      return allowed;
+    }
     for (final id in selectedIds) {
       if (boardById.containsKey(id)) {
         allowed.add(id);

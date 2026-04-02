@@ -115,7 +115,10 @@ class LearningCategoryGamesScreen extends StatelessWidget {
                                   MaterialPageRoute(
                                     builder: (_) {
                                       if (isAlphabetsGame) {
-                                        return const AlphabetsScreen();
+                                        return AlphabetsScreen(
+                                          childId: childId,
+                                          module: module,
+                                        );
                                       }
                                       if (isTapGame) {
                                         return TapGameScreen(
