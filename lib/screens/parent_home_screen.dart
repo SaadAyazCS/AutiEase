@@ -6,11 +6,19 @@ import '../widgets/session_guard.dart';
 import 'child_profile_home_screen.dart';
 import 'dashboard_screen.dart';
 import 'learning_planner_screen.dart';
+import 'parent_home_info_flow_screen.dart';
 import 'professional_support_screen.dart';
 import 'settings_screen.dart';
 
 class ParentHomeScreen extends StatelessWidget {
   const ParentHomeScreen({super.key});
+
+  void _openInfoFlow(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ParentHomeInfoFlowScreen()),
+    );
+  }
 
   Widget _buildScreenForModule(AppModule module) {
     switch (module.routeKey) {
@@ -225,6 +233,32 @@ class ParentHomeScreen extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+            Positioned(
+              right: 48,
+              bottom: 90,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _openInfoFlow(context),
+                child: Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: const Color(0xFF101010),
+                      width: 1.8,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.info_outline_rounded,
+                    size: 20,
+                    color: Color(0xFF101010),
+                  ),
+                ),
               ),
             ),
           ],
