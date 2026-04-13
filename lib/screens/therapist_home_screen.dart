@@ -701,12 +701,10 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                         children: [
                           Row(
                             children: [
-                              const CircleAvatar(
+                              const _LogoCircleAvatar(
                                 radius: 26,
                                 backgroundColor: Color(0xFFD8F6DF),
-                                backgroundImage: AssetImage(
-                                  'assets/images/autiease.png',
-                                ),
+                                padding: 4,
                               ),
                               const SizedBox(width: 10),
                               Expanded(
@@ -1361,11 +1359,10 @@ class _TherapistProfileSettingsScreenState
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
                   children: [
                     const Center(
-                      child: CircleAvatar(
+                      child: _LogoCircleAvatar(
                         radius: 42,
-                        backgroundImage: AssetImage(
-                          'assets/images/autiease.png',
-                        ),
+                        backgroundColor: Colors.white,
+                        padding: 6,
                       ),
                     ),
                     Container(
@@ -1553,11 +1550,10 @@ class _TherapistProfileSettingsScreenState
                             children: [
                               Stack(
                                 children: [
-                                  const CircleAvatar(
+                                  const _LogoCircleAvatar(
                                     radius: 26,
-                                    backgroundImage: AssetImage(
-                                      'assets/images/autiease.png',
-                                    ),
+                                    backgroundColor: Colors.white,
+                                    padding: 4,
                                   ),
                                   Positioned(
                                     right: 0,
@@ -2583,12 +2579,41 @@ class _TherapistHomeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipOval(
-      child: Image.asset(
-        'assets/images/autiease.png',
-        width: 124,
-        height: 124,
-        fit: BoxFit.cover,
+    return Container(
+      width: 124,
+      height: 124,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        color: Color(0xFFC4E5C6),
+      ),
+      padding: const EdgeInsets.all(8),
+      child: ClipOval(
+        child: Image.asset('assets/images/autiease.png', fit: BoxFit.contain),
+      ),
+    );
+  }
+}
+
+class _LogoCircleAvatar extends StatelessWidget {
+  const _LogoCircleAvatar({
+    required this.radius,
+    required this.backgroundColor,
+    this.padding = 4,
+  });
+
+  final double radius;
+  final Color backgroundColor;
+  final double padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: radius * 2,
+      height: radius * 2,
+      decoration: BoxDecoration(color: backgroundColor, shape: BoxShape.circle),
+      padding: EdgeInsets.all(padding),
+      child: ClipOval(
+        child: Image.asset('assets/images/autiease.png', fit: BoxFit.contain),
       ),
     );
   }

@@ -88,7 +88,9 @@ class CustomButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(30),
         boxShadow: [
           BoxShadow(
-            color: (backgroundColor ?? AppColors.orangeDark).withValues(alpha: 0.4),
+            color: (backgroundColor ?? AppColors.orangeDark).withValues(
+              alpha: 0.4,
+            ),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -154,40 +156,43 @@ class LogoWidget extends StatelessWidget {
         ],
       ),
       child: ClipOval(
-        child: Image.asset(
-          'assets/images/autiease.png',
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) {
-            return Container(
-              color: AppColors.skyBlue.withValues(alpha: 0.3),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.child_care,
-                    size: size * 0.4,
-                    color: AppColors.darkBlue,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'AutiEase',
-                    style: TextStyle(
+        child: Padding(
+          padding: EdgeInsets.all(size * 0.08),
+          child: Image.asset(
+            'assets/images/autiease.png',
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) {
+              return Container(
+                color: AppColors.skyBlue.withValues(alpha: 0.3),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.child_care,
+                      size: size * 0.4,
                       color: AppColors.darkBlue,
-                      fontSize: size * 0.12,
-                      fontWeight: FontWeight.bold,
                     ),
-                  ),
-                  Text(
-                    'PLAY. LEARN. GROW.',
-                    style: TextStyle(
-                      color: AppColors.darkBlue,
-                      fontSize: size * 0.06,
+                    const SizedBox(height: 8),
+                    Text(
+                      'AutiEase',
+                      style: TextStyle(
+                        color: AppColors.darkBlue,
+                        fontSize: size * 0.12,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            );
-          },
+                    Text(
+                      'PLAY. LEARN. GROW.',
+                      style: TextStyle(
+                        color: AppColors.darkBlue,
+                        fontSize: size * 0.06,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
       ),
     );

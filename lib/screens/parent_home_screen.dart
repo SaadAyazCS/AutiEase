@@ -273,12 +273,16 @@ class _ParentHomeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipOval(
-      child: Image.asset(
-        'assets/images/autiease.png',
-        width: 124,
-        height: 124,
-        fit: BoxFit.cover,
+    return Container(
+      width: 124,
+      height: 124,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        color: Color(0xFFC4E5C6),
+      ),
+      padding: const EdgeInsets.all(8),
+      child: ClipOval(
+        child: Image.asset('assets/images/autiease.png', fit: BoxFit.contain),
       ),
     );
   }

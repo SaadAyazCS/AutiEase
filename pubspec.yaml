@@ -47,4 +47,5 @@ flutter_launcher_icons:
   image_path: "assets/images/autiease.png"
   adaptive_icon_background: "#ffffff"
   adaptive_icon_foreground: "assets/images/autiease.png"
+  adaptive_icon_foreground_inset: 22
   remove_alpha_ios: true

@@ -25,7 +25,7 @@ class _TherapistPlaceholderAvatar extends StatelessWidget {
       ),
       padding: const EdgeInsets.all(5),
       child: ClipOval(
-        child: Image.asset('assets/images/autiease.png', fit: BoxFit.cover),
+        child: Image.asset('assets/images/autiease.png', fit: BoxFit.contain),
       ),
     );
   }

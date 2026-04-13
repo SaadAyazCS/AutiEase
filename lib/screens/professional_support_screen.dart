@@ -27,7 +27,7 @@ class _TherapistPlaceholderAvatar extends StatelessWidget {
       decoration: BoxDecoration(shape: BoxShape.circle, color: backgroundColor),
       padding: EdgeInsets.all(padding),
       child: ClipOval(
-        child: Image.asset('assets/images/autiease.png', fit: BoxFit.cover),
+        child: Image.asset('assets/images/autiease.png', fit: BoxFit.contain),
       ),
     );
   }
