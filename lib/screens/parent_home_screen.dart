@@ -153,15 +153,15 @@ class ParentHomeScreen extends StatelessWidget {
             ),
             Positioned(
               left: r.w(44),
-              bottom: r.h(73),
+              bottom: r.h(34),
               child: _DecorSquare(
                 color: const Color(0xFFF6E72F),
                 size: r.w(16),
               ),
             ),
             Positioned(
-              left: r.w(92),
-              bottom: r.h(84),
+              left: r.w(100),
+              bottom: r.h(54),
               child: Icon(
                 Icons.star,
                 size: r.sp(20, min: 16, max: 24),
@@ -169,16 +169,16 @@ class ParentHomeScreen extends StatelessWidget {
               ),
             ),
             Positioned(
-              left: r.w(165),
-              bottom: r.h(55),
+              left: r.w(188),
+              bottom: r.h(20),
               child: _DecorTriangle(
                 color: const Color(0xFFFF5B47),
                 size: r.w(18),
               ),
             ),
             Positioned(
-              right: r.w(52),
-              bottom: r.h(54),
+              right: r.w(44),
+              bottom: r.h(10),
               child: _DecorCircle(
                 color: const Color(0xFF24C235),
                 size: r.w(15),

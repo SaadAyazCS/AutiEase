@@ -18,6 +18,7 @@ class FigmaModuleScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = context.responsive;
+    final contentBottomInset = r.h(96);
     return Scaffold(
       body: Stack(
         children: [
@@ -34,12 +35,12 @@ class FigmaModuleScaffold extends StatelessWidget {
           ),
           Positioned(
             left: r.w(50),
-            bottom: r.h(138),
+            bottom: r.h(22),
             child: _DecorSquare(color: const Color(0xFFF6E72F), size: r.w(18)),
           ),
           Positioned(
             left: r.w(105),
-            bottom: r.h(150),
+            bottom: r.h(40),
             child: Icon(
               Icons.star,
               size: r.sp(22, min: 18, max: 26),
@@ -47,8 +48,8 @@ class FigmaModuleScaffold extends StatelessWidget {
             ),
           ),
           Positioned(
-            right: r.w(106),
-            bottom: r.h(118),
+            right: r.w(78),
+            bottom: r.h(20),
             child: _DecorTriangle(
               color: const Color(0xFFFF5722),
               size: r.w(18),
@@ -56,7 +57,7 @@ class FigmaModuleScaffold extends StatelessWidget {
           ),
           Positioned(
             right: r.w(48),
-            bottom: r.h(114),
+            bottom: r.h(10),
             child: _DecorCircle(color: const Color(0xFF4CAF50), size: r.w(16)),
           ),
           SafeArea(
@@ -94,8 +95,21 @@ class FigmaModuleScaffold extends StatelessWidget {
                 ),
                 Expanded(
                   child: Padding(
-                    padding: EdgeInsets.fromLTRB(r.w(16), r.h(12), r.w(16), 0),
-                    child: child,
+                    padding: EdgeInsets.fromLTRB(
+                      r.w(16),
+                      r.h(12),
+                      r.w(16),
+                      contentBottomInset,
+                    ),
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: r.isTablet ? 460 : double.infinity,
+                        ),
+                        child: ClipRect(child: child),
+                      ),
+                    ),
                   ),
                 ),
               ],

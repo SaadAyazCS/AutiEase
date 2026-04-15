@@ -118,44 +118,51 @@ class _ChildModuleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    final cardWidth = (screenWidth - 72).clamp(270.0, 330.0);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Ink(
-          width: cardWidth,
-          height: 124,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 21 / 1.2,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1B2843),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardWidth = constraints.maxWidth.clamp(240.0, 330.0).toDouble();
+        return Align(
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: cardWidth,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(14),
+                child: Ink(
+                  height: 124,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 21 / 1.2,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1B2843),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Image.asset(
+                        iconAssetPath,
+                        width: 36,
+                        height: 36,
+                        fit: BoxFit.contain,
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 8),
-              Image.asset(
-                iconAssetPath,
-                width: 36,
-                height: 36,
-                fit: BoxFit.contain,
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

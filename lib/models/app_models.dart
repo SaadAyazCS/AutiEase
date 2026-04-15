@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/duration_utils.dart';
 
 DateTime? dateTimeFromFirestore(dynamic value) {
   if (value is Timestamp) {
@@ -411,20 +412,28 @@ class CustomDailyActivity {
   const CustomDailyActivity({
     required this.id,
     required this.title,
-    required this.timeLabel,
+    required this.durationMinutes,
     this.createdAt,
   });
 
   final String id;
   final String title;
-  final String timeLabel;
+  final int durationMinutes;
   final DateTime? createdAt;
 
   factory CustomDailyActivity.fromMap(Map<String, dynamic> data) {
+    final storedDuration = intFrom(data['durationMinutes']);
+    final parsedLegacyDuration = parseDurationLabelToMinutes(
+      (data['timeLabel'] ?? '').toString(),
+    );
+    final resolvedDuration = storedDuration > 0
+        ? storedDuration
+        : normalizeDurationMinutes(parsedLegacyDuration);
+
     return CustomDailyActivity(
       id: (data['id'] ?? '').toString(),
       title: (data['title'] ?? '').toString(),
-      timeLabel: (data['timeLabel'] ?? '').toString(),
+      durationMinutes: resolvedDuration,
       createdAt: dateTimeFromFirestore(data['createdAt']),
     );
   }
@@ -433,7 +442,9 @@ class CustomDailyActivity {
     return {
       'id': id,
       'title': title,
-      'timeLabel': timeLabel,
+      'durationMinutes': normalizeDurationMinutes(durationMinutes),
+      // Keep legacy field for backward compatibility with older builds.
+      'timeLabel': formatDurationLabel(durationMinutes),
       'createdAt': createdAt,
     };
   }

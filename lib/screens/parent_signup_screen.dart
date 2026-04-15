@@ -354,26 +354,26 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
 
           // Decorative shapes
           Positioned(
-            bottom: 80,
-            left: 20,
+            bottom: 34,
+            left: 44,
             child: Container(width: 20, height: 20, color: AppColors.yellow),
           ),
           Positioned(
-            bottom: 100,
-            left: 80,
+            bottom: 54,
+            left: 100,
             child: const Icon(Icons.star, color: AppColors.pink, size: 24),
           ),
           Positioned(
-            bottom: 60,
-            right: 100,
+            bottom: 20,
+            right: 152,
             child: CustomPaint(
               size: const Size(20, 20),
               painter: TrianglePainter(color: AppColors.red),
             ),
           ),
           Positioned(
-            bottom: 50,
-            right: 30,
+            bottom: 10,
+            right: 44,
             child: Container(
               width: 16,
               height: 16,

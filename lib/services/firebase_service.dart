@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 
@@ -106,6 +107,10 @@ class FirebaseService {
         return 'Invalid email address.';
       case 'weak-password':
         return 'Password is too weak.';
+      case 'operation-not-allowed':
+        return 'This sign-in method is currently disabled. Please contact support.';
+      case 'account-exists-with-different-credential':
+        return 'This email is already linked with another sign-in method. Use your previous method first.';
       case 'user-not-found':
       case 'wrong-password':
       case 'invalid-credential':
@@ -113,6 +118,41 @@ class FirebaseService {
       default:
         return error.message ?? fallback;
     }
+  }
+
+  String _friendlyGoogleSignInError(Object error) {
+    if (error is PlatformException) {
+      final payload =
+          '${error.code} ${error.message ?? ''} ${error.details ?? ''}'
+              .toLowerCase();
+
+      if (payload.contains('sign_in_canceled') ||
+          payload.contains('12501') ||
+          payload.contains('canceled')) {
+        return 'Google sign-in cancelled';
+      }
+
+      if (payload.contains('network')) {
+        return 'Network error. Check your internet connection and try again.';
+      }
+
+      if (payload.contains('10') ||
+          payload.contains('12500') ||
+          payload.contains('developer_error') ||
+          payload.contains('sign_in_failed') ||
+          payload.contains('configuration')) {
+        return 'Google Sign-In is not configured for this APK yet. Add SHA-1 and SHA-256 for this app key in Firebase, then download and replace android/app/google-services.json.';
+      }
+    }
+
+    final lowered = error.toString().toLowerCase();
+    if (lowered.contains('10') ||
+        lowered.contains('12500') ||
+        lowered.contains('developer_error')) {
+      return 'Google Sign-In is not configured for this APK yet. Add SHA-1 and SHA-256 for this app key in Firebase, then download and replace android/app/google-services.json.';
+    }
+
+    return 'Google sign-in failed. Please try again.';
   }
 
   Future<void> _rollbackAuthUser(User? user) async {
@@ -206,6 +246,12 @@ class FirebaseService {
     required String childName,
     required List<String> supportArea,
   }) async {
+    final normalizedFirstName = firstName.trim();
+    final normalizedLastName = lastName.trim();
+    final normalizedEmail = _normalizeEmail(email);
+    final normalizedPhone = phone.trim();
+    final normalizedFullName =
+        '$normalizedFirstName $normalizedLastName'.trim();
     User? resolvedUser;
     var createdPasswordUser = false;
     var isExistingGoogleUser = false;
@@ -213,7 +259,7 @@ class FirebaseService {
     try {
       final existingUser = _auth.currentUser;
       final existingEmail = existingUser?.email?.trim().toLowerCase();
-      final requestedEmail = email.trim().toLowerCase();
+      final requestedEmail = normalizedEmail;
       final hasGoogleProvider =
           existingUser?.providerData.any(
             (provider) => provider.providerId == 'google.com',
@@ -229,7 +275,7 @@ class FirebaseService {
         if (password.isNotEmpty) {
           try {
             final emailCredential = EmailAuthProvider.credential(
-              email: email,
+              email: normalizedEmail,
               password: password,
             );
             await existingUser.linkWithCredential(emailCredential);
@@ -249,7 +295,7 @@ class FirebaseService {
         }
         try {
           final credential = await _auth.createUserWithEmailAndPassword(
-            email: email,
+            email: normalizedEmail,
             password: password,
           );
           resolvedUser = credential.user;
@@ -273,6 +319,15 @@ class FirebaseService {
         };
       }
 
+      if (normalizedFullName.isNotEmpty &&
+          user.displayName?.trim() != normalizedFullName) {
+        try {
+          await user.updateDisplayName(normalizedFullName);
+        } catch (_) {
+          // Keep signup resilient if Auth profile update fails.
+        }
+      }
+
       final childRef = _children.doc();
       final childProfile = ChildProfile(
         id: childRef.id,
@@ -287,14 +342,14 @@ class FirebaseService {
 
       final profile = UserProfile(
         uid: user.uid,
-        email: email,
-        firstName: firstName,
-        lastName: lastName,
+        email: normalizedEmail,
+        firstName: normalizedFirstName,
+        lastName: normalizedLastName,
         role: 'parent',
         status: user.emailVerified || isExistingGoogleUser
             ? 'verified'
             : 'unverified',
-        phone: phone,
+        phone: normalizedPhone,
         photoUrl: user.photoURL ?? '',
         subscriptionTier: 'free',
         entitlements: const {'professionalSupport': false, 'chatAccess': false},
@@ -402,6 +457,12 @@ class FirebaseService {
     String? specialization,
     String? licenseNumber,
   }) async {
+    final normalizedFirstName = firstName.trim();
+    final normalizedLastName = lastName.trim();
+    final normalizedEmail = _normalizeEmail(email);
+    final normalizedPhone = phone.trim();
+    final normalizedFullName =
+        '$normalizedFirstName $normalizedLastName'.trim();
     User? resolvedUser;
     var createdPasswordUser = false;
     var isExistingGoogleUser = false;
@@ -409,7 +470,7 @@ class FirebaseService {
     try {
       final existingUser = _auth.currentUser;
       final existingEmail = existingUser?.email?.trim().toLowerCase();
-      final requestedEmail = email.trim().toLowerCase();
+      final requestedEmail = normalizedEmail;
       final hasGoogleProvider =
           existingUser?.providerData.any(
             (provider) => provider.providerId == 'google.com',
@@ -425,7 +486,7 @@ class FirebaseService {
         if (password.isNotEmpty) {
           try {
             final emailCredential = EmailAuthProvider.credential(
-              email: email,
+              email: normalizedEmail,
               password: password,
             );
             await existingUser.linkWithCredential(emailCredential);
@@ -445,7 +506,7 @@ class FirebaseService {
         }
         try {
           final credential = await _auth.createUserWithEmailAndPassword(
-            email: email,
+            email: normalizedEmail,
             password: password,
           );
           resolvedUser = credential.user;
@@ -469,16 +530,25 @@ class FirebaseService {
         };
       }
 
+      if (normalizedFullName.isNotEmpty &&
+          user.displayName?.trim() != normalizedFullName) {
+        try {
+          await user.updateDisplayName(normalizedFullName);
+        } catch (_) {
+          // Keep signup resilient if Auth profile update fails.
+        }
+      }
+
       final profile = UserProfile(
         uid: user.uid,
-        email: email,
-        firstName: firstName,
-        lastName: lastName,
+        email: normalizedEmail,
+        firstName: normalizedFirstName,
+        lastName: normalizedLastName,
         role: 'therapist',
         status: user.emailVerified || isExistingGoogleUser
             ? 'verified'
             : 'unverified',
-        phone: phone,
+        phone: normalizedPhone,
         photoUrl: user.photoURL ?? '',
         subscriptionTier: 'provider',
         entitlements: const {'professionalSupport': true, 'chatAccess': true},
@@ -500,7 +570,7 @@ class FirebaseService {
         await AppRepositories.users.upsertTherapistProfile(
           TherapistProfile(
             id: user.uid,
-            displayName: '$firstName $lastName'.trim(),
+            displayName: normalizedFullName,
             bio: '',
             specializations: [
               if (specialization != null && specialization.isNotEmpty)
@@ -517,8 +587,8 @@ class FirebaseService {
 
         await _therapists.doc(user.uid).set({
           'licenseNumber': licenseNumber ?? '',
-          'contactEmail': email,
-          'contactPhone': phone,
+          'contactEmail': normalizedEmail,
+          'contactPhone': normalizedPhone,
         }, SetOptions(merge: true));
       } catch (_) {
         if (createdPasswordUser) {
@@ -711,22 +781,31 @@ class FirebaseService {
 
   Future<Map<String, dynamic>> signInWithGoogle() async {
     try {
-      await _googleSignIn.signOut();
+      try {
+        await _googleSignIn.signOut();
+      } catch (_) {
+        // Ignore sign-out failures and continue with a fresh sign-in attempt.
+      }
+
       final googleUser = await _googleSignIn.signIn();
       if (googleUser == null) {
         return {'success': false, 'message': 'Google sign-in cancelled'};
       }
 
       final googleAuth = await googleUser.authentication;
-      if (googleAuth.idToken == null && googleAuth.accessToken == null) {
+      final idToken = googleAuth.idToken;
+      final accessToken = googleAuth.accessToken;
+      if ((idToken == null || idToken.isEmpty) &&
+          (accessToken == null || accessToken.isEmpty)) {
         return {
           'success': false,
-          'message': 'Google sign-in token is missing. Please try again.',
+          'message':
+              'Google Sign-In token is missing. Check Firebase Google auth setup for this app and try again.',
         };
       }
       final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
+        accessToken: accessToken,
+        idToken: idToken,
       );
 
       final userCredential = await _auth.signInWithCredential(credential);
@@ -789,6 +868,8 @@ class FirebaseService {
         'isNewUser': !doc.exists,
         'role': role,
       };
+    } on PlatformException catch (error) {
+      return {'success': false, 'message': _friendlyGoogleSignInError(error)};
     } on FirebaseAuthException catch (error) {
       return {
         'success': false,

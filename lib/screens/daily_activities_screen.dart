@@ -1,7 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
+import '../utils/duration_utils.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
 import 'learning_planner_screen.dart';
@@ -42,13 +43,33 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
         .collection(FirestoreCollections.activityProgress)
         .where('childId', isEqualTo: widget.childId)
         .get();
-    final completedToday = progressSnapshot.docs
-        .where((doc) {
-          final completedAt = dateTimeFromFirestore(doc.data()['completedAt']);
-          return completedAt != null && !completedAt.isBefore(todayStart);
-        })
-        .map((doc) => (doc.data()['itemId'] ?? '').toString())
-        .where((id) => id.isNotEmpty)
+    final latestByItem = <String, Map<String, dynamic>>{};
+    for (final doc in progressSnapshot.docs) {
+      final data = doc.data();
+      final itemId = (data['itemId'] ?? '').toString().trim();
+      if (itemId.isEmpty) {
+        continue;
+      }
+      final completedAt = dateTimeFromFirestore(data['completedAt']);
+      if (completedAt == null || completedAt.isBefore(todayStart)) {
+        continue;
+      }
+      final existing = latestByItem[itemId];
+      final existingAt = existing == null
+          ? null
+          : dateTimeFromFirestore(existing['completedAt']);
+      if (existingAt == null || completedAt.isAfter(existingAt)) {
+        latestByItem[itemId] = data;
+      }
+    }
+
+    final completedToday = latestByItem.entries
+        .where(
+          (entry) =>
+              (entry.value['status'] ?? 'completed').toString().toLowerCase() ==
+              'completed',
+        )
+        .map((entry) => entry.key)
         .toSet();
 
     if (!mounted) {
@@ -66,16 +87,18 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
           ),
         )
         .toList();
-    final customActivities = (assignment?.customDailyActivities ??
-            const <CustomDailyActivity>[])
-        .map(
-          (activity) => _AssignedActivity(
-            id: activity.id,
-            title: activity.title,
-            estimatedMinutes: 10,
-          ),
-        )
-        .toList();
+    final customActivities =
+        (assignment?.customDailyActivities ?? const <CustomDailyActivity>[])
+            .map(
+              (activity) => _AssignedActivity(
+                id: activity.id,
+                title: activity.title,
+                estimatedMinutes: normalizeDurationMinutes(
+                  activity.durationMinutes,
+                ),
+              ),
+            )
+            .toList();
 
     setState(() {
       _activities = <_AssignedActivity>[
@@ -279,7 +302,7 @@ class _ActivityTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '${activity.estimatedMinutes} min',
+                      formatDurationLabel(activity.estimatedMinutes),
                       style: const TextStyle(
                         fontSize: 12.5,
                         color: Color(0xFF6A7B8F),

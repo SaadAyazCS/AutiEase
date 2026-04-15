@@ -43,13 +43,13 @@ class FigmaHomeShell extends StatelessWidget {
             ),
           ),
           Positioned(
-            left: r.w(18),
-            bottom: r.h(78),
+            left: r.w(44),
+            bottom: r.h(34),
             child: _DecorSquare(color: const Color(0xFFF6E72F), size: r.w(20)),
           ),
           Positioned(
-            left: r.w(76),
-            bottom: r.h(92),
+            left: r.w(100),
+            bottom: r.h(54),
             child: Icon(
               Icons.star,
               size: r.sp(20, min: 16, max: 24),
@@ -57,16 +57,16 @@ class FigmaHomeShell extends StatelessWidget {
             ),
           ),
           Positioned(
-            left: r.w(108),
-            bottom: r.h(54),
+            left: r.w(188),
+            bottom: r.h(20),
             child: _DecorTriangle(
               color: const Color(0xFFFF5722),
               size: r.w(18),
             ),
           ),
           Positioned(
-            right: r.w(32),
-            bottom: r.h(50),
+            right: r.w(44),
+            bottom: r.h(10),
             child: _DecorCircle(color: const Color(0xFF4CAF50), size: r.w(15)),
           ),
           SafeArea(

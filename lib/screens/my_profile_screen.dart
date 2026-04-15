@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
@@ -20,12 +21,10 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _childNameController = TextEditingController();
-  final _passwordController = TextEditingController(text: 'password123');
 
   bool _communicationEnabled = false;
   bool _learningEnabled = false;
   bool _isSaving = false;
-  bool _showPassword = false;
   UserProfile? _profile;
   ChildProfile? _child;
   String? _loadError;
@@ -78,11 +77,25 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     setState(() => _isSaving = true);
     try {
       if (_activeTab == _ProfileTab.parent) {
+        final firstName = _firstNameController.text.trim();
+        final lastName = _lastNameController.text.trim();
+        final fullName = '$firstName $lastName'.trim();
         await AppRepositories.users.updateCurrentUser({
-          'firstName': _firstNameController.text.trim(),
-          'lastName': _lastNameController.text.trim(),
+          'firstName': firstName,
+          'lastName': lastName,
+          'fullName': fullName,
           'phone': _phoneController.text.trim(),
         });
+        final authUser = FirebaseAuth.instance.currentUser;
+        if (authUser != null &&
+            fullName.isNotEmpty &&
+            authUser.displayName?.trim() != fullName) {
+          try {
+            await authUser.updateDisplayName(fullName);
+          } catch (_) {
+            // Ignore auth profile update failures; Firestore remains source of truth.
+          }
+        }
       } else if (_child != null) {
         await AppRepositories.users.upsertChildProfile(
           ChildProfile(
@@ -128,7 +141,6 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     _emailController.dispose();
     _phoneController.dispose();
     _childNameController.dispose();
-    _passwordController.dispose();
     super.dispose();
   }
 
@@ -234,20 +246,13 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         _buildField(_emailController, readOnly: true),
         _buildLabel('Phone Number'),
         _buildField(_phoneController),
-        _buildLabel('Password'),
-        _buildField(
-          _passwordController,
-          obscureText: !_showPassword,
-          readOnly: true,
-          trailing: TextButton(
-            onPressed: () => setState(() => _showPassword = !_showPassword),
-            child: Text(
-              _showPassword ? 'Hide' : 'Show',
-              style: const TextStyle(
-                color: Color(0xFF273F67),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+        const SizedBox(height: 12),
+        const Text(
+          'Password is hidden for security. Use "Forgot Password" on login to change it.',
+          style: TextStyle(
+            fontSize: 12,
+            color: Color(0xFF556070),
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],

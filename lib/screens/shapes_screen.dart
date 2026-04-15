@@ -36,12 +36,7 @@ class _ShapesScreenState extends State<ShapesScreen> {
   }
 
   Future<void> _initTts() async {
-    await tts.init(
-      language: "en-GB",
-      speechRate: 0.4,
-      volume: 1.0,
-      pitch: 1.0,
-    );
+    await tts.init(language: "en-GB", speechRate: 0.4, volume: 1.0, pitch: 1.0);
   }
 
   @override
@@ -75,26 +70,26 @@ class _ShapesScreenState extends State<ShapesScreen> {
 
           // Decorative shapes
           Positioned(
-            bottom: 50,
-            left: 20,
+            bottom: 34,
+            left: 44,
             child: Container(width: 20, height: 20, color: AppColors.yellow),
           ),
           Positioned(
-            bottom: 100,
-            left: 80,
+            bottom: 54,
+            left: 100,
             child: const Icon(Icons.star, color: AppColors.pink, size: 24),
           ),
           Positioned(
-            bottom: 60,
-            right: 100,
+            bottom: 20,
+            right: 152,
             child: CustomPaint(
               size: const Size(20, 20),
               painter: TrianglePainter(color: AppColors.red),
             ),
           ),
           Positioned(
-            bottom: 50,
-            right: 30,
+            bottom: 10,
+            right: 44,
             child: Container(
               width: 16,
               height: 16,
@@ -154,11 +149,11 @@ class _ShapesScreenState extends State<ShapesScreen> {
                       padding: const EdgeInsets.only(top: 30, bottom: 140),
                       gridDelegate:
                           const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                        childAspectRatio: 0.95,
-                      ),
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 16,
+                            mainAxisSpacing: 16,
+                            childAspectRatio: 0.95,
+                          ),
                       itemCount: shapes.length,
                       itemBuilder: (context, index) {
                         return _buildShapeCard(shapes[index]);
@@ -176,58 +171,57 @@ class _ShapesScreenState extends State<ShapesScreen> {
 
   // ONLY CHANGE: _buildShapeCard updated (rest same)
 
-Widget _buildShapeCard(ShapeItem item) {
-  final borderRadius = BorderRadius.circular(20);
+  Widget _buildShapeCard(ShapeItem item) {
+    final borderRadius = BorderRadius.circular(20);
 
-  return Material(
-    color: Colors.transparent,
-    child: InkWell(
-      borderRadius: borderRadius,
-      onTap: () => _speak(item.name),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFFD5D5A8),
-          borderRadius: borderRadius,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 60,
-              height: 60,
-              child: _buildShape(item.type, item.color),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  item.name,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    color: Color.fromARGB(255, 0, 0, 0),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: borderRadius,
+        onTap: () => _speak(item.name),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFD5D5A8),
+            borderRadius: borderRadius,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 60,
+                height: 60,
+                child: _buildShape(item.type, item.color),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    item.name,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Color.fromARGB(255, 0, 0, 0),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 4),
-                const Icon(Icons.mic, size: 25, color: Color(0xFF1565C0)),
-              ],
-            ),
-          ],
+                  const SizedBox(width: 4),
+                  const Icon(Icons.mic, size: 25, color: Color(0xFF1565C0)),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
-
+    );
+  }
 
   Widget _buildShape(ShapeType type, Color color) {
     switch (type) {

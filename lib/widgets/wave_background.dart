@@ -130,8 +130,8 @@ class WaveBackground extends StatelessWidget {
         // Decorative shapes
         if (showDecorations) ...[
           Positioned(
-            bottom: r.h(80),
-            left: r.w(20),
+            bottom: r.h(34),
+            left: r.w(44),
             child: Container(
               width: r.w(20),
               height: r.w(20),
@@ -139,8 +139,8 @@ class WaveBackground extends StatelessWidget {
             ),
           ),
           Positioned(
-            bottom: r.h(100),
-            left: r.w(80),
+            bottom: r.h(54),
+            left: r.w(100),
             child: Icon(
               Icons.star,
               color: AppColors.pink,
@@ -148,16 +148,16 @@ class WaveBackground extends StatelessWidget {
             ),
           ),
           Positioned(
-            bottom: r.h(60),
-            right: r.w(100),
+            bottom: r.h(20),
+            right: r.w(152),
             child: CustomPaint(
               size: Size(r.w(20), r.w(20)),
               painter: TrianglePainter(color: AppColors.red),
             ),
           ),
           Positioned(
-            bottom: r.h(50),
-            right: r.w(30),
+            bottom: r.h(10),
+            right: r.w(44),
             child: Container(
               width: r.w(16),
               height: r.w(16),

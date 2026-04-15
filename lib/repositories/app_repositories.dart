@@ -82,6 +82,10 @@ abstract class PlannerRepository {
     String? moduleId,
     int score,
   });
+  Future<void> undoActivityCompletion({
+    required String childId,
+    required String itemId,
+  });
 }
 
 abstract class SupportRepository {
@@ -740,6 +744,7 @@ class FirebasePlannerRepository implements PlannerRepository {
   }) async {
     final activityEvents = progressSnapshot.docs
         .map((doc) => ActivityProgressEntry.fromMap(doc.id, doc.data()))
+        .where((event) => event.status.toLowerCase() == 'completed')
         .toList();
     final moodLogs = moodSnapshot.docs
         .map((doc) => MoodLogEntry.fromMap(doc.id, doc.data()))
@@ -856,6 +861,22 @@ class FirebasePlannerRepository implements PlannerRepository {
       'moduleId': moduleId,
       'status': 'completed',
       'score': score,
+      'attempts': 1,
+      'completedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
+  Future<void> undoActivityCompletion({
+    required String childId,
+    required String itemId,
+  }) async {
+    await _firestore.collection(FirestoreCollections.activityProgress).add({
+      'childId': childId,
+      'itemId': itemId,
+      'moduleId': itemId,
+      'status': 'undone',
+      'score': 0,
       'attempts': 1,
       'completedAt': FieldValue.serverTimestamp(),
     });

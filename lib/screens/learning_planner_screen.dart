@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../config/communication_figma_catalog.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
+import '../utils/duration_utils.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
 import 'communication_info_screen.dart';
@@ -18,22 +19,13 @@ class LearningPlannerScreen extends StatefulWidget {
 enum _PlannerView { home, communication, learn, dailyActivities }
 
 class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
-  static const _dailyTimeSlots = <String>[
-    '8:00 AM',
-    '10:00 AM',
-    '12:30 PM',
-    '2:00 PM',
-    '3:30 PM',
-    '5:00 PM',
-  ];
-
   final Set<String> _selectedCategoryIds = <String>{};
   final Set<String> _selectedModuleIds = <String>{};
   final Set<String> _selectedActivityIds = <String>{};
   final Set<String> _selectedFallbackLearnOptionIds = <String>{};
 
   final TextEditingController _activityNameController = TextEditingController();
-  final TextEditingController _activityTimeController = TextEditingController();
+  int _newActivityDurationMinutes = 30;
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -56,7 +48,6 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
   @override
   void dispose() {
     _activityNameController.dispose();
-    _activityTimeController.dispose();
     super.dispose();
   }
 
@@ -133,20 +124,17 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
   }
 
   List<_PlannerDailyActivity> _buildDailyActivities(
-    List<DailyActivityTemplate> templates,
-    {
+    List<DailyActivityTemplate> templates, {
     required ChildAssignment? assignment,
     required Set<String> completedTodayIds,
-  }
-  ) {
+  }) {
     final templateById = <String, DailyActivityTemplate>{
       for (final template in templates) template.id: template,
     };
-    final assignedTemplateIds = assignment?.assignedActivityTemplateIds ??
-        templateById.keys.toList();
+    final assignedTemplateIds =
+        assignment?.assignedActivityTemplateIds ?? templateById.keys.toList();
 
     final templateActivities = <_PlannerDailyActivity>[];
-    var slotIndex = 0;
     for (final templateId in assignedTemplateIds) {
       final template = templateById[templateId];
       if (template == null) {
@@ -156,31 +144,29 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
         _PlannerDailyActivity(
           id: template.id,
           title: template.title,
-          timeLabel: _dailyTimeSlots[slotIndex % _dailyTimeSlots.length],
+          durationMinutes: normalizeDurationMinutes(template.estimatedMinutes),
           isTemplate: true,
           isCompleted: completedTodayIds.contains(template.id),
         ),
       );
-      slotIndex += 1;
     }
 
-    final customActivities = (assignment?.customDailyActivities ??
-            const <CustomDailyActivity>[])
-        .map(
-          (activity) => _PlannerDailyActivity(
-            id: activity.id,
-            title: activity.title,
-            timeLabel: activity.timeLabel,
-            isTemplate: false,
-            isCompleted: completedTodayIds.contains(activity.id),
-          ),
-        )
-        .toList();
+    final customActivities =
+        (assignment?.customDailyActivities ?? const <CustomDailyActivity>[])
+            .map(
+              (activity) => _PlannerDailyActivity(
+                id: activity.id,
+                title: activity.title,
+                durationMinutes: normalizeDurationMinutes(
+                  activity.durationMinutes,
+                ),
+                isTemplate: false,
+                isCompleted: completedTodayIds.contains(activity.id),
+              ),
+            )
+            .toList();
 
-    return <_PlannerDailyActivity>[
-      ...customActivities,
-      ...templateActivities,
-    ];
+    return <_PlannerDailyActivity>[...customActivities, ...templateActivities];
   }
 
   Future<Set<String>> _loadCompletedActivityIdsForToday(String childId) async {
@@ -190,13 +176,34 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
         .collection(FirestoreCollections.activityProgress)
         .where('childId', isEqualTo: childId)
         .get();
-    return snapshot.docs
-        .where((doc) {
-          final completedAt = dateTimeFromFirestore(doc.data()['completedAt']);
-          return completedAt != null && !completedAt.isBefore(todayStart);
-        })
-        .map((doc) => (doc.data()['itemId'] ?? '').toString())
-        .where((id) => id.isNotEmpty)
+
+    final latestByItem = <String, Map<String, dynamic>>{};
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final itemId = (data['itemId'] ?? '').toString().trim();
+      if (itemId.isEmpty) {
+        continue;
+      }
+      final completedAt = dateTimeFromFirestore(data['completedAt']);
+      if (completedAt == null || completedAt.isBefore(todayStart)) {
+        continue;
+      }
+      final existing = latestByItem[itemId];
+      final existingAt = existing == null
+          ? null
+          : dateTimeFromFirestore(existing['completedAt']);
+      if (existingAt == null || completedAt.isAfter(existingAt)) {
+        latestByItem[itemId] = data;
+      }
+    }
+
+    return latestByItem.entries
+        .where(
+          (entry) =>
+              (entry.value['status'] ?? 'completed').toString().toLowerCase() ==
+              'completed',
+        )
+        .map((entry) => entry.key)
         .toSet();
   }
 
@@ -216,7 +223,7 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
             (activity) => CustomDailyActivity(
               id: activity.id,
               title: activity.title,
-              timeLabel: activity.timeLabel,
+              durationMinutes: activity.durationMinutes,
               createdAt: DateTime.now(),
             ),
           )
@@ -328,22 +335,44 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
       return;
     }
     final current = _dailyActivities[index];
-    if (current.isCompleted || !selected || _savingDailyCompletionIds.contains(activityId)) {
+    if (current.isCompleted == selected ||
+        _savingDailyCompletionIds.contains(activityId)) {
       return;
     }
+    final previous = current;
     setState(() {
       _dailyActivities[index] = _dailyActivities[index].copyWith(
-        isCompleted: true,
+        isCompleted: selected,
       );
       _savingDailyCompletionIds.add(activityId);
     });
-    AppRepositories.planner
-        .recordActivityCompletion(
-          childId: _child!.id,
-          itemId: current.id,
-          moduleId: current.id,
-          score: 1,
-        )
+
+    final saveFuture = selected
+        ? AppRepositories.planner.recordActivityCompletion(
+            childId: _child!.id,
+            itemId: current.id,
+            moduleId: current.id,
+            score: 1,
+          )
+        : AppRepositories.planner.undoActivityCompletion(
+            childId: _child!.id,
+            itemId: current.id,
+          );
+
+    saveFuture
+        .catchError((_) {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _dailyActivities[index] = previous;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Unable to update activity. Please try again.'),
+            ),
+          );
+        })
         .whenComplete(() {
           if (!mounted) {
             return;
@@ -351,7 +380,9 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
           setState(() {
             _savingDailyCompletionIds.remove(activityId);
           });
-          _showCompletionDialogIfNeeded();
+          if (selected) {
+            _showCompletionDialogIfNeeded();
+          }
         });
   }
 
@@ -365,13 +396,109 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
     _savePlan(showFeedback: false);
   }
 
+  Future<void> _resetDailyActivities() async {
+    if (_child == null) {
+      return;
+    }
+
+    final completedIds = _dailyActivities
+        .where((item) => item.isCompleted)
+        .map((item) => item.id)
+        .toList();
+    if (completedIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('All activities are already unchecked.')),
+      );
+      return;
+    }
+
+    final shouldReset = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset Activities'),
+        content: const Text(
+          'This will uncheck all daily activities for today. Continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldReset != true || !mounted) {
+      return;
+    }
+
+    final previous = List<_PlannerDailyActivity>.from(_dailyActivities);
+    setState(() {
+      _dailyActivities = _dailyActivities
+          .map((item) => item.copyWith(isCompleted: false))
+          .toList();
+      _savingDailyCompletionIds.addAll(completedIds);
+    });
+
+    try {
+      await Future.wait(
+        completedIds.map(
+          (id) => AppRepositories.planner.undoActivityCompletion(
+            childId: _child!.id,
+            itemId: id,
+          ),
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Daily activities reset to unchecked.')),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _dailyActivities = previous;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to reset activities right now.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _savingDailyCompletionIds.removeAll(completedIds);
+        });
+      }
+    }
+  }
+
+  void _changeDuration({required bool isHours, required bool increment}) {
+    const maxMinutes = 12 * 60;
+    const minuteStep = 5;
+    final delta = isHours ? 60 : minuteStep;
+    setState(() {
+      if (increment) {
+        _newActivityDurationMinutes = (_newActivityDurationMinutes + delta)
+            .clamp(minuteStep, maxMinutes);
+      } else {
+        _newActivityDurationMinutes = (_newActivityDurationMinutes - delta)
+            .clamp(minuteStep, maxMinutes);
+      }
+    });
+  }
+
   void _addDailyActivity() {
     final name = _activityNameController.text.trim();
-    final time = _activityTimeController.text.trim();
-    if (name.isEmpty || time.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter activity name and time')),
-      );
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Enter activity name')));
       return;
     }
 
@@ -381,7 +508,7 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
         _PlannerDailyActivity(
           id: id,
           title: name,
-          timeLabel: time,
+          durationMinutes: _newActivityDurationMinutes,
           isTemplate: false,
           isCompleted: false,
         ),
@@ -389,7 +516,7 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
       ];
       _showAddActivityForm = false;
       _activityNameController.clear();
-      _activityTimeController.clear();
+      _newActivityDurationMinutes = 30;
     });
     _savePlan(showFeedback: false);
   }
@@ -1030,6 +1157,21 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
                     ),
                   ),
                   const Spacer(),
+                  TextButton.icon(
+                    onPressed: _savingDailyCompletionIds.isNotEmpty
+                        ? null
+                        : _resetDailyActivities,
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                    ),
+                    icon: const Icon(Icons.restart_alt, size: 16),
+                    label: const Text('Reset'),
+                  ),
+                  const SizedBox(width: 6),
                   Text(
                     '$completed/$total',
                     style: const TextStyle(
@@ -1093,17 +1235,65 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                TextField(
-                  controller: _activityTimeController,
-                  decoration: InputDecoration(
-                    hintText: 'Time (e.g., 3:00 PM)',
-                    filled: true,
-                    fillColor: const Color(0xFFF1F2F6),
-                    isDense: true,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide.none,
-                    ),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F2F6),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Duration',
+                        style: TextStyle(
+                          color: Color(0xFF2B3A50),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _DurationCounter(
+                              label: 'Hours',
+                              value: _newActivityDurationMinutes ~/ 60,
+                              onIncrement: () => _changeDuration(
+                                isHours: true,
+                                increment: true,
+                              ),
+                              onDecrement: () => _changeDuration(
+                                isHours: true,
+                                increment: false,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _DurationCounter(
+                              label: 'Minutes',
+                              value: _newActivityDurationMinutes % 60,
+                              onIncrement: () => _changeDuration(
+                                isHours: false,
+                                increment: true,
+                              ),
+                              onDecrement: () => _changeDuration(
+                                isHours: false,
+                                increment: false,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Selected: ${formatDurationLabel(_newActivityDurationMinutes)}',
+                        style: const TextStyle(
+                          color: Color(0xFF4F5F76),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -1186,44 +1376,51 @@ class _PlannerHomeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    final cardWidth = (screenWidth - 72).clamp(270.0, 330.0);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Ink(
-          width: cardWidth,
-          height: 124,
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 21,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF121D32),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardWidth = constraints.maxWidth.clamp(240.0, 330.0).toDouble();
+        return Align(
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: cardWidth,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(14),
+                child: Ink(
+                  height: 124,
+                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF121D32),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Image.asset(
+                        imagePath,
+                        width: 36,
+                        height: 36,
+                        fit: BoxFit.contain,
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 8),
-              Image.asset(
-                imagePath,
-                width: 36,
-                height: 36,
-                fit: BoxFit.contain,
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -1286,6 +1483,66 @@ class _SquareCheckBox extends StatelessWidget {
         child: value
             ? const Icon(Icons.check, size: 16, color: Colors.white)
             : null,
+      ),
+    );
+  }
+}
+
+class _DurationCounter extends StatelessWidget {
+  const _DurationCounter({
+    required this.label,
+    required this.value,
+    required this.onIncrement,
+    required this.onDecrement,
+  });
+
+  final String label;
+  final int value;
+  final VoidCallback onIncrement;
+  final VoidCallback onDecrement;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF4F5F76),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                onPressed: onDecrement,
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.remove_circle_outline),
+              ),
+              Text(
+                '$value',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1F2C45),
+                ),
+              ),
+              IconButton(
+                onPressed: onIncrement,
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.add_circle_outline),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1435,7 +1692,7 @@ class _DailyActivityTile extends StatelessWidget {
       child: Row(
         children: [
           GestureDetector(
-            onTap: activity.isCompleted ? null : () => onToggle(true),
+            onTap: isSaving ? null : () => onToggle(!activity.isCompleted),
             child: isSaving
                 ? const SizedBox(
                     width: 18,
@@ -1468,7 +1725,7 @@ class _DailyActivityTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  activity.timeLabel,
+                  formatDurationLabel(activity.durationMinutes),
                   style: const TextStyle(
                     fontSize: 12,
                     color: Color(0xFF7A8495),
@@ -1507,28 +1764,28 @@ class _PlannerDailyActivity {
   const _PlannerDailyActivity({
     required this.id,
     required this.title,
-    required this.timeLabel,
+    required this.durationMinutes,
     required this.isTemplate,
     this.isCompleted = false,
   });
 
   final String id;
   final String title;
-  final String timeLabel;
+  final int durationMinutes;
   final bool isTemplate;
   final bool isCompleted;
 
   _PlannerDailyActivity copyWith({
     String? id,
     String? title,
-    String? timeLabel,
+    int? durationMinutes,
     bool? isTemplate,
     bool? isCompleted,
   }) {
     return _PlannerDailyActivity(
       id: id ?? this.id,
       title: title ?? this.title,
-      timeLabel: timeLabel ?? this.timeLabel,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
       isTemplate: isTemplate ?? this.isTemplate,
       isCompleted: isCompleted ?? this.isCompleted,
     );

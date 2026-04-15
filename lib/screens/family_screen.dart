@@ -26,12 +26,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
   }
 
   Future<void> _initTts() async {
-    await tts.init(
-      language: "en-US",
-      speechRate: 0.4,
-      volume: 1.0,
-      pitch: 1.0,
-    );
+    await tts.init(language: "en-US", speechRate: 0.4, volume: 1.0, pitch: 1.0);
   }
 
   @override
@@ -65,26 +60,26 @@ class _FamilyScreenState extends State<FamilyScreen> {
 
           // Decorative shapes
           Positioned(
-            bottom: 50,
-            left: 20,
+            bottom: 34,
+            left: 44,
             child: Container(width: 20, height: 20, color: AppColors.yellow),
           ),
           Positioned(
-            bottom: 100,
-            left: 80,
+            bottom: 54,
+            left: 100,
             child: const Icon(Icons.star, color: AppColors.pink, size: 24),
           ),
           Positioned(
-            bottom: 60,
-            right: 100,
+            bottom: 20,
+            right: 152,
             child: CustomPaint(
               size: const Size(20, 20),
               painter: TrianglePainter(color: AppColors.red),
             ),
           ),
           Positioned(
-            bottom: 50,
-            right: 30,
+            bottom: 10,
+            right: 44,
             child: Container(
               width: 16,
               height: 16,
@@ -144,11 +139,11 @@ class _FamilyScreenState extends State<FamilyScreen> {
                       padding: const EdgeInsets.only(top: 40, bottom: 140),
                       gridDelegate:
                           const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 20,
-                        mainAxisSpacing: 20,
-                        childAspectRatio: 0.95,
-                      ),
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 20,
+                            mainAxisSpacing: 20,
+                            childAspectRatio: 0.95,
+                          ),
                       itemCount: members.length,
                       itemBuilder: (context, index) {
                         return _buildFamilyCard(members[index]);
@@ -166,61 +161,60 @@ class _FamilyScreenState extends State<FamilyScreen> {
 
   // ONLY CHANGE: _buildFamilyCard updated (rest same)
 
-Widget _buildFamilyCard(FamilyMember member) {
-  final borderRadius = BorderRadius.circular(20);
+  Widget _buildFamilyCard(FamilyMember member) {
+    final borderRadius = BorderRadius.circular(20);
 
-  return Material(
-    color: Colors.transparent,
-    child: InkWell(
-      borderRadius: borderRadius,
-      onTap: () => _speakMember(member.name),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFFE8EAF6),
-          borderRadius: borderRadius,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFBBDEFB),
-                borderRadius: BorderRadius.circular(16),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: borderRadius,
+        onTap: () => _speakMember(member.name),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8EAF6),
+            borderRadius: borderRadius,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
               ),
-              child: Text(member.emoji, style: const TextStyle(fontSize: 48)),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  member.name,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    color: Color.fromARGB(255, 0, 0, 0),
-                  ),
+            ],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFBBDEFB),
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                const SizedBox(width: 6),
-                const Icon(Icons.mic, size: 25, color: AppColors.darkBlue),
-              ],
-            ),
-          ],
+                child: Text(member.emoji, style: const TextStyle(fontSize: 48)),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    member.name,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Color.fromARGB(255, 0, 0, 0),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  const Icon(Icons.mic, size: 25, color: AppColors.darkBlue),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
-
+    );
+  }
 
   Widget _buildBottomWave() {
     return ClipPath(

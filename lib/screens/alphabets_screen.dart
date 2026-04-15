@@ -5,11 +5,7 @@ import '../utils/app_colors.dart';
 import '../services/tts_service.dart';
 
 class AlphabetsScreen extends StatefulWidget {
-  const AlphabetsScreen({
-    super.key,
-    this.childId,
-    this.module,
-  });
+  const AlphabetsScreen({super.key, this.childId, this.module});
 
   final String? childId;
   final LearningModuleModel? module;
@@ -24,8 +20,32 @@ class _AlphabetsScreenState extends State<AlphabetsScreen> {
   bool _savingCompletion = false;
 
   final List<String> alphabets = [
-    'A','B','C','D','E','F','G','H','I','J','K','L','M',
-    'N','O','P','Q','R','S','T','U','V','W','X','Y','Z',
+    'A',
+    'B',
+    'C',
+    'D',
+    'E',
+    'F',
+    'G',
+    'H',
+    'I',
+    'J',
+    'K',
+    'L',
+    'M',
+    'N',
+    'O',
+    'P',
+    'Q',
+    'R',
+    'S',
+    'T',
+    'U',
+    'V',
+    'W',
+    'X',
+    'Y',
+    'Z',
   ];
 
   @override
@@ -35,12 +55,7 @@ class _AlphabetsScreenState extends State<AlphabetsScreen> {
   }
 
   Future<void> _initTts() async {
-    await tts.init(
-      language: "en-US",
-      speechRate: 0.4,
-      volume: 1.0,
-      pitch: 1.0,
-    );
+    await tts.init(language: "en-US", speechRate: 0.4, volume: 1.0, pitch: 1.0);
   }
 
   @override
@@ -102,26 +117,26 @@ class _AlphabetsScreenState extends State<AlphabetsScreen> {
           Positioned(bottom: 0, left: 0, right: 0, child: _buildBottomWave()),
 
           Positioned(
-            bottom: 50,
-            left: 20,
+            bottom: 34,
+            left: 44,
             child: Container(width: 20, height: 20, color: AppColors.yellow),
           ),
           Positioned(
-            bottom: 100,
-            left: 80,
+            bottom: 54,
+            left: 100,
             child: const Icon(Icons.star, color: AppColors.pink, size: 24),
           ),
           Positioned(
-            bottom: 60,
-            right: 100,
+            bottom: 20,
+            right: 152,
             child: CustomPaint(
               size: const Size(20, 20),
               painter: TrianglePainter(color: AppColors.red),
             ),
           ),
           Positioned(
-            bottom: 50,
-            right: 30,
+            bottom: 10,
+            right: 44,
             child: Container(
               width: 16,
               height: 16,
@@ -136,7 +151,10 @@ class _AlphabetsScreenState extends State<AlphabetsScreen> {
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   child: Row(
                     children: [
                       GestureDetector(
@@ -173,12 +191,13 @@ class _AlphabetsScreenState extends State<AlphabetsScreen> {
                     child: GridView.builder(
                       physics: const BouncingScrollPhysics(),
                       padding: const EdgeInsets.only(top: 20, bottom: 140),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                        childAspectRatio: 1.3,
-                      ),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 16,
+                            mainAxisSpacing: 16,
+                            childAspectRatio: 1.3,
+                          ),
                       itemCount: alphabets.length,
                       itemBuilder: (context, index) {
                         return _buildAlphabetCard(alphabets[index]);

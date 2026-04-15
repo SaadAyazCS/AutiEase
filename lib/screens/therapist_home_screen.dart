@@ -57,6 +57,31 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
       final userProfile = await AppRepositories.users.getCurrentUserProfile();
       final data = doc.data() ?? <String, dynamic>{};
       final parsedPackages = _parsePackages(data['servicePackages']);
+      final userFullName = userProfile?.fullName.trim() ?? '';
+      final canonicalDisplayName = userFullName.isNotEmpty
+          ? userFullName
+          : (profile?.displayName.trim().isNotEmpty == true
+                ? profile!.displayName.trim()
+                : (FirebaseAuth.instance.currentUser?.displayName
+                          ?.trim()
+                          .isNotEmpty ==
+                      true
+                      ? FirebaseAuth.instance.currentUser!.displayName!.trim()
+                      : 'Therapist'));
+      final canonicalEmail = (userProfile?.email.trim().isNotEmpty == true
+          ? userProfile!.email.trim()
+          : (data['contactEmail'] ??
+                    FirebaseAuth.instance.currentUser?.email ??
+                    '')
+                .toString()
+                .trim());
+      final canonicalPhone = (userProfile?.phone.trim().isNotEmpty == true
+          ? userProfile!.phone.trim()
+          : (data['contactPhone'] ??
+                    FirebaseAuth.instance.currentUser?.phoneNumber ??
+                    '')
+                .toString()
+                .trim());
 
       if (!mounted) {
         return;
@@ -66,8 +91,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
             profile ??
             TherapistProfile(
               id: uid,
-              displayName:
-                  FirebaseAuth.instance.currentUser?.displayName ?? 'Therapist',
+              displayName: canonicalDisplayName,
               bio: '',
               specializations: const <String>[],
               pricing: '',
@@ -78,20 +102,25 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
               photoUrl: '',
               isActive: true,
             );
+        if (_profile != null && _profile!.displayName != canonicalDisplayName) {
+          _profile = TherapistProfile(
+            id: _profile!.id,
+            displayName: canonicalDisplayName,
+            bio: _profile!.bio,
+            specializations: _profile!.specializations,
+            pricing: _profile!.pricing,
+            languages: _profile!.languages,
+            rating: _profile!.rating,
+            availability: _profile!.availability,
+            photoUrl: _profile!.photoUrl,
+            isActive: _profile!.isActive,
+            yearsOfExperience: _profile!.yearsOfExperience,
+          );
+        }
         _years = intFrom(data['yearsOfExperience']);
         _credentials = (data['credentials'] ?? '').toString();
-        _contactEmail =
-            (data['contactEmail'] ??
-                    userProfile?.email ??
-                    FirebaseAuth.instance.currentUser?.email ??
-                    '')
-                .toString();
-        _contactPhone =
-            (data['contactPhone'] ??
-                    userProfile?.phone ??
-                    FirebaseAuth.instance.currentUser?.phoneNumber ??
-                    '')
-                .toString();
+        _contactEmail = canonicalEmail;
+        _contactPhone = canonicalPhone;
         _certificatePdfName = data['certificatePdfName']?.toString();
         _packages = parsedPackages;
         _notificationPrefs = {
@@ -164,6 +193,10 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
     if (uid == null) {
       return;
     }
+    final firstName = profile.displayName.trim().split(' ').first;
+    final lastNameParts = profile.displayName.trim().split(' ')..removeAt(0);
+    final lastName = lastNameParts.join(' ').trim();
+    final fullName = '$firstName $lastName'.trim();
 
     final pricing = packages.isEmpty
         ? profile.pricing
@@ -188,6 +221,26 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
     );
 
     await AppRepositories.users.upsertTherapistProfile(normalized);
+    await AppRepositories.users.updateCurrentUser({
+      'firstName': firstName,
+      'lastName': lastName,
+      'fullName': fullName,
+      'email': contactEmail.trim().toLowerCase(),
+      'phone': contactPhone.trim(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    final authUser = FirebaseAuth.instance.currentUser;
+    if (authUser != null &&
+        fullName.isNotEmpty &&
+        authUser.displayName?.trim() != fullName) {
+      try {
+        await authUser.updateDisplayName(fullName);
+      } catch (_) {
+        // Keep saving resilient even if Auth profile update fails.
+      }
+    }
+
     await FirebaseFirestore.instance
         .collection(FirestoreCollections.therapistProfiles)
         .doc(uid)
@@ -443,15 +496,15 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
             ),
             Positioned(
               left: r.w(44),
-              bottom: r.h(73),
+              bottom: r.h(34),
               child: _DecorSquare(
                 color: const Color(0xFFF6E72F),
                 size: r.w(16),
               ),
             ),
             Positioned(
-              left: r.w(92),
-              bottom: r.h(84),
+              left: r.w(100),
+              bottom: r.h(54),
               child: Icon(
                 Icons.star,
                 size: r.sp(20, min: 16, max: 24),
@@ -459,16 +512,16 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
               ),
             ),
             Positioned(
-              left: r.w(165),
-              bottom: r.h(55),
+              left: r.w(188),
+              bottom: r.h(20),
               child: _DecorTriangle(
                 color: const Color(0xFFFF5B47),
                 size: r.w(18),
               ),
             ),
             Positioned(
-              right: r.w(52),
-              bottom: r.h(54),
+              right: r.w(44),
+              bottom: r.h(10),
               child: _DecorCircle(
                 color: const Color(0xFF24C235),
                 size: r.w(15),
@@ -1649,6 +1702,7 @@ class _TherapistProfileSettingsScreenState
                             'Email Address',
                             _email,
                             keyboard: TextInputType.emailAddress,
+                            readOnly: true,
                           ),
                           const SizedBox(height: 8),
                           _input(
@@ -1802,6 +1856,7 @@ class _TherapistProfileSettingsScreenState
     TextEditingController controller, {
     int lines = 1,
     TextInputType? keyboard,
+    bool readOnly = false,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1819,6 +1874,7 @@ class _TherapistProfileSettingsScreenState
           controller: controller,
           maxLines: lines,
           keyboardType: keyboard,
+          readOnly: readOnly,
           decoration: InputDecoration(
             filled: true,
             fillColor: const Color(0xFFF8FAFC),

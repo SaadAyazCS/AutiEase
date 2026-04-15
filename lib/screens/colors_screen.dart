@@ -28,12 +28,7 @@ class _ColorsScreenState extends State<ColorsScreen> {
   }
 
   Future<void> _initTts() async {
-    await tts.init(
-      language: "en-US",
-      speechRate: 0.4,
-      volume: 1.0,
-      pitch: 1.0,
-    );
+    await tts.init(language: "en-US", speechRate: 0.4, volume: 1.0, pitch: 1.0);
   }
 
   @override
@@ -64,26 +59,26 @@ class _ColorsScreenState extends State<ColorsScreen> {
           Positioned(bottom: 0, left: 0, right: 0, child: _buildBottomWave()),
 
           Positioned(
-            bottom: 50,
-            left: 20,
+            bottom: 34,
+            left: 44,
             child: Container(width: 20, height: 20, color: AppColors.yellow),
           ),
           Positioned(
-            bottom: 100,
-            left: 80,
+            bottom: 54,
+            left: 100,
             child: const Icon(Icons.star, color: AppColors.pink, size: 24),
           ),
           Positioned(
-            bottom: 60,
-            right: 100,
+            bottom: 20,
+            right: 152,
             child: CustomPaint(
               size: const Size(20, 20),
               painter: TrianglePainter(color: AppColors.red),
             ),
           ),
           Positioned(
-            bottom: 50,
-            right: 30,
+            bottom: 10,
+            right: 44,
             child: Container(
               width: 16,
               height: 16,
@@ -98,7 +93,10 @@ class _ColorsScreenState extends State<ColorsScreen> {
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   child: Row(
                     children: [
                       GestureDetector(
@@ -134,12 +132,13 @@ class _ColorsScreenState extends State<ColorsScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 30),
                     child: GridView.builder(
                       padding: const EdgeInsets.only(top: 30, bottom: 140),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 30,
-                        mainAxisSpacing: 24,
-                        childAspectRatio: 0.85,
-                      ),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 30,
+                            mainAxisSpacing: 24,
+                            childAspectRatio: 0.85,
+                          ),
                       itemCount: colors.length,
                       itemBuilder: (context, index) {
                         return _buildColorCard(colors[index]);
