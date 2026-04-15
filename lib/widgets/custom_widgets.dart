@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
+import '../utils/responsive.dart';
 
 class CustomTextField extends StatelessWidget {
   final String hintText;
@@ -21,16 +22,17 @@ class CustomTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
     return Container(
       decoration: BoxDecoration(
         color: AppColors.white,
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(r.w(30)),
         border: Border.all(color: AppColors.textGrey.withValues(alpha: 0.3)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            blurRadius: r.w(10),
+            offset: Offset(0, r.h(2)),
           ),
         ],
       ),
@@ -38,16 +40,22 @@ class CustomTextField extends StatelessWidget {
         controller: controller,
         obscureText: obscureText,
         keyboardType: keyboardType,
-        style: const TextStyle(color: AppColors.textDark, fontSize: 16),
+        style: TextStyle(
+          color: AppColors.textDark,
+          fontSize: r.sp(16, min: 14, max: 18),
+        ),
         decoration: InputDecoration(
           hintText: hintText,
-          hintStyle: const TextStyle(color: AppColors.textDark, fontSize: 16),
+          hintStyle: TextStyle(
+            color: AppColors.textDark,
+            fontSize: r.sp(16, min: 14, max: 18),
+          ),
           prefixIcon: Icon(prefixIcon, color: AppColors.darkBlue),
           suffixIcon: suffixIcon,
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 20,
-            vertical: 16,
+          contentPadding: EdgeInsets.symmetric(
+            horizontal: r.w(20),
+            vertical: r.h(16),
           ),
         ),
       ),
@@ -73,9 +81,10 @@ class CustomButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
     return Container(
       width: double.infinity,
-      height: 55,
+      height: r.h(55),
       decoration: BoxDecoration(
         gradient: backgroundColor == null
             ? const LinearGradient(
@@ -85,14 +94,14 @@ class CustomButton extends StatelessWidget {
               )
             : null,
         color: backgroundColor,
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(r.w(30)),
         boxShadow: [
           BoxShadow(
             color: (backgroundColor ?? AppColors.orangeDark).withValues(
               alpha: 0.4,
             ),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
+            blurRadius: r.w(12),
+            offset: Offset(0, r.h(6)),
           ),
         ],
       ),
@@ -102,13 +111,13 @@ class CustomButton extends StatelessWidget {
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(30),
+            borderRadius: BorderRadius.circular(r.w(30)),
           ),
         ),
         child: isLoading
-            ? const SizedBox(
-                width: 24,
-                height: 24,
+            ? SizedBox(
+                width: r.w(24),
+                height: r.w(24),
                 child: CircularProgressIndicator(
                   color: AppColors.white,
                   strokeWidth: 2,
@@ -118,7 +127,7 @@ class CustomButton extends StatelessWidget {
                 text,
                 style: TextStyle(
                   color: textColor ?? AppColors.white,
-                  fontSize: 18,
+                  fontSize: r.sp(18, min: 16, max: 20),
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -134,6 +143,7 @@ class LogoWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
     return Container(
       width: size,
       height: size,
@@ -150,8 +160,8 @@ class LogoWidget extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: AppColors.primaryBlue.withValues(alpha: 0.2),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+            blurRadius: r.w(20),
+            offset: Offset(0, r.h(10)),
           ),
         ],
       ),
@@ -172,7 +182,7 @@ class LogoWidget extends StatelessWidget {
                       size: size * 0.4,
                       color: AppColors.darkBlue,
                     ),
-                    const SizedBox(height: 8),
+                    SizedBox(height: r.h(8)),
                     Text(
                       'AutiEase',
                       style: TextStyle(

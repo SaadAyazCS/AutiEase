@@ -4,14 +4,13 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'screens/splash_screen.dart';
 import 'utils/app_colors.dart';
+import 'widgets/app_responsive_frame.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize Firebase
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -30,6 +29,15 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'AutiEase',
       debugShowCheckedModeBanner: false,
+      builder: (context, child) {
+        final media = MediaQuery.of(context);
+        final userTextScale = media.textScaler.scale(1);
+        final clampedTextScale = userTextScale.clamp(0.9, 1.15).toDouble();
+        return MediaQuery(
+          data: media.copyWith(textScaler: TextScaler.linear(clampedTextScale)),
+          child: AppResponsiveFrame(child: child ?? const SizedBox.shrink()),
+        );
+      },
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: AppColors.primaryBlue,

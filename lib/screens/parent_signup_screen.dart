@@ -9,6 +9,7 @@ import 'login_screen.dart';
 import 'child_profile_screen.dart';
 import 'email_verification_screen.dart';
 import 'parent_home_screen.dart';
+import '../utils/responsive.dart';
 
 class ParentSignupScreen extends StatefulWidget {
   final String? firstName;
@@ -315,6 +316,7 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
     final screenHeight = MediaQuery.of(context).size.height;
     final bool isEmailReadOnly =
         _firebaseService.currentUser?.providerData.any(
@@ -391,55 +393,55 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
 
                   // White form container
                   Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 24),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 30,
+                    margin: EdgeInsets.symmetric(horizontal: r.w(24)),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: r.w(24),
+                      vertical: r.h(30),
                     ),
                     decoration: BoxDecoration(
                       color: Colors.transparent,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(r.w(24)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _buildLabel('Parent First Name'),
-                        const SizedBox(height: 8),
+                        SizedBox(height: r.h(8)),
                         _buildTextField(_firstNameController),
-                        const SizedBox(height: 16),
+                        SizedBox(height: r.h(16)),
 
                         _buildLabel('Parent Last Name'),
-                        const SizedBox(height: 8),
+                        SizedBox(height: r.h(8)),
                         _buildTextField(_lastNameController),
-                        const SizedBox(height: 16),
+                        SizedBox(height: r.h(16)),
 
                         _buildLabel('Parent Email'),
-                        const SizedBox(height: 8),
+                        SizedBox(height: r.h(8)),
                         _buildTextField(
                           _emailController,
                           keyboardType: TextInputType.emailAddress,
                           readOnly: isEmailReadOnly,
                         ),
-                        const SizedBox(height: 16),
+                        SizedBox(height: r.h(16)),
 
                         _buildLabel('Parent Phone Number'),
-                        const SizedBox(height: 8),
+                        SizedBox(height: r.h(8)),
                         _buildTextField(
                           _phoneController,
                           keyboardType: TextInputType.phone,
                         ),
-                        const SizedBox(height: 16),
+                        SizedBox(height: r.h(16)),
 
                         _buildLabel('Password'),
-                        const SizedBox(height: 8),
+                        SizedBox(height: r.h(8)),
                         _buildTextField(_passwordController, obscureText: true),
-                        const SizedBox(height: 16),
+                        SizedBox(height: r.h(16)),
 
                         Row(
                           children: [
                             SizedBox(
-                              width: 24,
-                              height: 24,
+                              width: r.w(24),
+                              height: r.w(24),
                               child: Checkbox(
                                 value: _agreeTerms,
                                 onChanged: (value) {
@@ -451,15 +453,15 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            SizedBox(width: r.w(8)),
                             Flexible(
                               child: Wrap(
                                 children: [
-                                  const Text(
+                                  Text(
                                     'Agree with ',
                                     style: TextStyle(
                                       color: Color(0xFF2A364E),
-                                      fontSize: 15,
+                                      fontSize: r.sp(15, min: 13, max: 18),
                                     ),
                                   ),
                                   GestureDetector(
@@ -472,11 +474,11 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
                                         ),
                                       );
                                     },
-                                    child: const Text(
+                                    child: Text(
                                       'Terms and Conditions',
                                       style: TextStyle(
                                         color: Color(0xFF2F89FC),
-                                        fontSize: 15,
+                                        fontSize: r.sp(15, min: 13, max: 18),
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -487,19 +489,19 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
                           ],
                         ),
 
-                        const SizedBox(height: 24),
+                        SizedBox(height: r.h(24)),
 
                         Container(
                           width: double.infinity,
-                          height: 50,
+                          height: r.h(50),
                           decoration: BoxDecoration(
                             color: const Color(0xFFFF8D20),
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(r.w(20)),
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withValues(alpha: 0.24),
-                                blurRadius: 6,
-                                offset: const Offset(0, 4),
+                                blurRadius: r.w(6),
+                                offset: Offset(0, r.h(4)),
                               ),
                             ],
                           ),
@@ -509,40 +511,40 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
                               backgroundColor: Colors.transparent,
                               shadowColor: Colors.transparent,
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(20),
+                                borderRadius: BorderRadius.circular(r.w(20)),
                               ),
                               elevation: 0,
                             ),
                             child: _isLoading
-                                ? const SizedBox(
-                                    width: 24,
-                                    height: 24,
+                                ? SizedBox(
+                                    width: r.w(24),
+                                    height: r.w(24),
                                     child: CircularProgressIndicator(
                                       color: Color(0xFF0B1421),
                                       strokeWidth: 2,
                                     ),
                                   )
-                                : const Text(
+                                : Text(
                                     'Sign up',
                                     style: TextStyle(
                                       color: Color(0xFF0B1421),
-                                      fontSize: 24,
+                                      fontSize: r.sp(24, min: 18, max: 28),
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
                           ),
                         ),
 
-                        const SizedBox(height: 16),
+                        SizedBox(height: r.h(16)),
 
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text(
+                            Text(
                               'Already have an account? ',
                               style: TextStyle(
                                 color: Color(0xFF0F1A2F),
-                                fontSize: 16,
+                                fontSize: r.sp(16, min: 14, max: 18),
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -556,12 +558,12 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
                                   (route) => false,
                                 );
                               },
-                              child: const Text(
+                              child: Text(
                                 'Login',
                                 style: TextStyle(
                                   color: Color(0xFF2F89FC),
                                   fontWeight: FontWeight.w600,
-                                  fontSize: 16,
+                                  fontSize: r.sp(16, min: 14, max: 18),
                                 ),
                               ),
                             ),
@@ -571,7 +573,7 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: 150),
+                  SizedBox(height: r.h(150)),
                 ],
               ),
             ),
@@ -582,12 +584,13 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
   }
 
   Widget _buildLabel(String text) {
+    final r = context.responsive;
     return Text(
       text,
-      style: const TextStyle(
-        fontSize: 23,
+      style: TextStyle(
+        fontSize: r.sp(23, min: 18, max: 26),
         fontWeight: FontWeight.w500,
-        color: Color(0xFF1A2543),
+        color: const Color(0xFF1A2543),
       ),
     );
   }
@@ -599,10 +602,11 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
     bool obscureText = false,
     bool readOnly = false,
   }) {
+    final r = context.responsive;
     return Container(
       decoration: BoxDecoration(
         color: readOnly ? const Color(0xFFE8EDF3) : AppColors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(r.w(16)),
         boxShadow: const [
           BoxShadow(
             color: Color.fromRGBO(0, 0, 0, 0.18),
@@ -616,14 +620,17 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
         keyboardType: keyboardType,
         obscureText: obscureText,
         readOnly: readOnly,
-        style: const TextStyle(
-          fontSize: 18,
+        style: TextStyle(
+          fontSize: r.sp(18, min: 14, max: 20),
           color: Color(0xFF1A2543),
           fontWeight: FontWeight.w500,
         ),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+          contentPadding: EdgeInsets.symmetric(
+            horizontal: r.w(18),
+            vertical: r.h(15),
+          ),
         ),
       ),
     );
@@ -633,7 +640,7 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
     return ClipPath(
       clipper: BottomWaveClipper(),
       child: Container(
-        height: 120,
+        height: context.responsive.h(120),
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             colors: [AppColors.lightBlue, AppColors.primaryBlue],

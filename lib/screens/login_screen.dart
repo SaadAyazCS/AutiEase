@@ -15,6 +15,7 @@ import 'role_selection_screen.dart';
 import 'therapist_home_screen.dart';
 import 'email_verification_screen.dart';
 import '../utils/app_colors.dart';
+import '../utils/responsive.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -282,6 +283,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final screenHeight = MediaQuery.of(context).size.height;
     final isKeyboardOpen = bottomInset > 0;
@@ -304,12 +306,14 @@ class _LoginScreenState extends State<LoginScreen>
                   : screenHeight - MediaQuery.of(context).padding.top,
               child: Column(
                 children: [
-                  const SizedBox(height: 36),
+                  SizedBox(height: r.h(36)),
                   FadeTransition(
                     opacity: _fadeAnimation,
-                    child: LogoWidget(size: isKeyboardOpen ? 190 : 210),
+                    child: LogoWidget(
+                      size: isKeyboardOpen ? r.w(190) : r.w(210),
+                    ),
                   ),
-                  if (!isKeyboardOpen) const SizedBox(height: 70),
+                  if (!isKeyboardOpen) SizedBox(height: r.h(70)),
                   if (!isKeyboardOpen) const Spacer(),
 
                   SlideTransition(
@@ -320,16 +324,18 @@ class _LoginScreenState extends State<LoginScreen>
                         width: double.infinity,
                         margin: EdgeInsets.zero,
                         padding: EdgeInsets.only(
-                          left: 28,
-                          right: 28,
-                          top: 34,
-                          bottom: isKeyboardOpen ? 20 + bottomInset : 28,
+                          left: r.w(28),
+                          right: r.w(28),
+                          top: r.h(34),
+                          bottom: isKeyboardOpen
+                              ? r.h(20) + bottomInset
+                              : r.h(28),
                         ),
                         decoration: BoxDecoration(
                           color: const Color(0xFF80CFFF),
-                          borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(48),
-                            topRight: Radius.circular(48),
+                          borderRadius: BorderRadius.only(
+                            topLeft: Radius.circular(r.w(48)),
+                            topRight: Radius.circular(r.w(48)),
                           ),
                         ),
                         child: SingleChildScrollView(
@@ -338,26 +344,26 @@ class _LoginScreenState extends State<LoginScreen>
                             children: [
                               if (_showError)
                                 Container(
-                                  margin: const EdgeInsets.only(bottom: 11),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
+                                  margin: EdgeInsets.only(bottom: r.h(11)),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: r.w(8),
                                   ),
-                                  child: const Column(
+                                  child: Column(
                                     children: [
                                       Text(
                                         'Invalid Details!',
                                         style: TextStyle(
                                           color: AppColors.errorRed,
-                                          fontSize: 22,
+                                          fontSize: r.sp(22, min: 18, max: 24),
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
-                                      SizedBox(height: 4),
+                                      SizedBox(height: r.h(4)),
                                       Text(
                                         'ReEnter your Credentials',
                                         style: TextStyle(
                                           color: Color(0xFF0E1C33),
-                                          fontSize: 18,
+                                          fontSize: r.sp(18, min: 14, max: 20),
                                           fontWeight: FontWeight.w500,
                                         ),
                                       ),
@@ -434,18 +440,18 @@ class _LoginScreenState extends State<LoginScreen>
                                       ),
                                     );
                                   },
-                                  child: const Text(
+                                  child: Text(
                                     'Forgot Password?',
                                     style: TextStyle(
                                       color: Color(0xFF0D1425),
                                       fontWeight: FontWeight.w700,
-                                      fontSize: 17,
+                                      fontSize: r.sp(17, min: 14, max: 20),
                                     ),
                                   ),
                                 ),
                               ),
 
-                              const SizedBox(height: 10),
+                              SizedBox(height: r.h(10)),
 
                               CustomButton(
                                 text: 'Login',
@@ -455,16 +461,16 @@ class _LoginScreenState extends State<LoginScreen>
                                 textColor: const Color(0xFF0B1421),
                               ),
 
-                              const SizedBox(height: 16),
+                              SizedBox(height: r.h(16)),
 
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Text(
+                                  Text(
                                     "Don’t have an account? ",
                                     style: TextStyle(
                                       color: Color(0xFF0F1A2F),
-                                      fontSize: 18,
+                                      fontSize: r.sp(18, min: 14, max: 20),
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
@@ -510,19 +516,19 @@ class _LoginScreenState extends State<LoginScreen>
                                         ),
                                       );
                                     },
-                                    child: const Text(
+                                    child: Text(
                                       'Signup',
                                       style: TextStyle(
                                         color: Color(0xFF2F89FC),
                                         fontWeight: FontWeight.w600,
-                                        fontSize: 18,
+                                        fontSize: r.sp(18, min: 14, max: 20),
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
 
-                              const SizedBox(height: 24),
+                              SizedBox(height: r.h(24)),
 
                               Row(
                                 children: [
@@ -534,15 +540,15 @@ class _LoginScreenState extends State<LoginScreen>
                                       ).withValues(alpha: 0.48),
                                     ),
                                   ),
-                                  const Padding(
+                                  Padding(
                                     padding: EdgeInsets.symmetric(
-                                      horizontal: 16,
+                                      horizontal: r.w(16),
                                     ),
                                     child: Text(
                                       'Or',
                                       style: TextStyle(
                                         color: Color(0xFF1B1D21),
-                                        fontSize: 26,
+                                        fontSize: r.sp(26, min: 20, max: 30),
                                         fontWeight: FontWeight.w500,
                                       ),
                                     ),
@@ -558,14 +564,14 @@ class _LoginScreenState extends State<LoginScreen>
                                 ],
                               ),
 
-                              const SizedBox(height: 22),
+                              SizedBox(height: r.h(22)),
 
                               Container(
                                 width: double.infinity,
-                                height: 50,
+                                height: r.h(50),
                                 decoration: BoxDecoration(
                                   color: const Color(0x05FFFFFF),
-                                  borderRadius: BorderRadius.circular(10),
+                                  borderRadius: BorderRadius.circular(r.w(10)),
                                   border: Border.all(
                                     color: Colors.black.withValues(alpha: 0.40),
                                     width: 1,
@@ -577,20 +583,22 @@ class _LoginScreenState extends State<LoginScreen>
                                     onTap: _isLoading
                                         ? null
                                         : _handleGoogleLogin,
-                                    borderRadius: BorderRadius.circular(10),
+                                    borderRadius: BorderRadius.circular(
+                                      r.w(10),
+                                    ),
                                     child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: r.w(12),
                                       ),
                                       child: Row(
                                         children: [
                                           Image.asset(
                                             'assets/images/google_logo.png',
-                                            width: 26,
-                                            height: 26,
+                                            width: r.w(26),
+                                            height: r.w(26),
                                             fit: BoxFit.contain,
                                           ),
-                                          const Expanded(
+                                          Expanded(
                                             child: Center(
                                               child: Text(
                                                 'Login with Google',
@@ -601,13 +609,17 @@ class _LoginScreenState extends State<LoginScreen>
                                                     33,
                                                     0.60,
                                                   ),
-                                                  fontSize: 16,
+                                                  fontSize: r.sp(
+                                                    16,
+                                                    min: 14,
+                                                    max: 18,
+                                                  ),
                                                   fontWeight: FontWeight.w600,
                                                 ),
                                               ),
                                             ),
                                           ),
-                                          const SizedBox(width: 26),
+                                          SizedBox(width: r.w(26)),
                                         ],
                                       ),
                                     ),

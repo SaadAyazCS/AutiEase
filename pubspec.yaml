@@ -44,8 +44,8 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/autiease.png"
+  image_path: "assets/images/autiease_icon.png"
   adaptive_icon_background: "#ffffff"
-  adaptive_icon_foreground: "assets/images/autiease.png"
+  adaptive_icon_foreground: "assets/images/autiease_icon.png"
   adaptive_icon_foreground_inset: 22
   remove_alpha_ios: true

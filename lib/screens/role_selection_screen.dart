@@ -4,6 +4,7 @@ import '../models/app_models.dart';
 import '../navigation/session_navigation.dart';
 import '../repositories/app_repositories.dart';
 import '../services/firebase_service.dart';
+import '../utils/responsive.dart';
 import '../widgets/custom_widgets.dart';
 import 'login_screen.dart';
 import 'parent_signup_screen.dart';
@@ -109,6 +110,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
     return Scaffold(
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -118,10 +120,10 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
                 child: ColoredBox(color: Color(0xFF66CAF5)),
               ),
               Positioned(
-                top: 38,
+                top: r.h(38),
                 left: 0,
                 right: 0,
-                bottom: 122,
+                bottom: r.h(122),
                 child: ClipPath(
                   clipper: _RoleMainPanelClipper(),
                   child: const ColoredBox(color: Color(0xFFF2F2F2)),
@@ -131,38 +133,51 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
                 left: 0,
                 right: 0,
                 bottom: 0,
-                height: 170,
+                height: r.h(170),
                 child: ClipPath(
                   clipper: _RoleBottomClipper(),
                   child: const ColoredBox(color: Color(0xFF57C1F3)),
                 ),
               ),
-              const Positioned(
-                left: 18,
-                bottom: 78,
-                child: _DecorSquare(color: Color(0xFFF6E72F), size: 20),
+              Positioned(
+                left: r.w(18),
+                bottom: r.h(78),
+                child: _DecorSquare(
+                  color: const Color(0xFFF6E72F),
+                  size: r.w(20),
+                ),
               ),
-              const Positioned(
-                left: 76,
-                bottom: 92,
-                child: Icon(Icons.star, size: 20, color: Color(0xFFFF4081)),
+              Positioned(
+                left: r.w(76),
+                bottom: r.h(92),
+                child: Icon(
+                  Icons.star,
+                  size: r.sp(20, min: 16, max: 24),
+                  color: const Color(0xFFFF4081),
+                ),
               ),
-              const Positioned(
-                left: 108,
-                bottom: 54,
-                child: _DecorTriangle(color: Color(0xFFFF5722)),
+              Positioned(
+                left: r.w(108),
+                bottom: r.h(54),
+                child: _DecorTriangle(
+                  color: const Color(0xFFFF5722),
+                  size: r.w(18),
+                ),
               ),
-              const Positioned(
-                right: 32,
-                bottom: 50,
-                child: _DecorCircle(color: Color(0xFF4CAF50), size: 15),
+              Positioned(
+                right: r.w(32),
+                bottom: r.h(50),
+                child: _DecorCircle(
+                  color: const Color(0xFF4CAF50),
+                  size: r.w(15),
+                ),
               ),
               SafeArea(
                 child: Stack(
                   children: [
                     Positioned(
-                      top: 2,
-                      left: 2,
+                      top: r.h(2),
+                      left: r.w(2),
                       child: IconButton(
                         onPressed: () {
                           Navigator.pushReplacement(
@@ -172,16 +187,16 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
                             ),
                           );
                         },
-                        icon: const Icon(
+                        icon: Icon(
                           Icons.arrow_back,
                           color: Color(0xFF152748),
-                          size: 26,
+                          size: r.sp(26, min: 20, max: 30),
                         ),
                       ),
                     ),
                     Positioned.fill(
-                      top: 56,
-                      bottom: 176,
+                      top: r.h(56),
+                      bottom: r.h(176),
                       child: LayoutBuilder(
                         builder: (context, contentBox) {
                           return SingleChildScrollView(
@@ -196,17 +211,17 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
                                   child: Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      const LogoWidget(size: 148),
-                                      const SizedBox(height: 20),
-                                      const Text(
+                                      LogoWidget(size: r.w(148)),
+                                      SizedBox(height: r.h(20)),
+                                      Text(
                                         'Welcome! I am',
                                         style: TextStyle(
-                                          fontSize: 34,
+                                          fontSize: r.sp(34, min: 24, max: 38),
                                           fontWeight: FontWeight.w700,
-                                          color: Color(0xFF223651),
+                                          color: const Color(0xFF223651),
                                         ),
                                       ),
-                                      const SizedBox(height: 20),
+                                      SizedBox(height: r.h(20)),
                                       _RoleChoiceCard(
                                         title: 'Parent & Child',
                                         subtitle: 'Monitor and Guide',
@@ -215,7 +230,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
                                             'assets/images/parent_child.png',
                                         onTap: () => _selectRole('parent'),
                                       ),
-                                      const SizedBox(height: 16),
+                                      SizedBox(height: r.h(16)),
                                       _RoleChoiceCard(
                                         title: 'Therapist',
                                         subtitle: 'Connect and Support',
@@ -261,40 +276,45 @@ class _RoleChoiceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final cardWidth = (screenWidth - r.w(96))
+        .clamp(r.w(220), r.w(290))
+        .toDouble();
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(r.w(12)),
       child: Container(
-        width: 252,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        width: cardWidth,
+        padding: EdgeInsets.symmetric(horizontal: r.w(14), vertical: r.h(12)),
         decoration: BoxDecoration(
           color: color,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(r.w(12)),
         ),
         child: Column(
           children: [
             Text(
               title,
-              style: const TextStyle(
-                fontSize: 18.5,
+              style: TextStyle(
+                fontSize: r.sp(18.5, min: 14, max: 22),
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF243656),
+                color: const Color(0xFF243656),
               ),
             ),
-            const SizedBox(height: 7),
+            SizedBox(height: r.h(7)),
             SizedBox(
-              width: 44,
-              height: 44,
+              width: r.w(44),
+              height: r.w(44),
               child: Image.asset(imageAsset, fit: BoxFit.contain),
             ),
-            const SizedBox(height: 7),
+            SizedBox(height: r.h(7)),
             Text(
               subtitle,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 14.2,
+              style: TextStyle(
+                fontSize: r.sp(14.2, min: 12, max: 18),
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF1A2D4B),
+                color: const Color(0xFF1A2D4B),
               ),
             ),
           ],
@@ -379,14 +399,15 @@ class _DecorCircle extends StatelessWidget {
 }
 
 class _DecorTriangle extends StatelessWidget {
-  const _DecorTriangle({required this.color});
+  const _DecorTriangle({required this.color, required this.size});
 
   final Color color;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      size: const Size(18, 18),
+      size: Size(size, size),
       painter: _TrianglePainter(color),
     );
   }

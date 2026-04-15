@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/responsive.dart';
 
 class FigmaModuleScaffold extends StatelessWidget {
   const FigmaModuleScaffold({
@@ -16,57 +17,63 @@ class FigmaModuleScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
     return Scaffold(
       body: Stack(
         children: [
-          const Positioned.fill(
-            child: ColoredBox(color: Color(0xFFA9DCF5)),
-          ),
+          const Positioned.fill(child: ColoredBox(color: Color(0xFFA9DCF5))),
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
-            height: 165,
+            height: r.h(165),
             child: ClipPath(
               clipper: _FooterWaveClipper(),
               child: const ColoredBox(color: Color(0xFF59BFEF)),
             ),
           ),
-          const Positioned(
-            left: 50,
-            bottom: 138,
-            child: _DecorSquare(color: Color(0xFFF6E72F), size: 18),
+          Positioned(
+            left: r.w(50),
+            bottom: r.h(138),
+            child: _DecorSquare(color: const Color(0xFFF6E72F), size: r.w(18)),
           ),
-          const Positioned(
-            left: 105,
-            bottom: 150,
-            child: Icon(Icons.star, size: 22, color: Color(0xFFFF4081)),
+          Positioned(
+            left: r.w(105),
+            bottom: r.h(150),
+            child: Icon(
+              Icons.star,
+              size: r.sp(22, min: 18, max: 26),
+              color: const Color(0xFFFF4081),
+            ),
           ),
-          const Positioned(
-            right: 106,
-            bottom: 118,
-            child: _DecorTriangle(color: Color(0xFFFF5722)),
+          Positioned(
+            right: r.w(106),
+            bottom: r.h(118),
+            child: _DecorTriangle(
+              color: const Color(0xFFFF5722),
+              size: r.w(18),
+            ),
           ),
-          const Positioned(
-            right: 48,
-            bottom: 114,
-            child: _DecorCircle(color: Color(0xFF4CAF50), size: 16),
+          Positioned(
+            right: r.w(48),
+            bottom: r.h(114),
+            child: _DecorCircle(color: const Color(0xFF4CAF50), size: r.w(16)),
           ),
           SafeArea(
             child: Column(
               children: [
                 Container(
-                  height: 112,
+                  height: r.h(112),
                   width: double.infinity,
                   color: const Color(0xFF67C9F4),
-                  padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
+                  padding: EdgeInsets.fromLTRB(r.w(8), r.h(8), r.w(16), r.h(8)),
                   child: Row(
                     children: [
                       IconButton(
                         onPressed: onBack,
-                        icon: const Icon(
+                        icon: Icon(
                           Icons.arrow_back_ios_new,
-                          size: 22,
+                          size: r.sp(22, min: 18, max: 26),
                           color: Color(0xFF0F1E38),
                         ),
                       ),
@@ -74,20 +81,20 @@ class FigmaModuleScaffold extends StatelessWidget {
                         child: Text(
                           title,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 34 / 1.5,
+                          style: TextStyle(
+                            fontSize: r.sp(34 / 1.5, min: 18, max: 28),
                             fontWeight: FontWeight.w700,
-                            color: Color(0xFF12213D),
+                            color: const Color(0xFF12213D),
                           ),
                         ),
                       ),
-                      trailing ?? const SizedBox(width: 34),
+                      trailing ?? SizedBox(width: r.w(34)),
                     ],
                   ),
                 ),
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    padding: EdgeInsets.fromLTRB(r.w(16), r.h(12), r.w(16), 0),
                     child: child,
                   ),
                 ),
@@ -146,13 +153,17 @@ class _DecorCircle extends StatelessWidget {
 }
 
 class _DecorTriangle extends StatelessWidget {
-  const _DecorTriangle({required this.color});
+  const _DecorTriangle({required this.color, required this.size});
 
   final Color color;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(size: const Size(18, 18), painter: _TrianglePainter(color));
+    return CustomPaint(
+      size: Size(size, size),
+      painter: _TrianglePainter(color),
+    );
   }
 }
 

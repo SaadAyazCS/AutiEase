@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/responsive.dart';
 
 class FigmaHomeShell extends StatelessWidget {
   const FigmaHomeShell({
@@ -16,6 +17,7 @@ class FigmaHomeShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
     return Scaffold(
       body: Stack(
         children: [
@@ -34,49 +36,62 @@ class FigmaHomeShell extends StatelessWidget {
             left: 0,
             right: 0,
             bottom: 0,
-            height: 170,
+            height: r.h(170),
             child: ClipPath(
               clipper: _HomeBottomClipper(),
               child: const ColoredBox(color: Color(0xFF57C1F3)),
             ),
           ),
-          const Positioned(
-            left: 18,
-            bottom: 78,
-            child: _DecorSquare(color: Color(0xFFF6E72F), size: 20),
+          Positioned(
+            left: r.w(18),
+            bottom: r.h(78),
+            child: _DecorSquare(color: const Color(0xFFF6E72F), size: r.w(20)),
           ),
-          const Positioned(
-            left: 76,
-            bottom: 92,
-            child: Icon(Icons.star, size: 20, color: Color(0xFFFF4081)),
+          Positioned(
+            left: r.w(76),
+            bottom: r.h(92),
+            child: Icon(
+              Icons.star,
+              size: r.sp(20, min: 16, max: 24),
+              color: const Color(0xFFFF4081),
+            ),
           ),
-          const Positioned(
-            left: 108,
-            bottom: 54,
-            child: _DecorTriangle(color: Color(0xFFFF5722)),
+          Positioned(
+            left: r.w(108),
+            bottom: r.h(54),
+            child: _DecorTriangle(
+              color: const Color(0xFFFF5722),
+              size: r.w(18),
+            ),
           ),
-          const Positioned(
-            right: 32,
-            bottom: 50,
-            child: _DecorCircle(color: Color(0xFF4CAF50), size: 15),
+          Positioned(
+            right: r.w(32),
+            bottom: r.h(50),
+            child: _DecorCircle(color: const Color(0xFF4CAF50), size: r.w(15)),
           ),
           SafeArea(
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
+                  padding: EdgeInsets.fromLTRB(
+                    r.w(14),
+                    r.h(8),
+                    r.w(14),
+                    r.h(6),
+                  ),
                   child: Row(
                     children: [
                       Container(
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(r.w(12)),
                         ),
                         child: IconButton(
                           onPressed: onLogout,
-                          icon: const Icon(
+                          icon: Icon(
                             Icons.logout,
-                            color: Color(0xFF152748),
+                            size: r.sp(24, min: 20, max: 28),
+                            color: const Color(0xFF152748),
                           ),
                         ),
                       ),
@@ -84,26 +99,26 @@ class FigmaHomeShell extends StatelessWidget {
                         child: Column(
                           children: [
                             avatar,
-                            const SizedBox(height: 6),
+                            SizedBox(height: r.h(6)),
                             Text(
                               title,
                               textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 29 / 1.5,
+                              style: TextStyle(
+                                fontSize: r.sp(29 / 1.5, min: 16, max: 24),
                                 fontWeight: FontWeight.w700,
-                                color: Color(0xFF223651),
+                                color: const Color(0xFF223651),
                               ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(width: 48),
+                      SizedBox(width: r.w(48)),
                     ],
                   ),
                 ),
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                    padding: EdgeInsets.fromLTRB(r.w(12), r.h(8), r.w(12), 0),
                     child: child,
                   ),
                 ),
@@ -191,14 +206,15 @@ class _DecorCircle extends StatelessWidget {
 }
 
 class _DecorTriangle extends StatelessWidget {
-  const _DecorTriangle({required this.color});
+  const _DecorTriangle({required this.color, required this.size});
 
   final Color color;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      size: const Size(18, 18),
+      size: Size(size, size),
       painter: _TrianglePainter(color),
     );
   }

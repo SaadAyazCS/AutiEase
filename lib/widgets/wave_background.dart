@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
+import '../utils/responsive.dart';
 
 class WaveClipper extends CustomClipper<Path> {
   @override
@@ -84,6 +85,7 @@ class WaveBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
     return Stack(
       children: [
         const Positioned.fill(child: ColoredBox(color: AppColors.skyBlue)),
@@ -113,7 +115,7 @@ class WaveBackground extends StatelessWidget {
             child: ClipPath(
               clipper: BottomWaveClipper(),
               child: Container(
-                height: 150,
+                height: r.h(150),
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
                     colors: [AppColors.lightBlue, AppColors.primaryBlue],
@@ -128,29 +130,37 @@ class WaveBackground extends StatelessWidget {
         // Decorative shapes
         if (showDecorations) ...[
           Positioned(
-            bottom: 80,
-            left: 20,
-            child: Container(width: 20, height: 20, color: AppColors.yellow),
-          ),
-          const Positioned(
-            bottom: 100,
-            left: 80,
-            child: Icon(Icons.star, color: AppColors.pink, size: 24),
+            bottom: r.h(80),
+            left: r.w(20),
+            child: Container(
+              width: r.w(20),
+              height: r.w(20),
+              color: AppColors.yellow,
+            ),
           ),
           Positioned(
-            bottom: 60,
-            right: 100,
+            bottom: r.h(100),
+            left: r.w(80),
+            child: Icon(
+              Icons.star,
+              color: AppColors.pink,
+              size: r.sp(24, min: 18, max: 28),
+            ),
+          ),
+          Positioned(
+            bottom: r.h(60),
+            right: r.w(100),
             child: CustomPaint(
-              size: const Size(20, 20),
+              size: Size(r.w(20), r.w(20)),
               painter: TrianglePainter(color: AppColors.red),
             ),
           ),
           Positioned(
-            bottom: 50,
-            right: 30,
+            bottom: r.h(50),
+            right: r.w(30),
             child: Container(
-              width: 16,
-              height: 16,
+              width: r.w(16),
+              height: r.w(16),
               decoration: const BoxDecoration(
                 color: AppColors.green,
                 shape: BoxShape.circle,

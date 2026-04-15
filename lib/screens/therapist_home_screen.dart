@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../services/firebase_service.dart';
+import '../utils/responsive.dart';
 import '../widgets/session_guard.dart';
 import 'about_application_screen.dart';
 import 'login_screen.dart';
@@ -387,6 +388,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
     if (_loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
@@ -399,14 +401,14 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
           children: [
             const Positioned.fill(child: ColoredBox(color: Color(0xFF9ED7F4))),
             Positioned(
-              top: 96,
+              top: r.h(96),
               left: 0,
               right: 0,
               bottom: 0,
               child: ClipRRect(
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(14),
-                  topRight: Radius.circular(14),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(r.w(14)),
+                  topRight: Radius.circular(r.w(14)),
                 ),
                 child: const ColoredBox(color: Color(0xFFF6F6F6)),
               ),
@@ -418,12 +420,12 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
               child: SafeArea(
                 bottom: false,
                 child: Container(
-                  height: 92,
-                  decoration: const BoxDecoration(
+                  height: r.h(92),
+                  decoration: BoxDecoration(
                     color: Color(0xFF77C6F0),
                     borderRadius: BorderRadius.only(
-                      bottomLeft: Radius.circular(18),
-                      bottomRight: Radius.circular(18),
+                      bottomLeft: Radius.circular(r.w(18)),
+                      bottomRight: Radius.circular(r.w(18)),
                     ),
                   ),
                 ),
@@ -433,42 +435,55 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
               left: 0,
               right: 0,
               bottom: 0,
-              height: 160,
+              height: r.h(160),
               child: ClipPath(
                 clipper: _FooterWaveClipper(),
                 child: const ColoredBox(color: Color(0xFF60BEEF)),
               ),
             ),
-            const Positioned(
-              left: 44,
-              bottom: 73,
-              child: _DecorSquare(color: Color(0xFFF6E72F), size: 16),
-            ),
-            const Positioned(
-              left: 92,
-              bottom: 84,
-              child: Icon(Icons.star, size: 20, color: Color(0xFFFF4081)),
-            ),
-            const Positioned(
-              left: 165,
-              bottom: 55,
-              child: _DecorTriangle(color: Color(0xFFFF5B47)),
-            ),
-            const Positioned(
-              right: 52,
-              bottom: 54,
-              child: _DecorCircle(color: Color(0xFF24C235), size: 15),
+            Positioned(
+              left: r.w(44),
+              bottom: r.h(73),
+              child: _DecorSquare(
+                color: const Color(0xFFF6E72F),
+                size: r.w(16),
+              ),
             ),
             Positioned(
-              top: MediaQuery.of(context).padding.top + 10,
+              left: r.w(92),
+              bottom: r.h(84),
+              child: Icon(
+                Icons.star,
+                size: r.sp(20, min: 16, max: 24),
+                color: const Color(0xFFFF4081),
+              ),
+            ),
+            Positioned(
+              left: r.w(165),
+              bottom: r.h(55),
+              child: _DecorTriangle(
+                color: const Color(0xFFFF5B47),
+                size: r.w(18),
+              ),
+            ),
+            Positioned(
+              right: r.w(52),
+              bottom: r.h(54),
+              child: _DecorCircle(
+                color: const Color(0xFF24C235),
+                size: r.w(15),
+              ),
+            ),
+            Positioned(
+              top: MediaQuery.of(context).padding.top + r.h(10),
               left: 0,
               right: 0,
-              child: const Center(child: _TherapistHomeBadge()),
+              child: Center(child: _TherapistHomeBadge(size: r.w(124))),
             ),
             SafeArea(
               child: Column(
                 children: [
-                  const SizedBox(height: 140),
+                  SizedBox(height: r.h(140)),
                   Expanded(
                     child: StreamBuilder<ProfessionalSupportFeatureFlags>(
                       stream: AppRepositories.content
@@ -485,7 +500,12 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
                               constraints.maxWidth - 52,
                             );
                             return SingleChildScrollView(
-                              padding: const EdgeInsets.fromLTRB(0, 12, 0, 172),
+                              padding: EdgeInsets.fromLTRB(
+                                0,
+                                r.h(12),
+                                0,
+                                r.h(172),
+                              ),
                               child: ConstrainedBox(
                                 constraints: BoxConstraints(
                                   minHeight: math.max(
@@ -505,7 +525,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
                                           asset: 'assets/images/Dashboard.png',
                                           onTap: _openDashboard,
                                         ),
-                                        const SizedBox(height: 14),
+                                        SizedBox(height: r.h(14)),
                                         _ModuleCard(
                                           title: 'Messages',
                                           color: const Color(0xFFA5E876),
@@ -522,7 +542,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
                                                 )
                                               : _showComingSoon,
                                         ),
-                                        const SizedBox(height: 14),
+                                        SizedBox(height: r.h(14)),
                                         _ModuleCard(
                                           title: 'Settings',
                                           color: const Color(0xFF66D2E8),
@@ -2575,18 +2595,20 @@ class _PackageEditorState extends State<_PackageEditor> {
 }
 
 class _TherapistHomeBadge extends StatelessWidget {
-  const _TherapistHomeBadge();
+  const _TherapistHomeBadge({required this.size});
+
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 124,
-      height: 124,
+      width: size,
+      height: size,
       decoration: const BoxDecoration(
         shape: BoxShape.circle,
         color: Color(0xFFC4E5C6),
       ),
-      padding: const EdgeInsets.all(8),
+      padding: EdgeInsets.all(size * 0.065),
       child: ClipOval(
         child: Image.asset('assets/images/autiease.png', fit: BoxFit.contain),
       ),
@@ -2636,6 +2658,7 @@ class _ModuleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
     final cardColor = enabled ? color : color.withValues(alpha: 0.6);
     final textColor = enabled
         ? const Color(0xFF111827)
@@ -2644,13 +2667,13 @@ class _ModuleCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(r.w(14)),
         child: Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+          padding: EdgeInsets.symmetric(horizontal: r.w(20), vertical: r.h(22)),
           decoration: BoxDecoration(
             color: cardColor,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(r.w(14)),
           ),
           child: Row(
             children: [
@@ -2658,13 +2681,17 @@ class _ModuleCard extends StatelessWidget {
                 child: Text(
                   title,
                   style: TextStyle(
-                    fontSize: 40 / 1.5,
+                    fontSize: r.sp(40 / 1.5, min: 18, max: 28),
                     fontWeight: FontWeight.w700,
                     color: textColor,
                   ),
                 ),
               ),
-              SizedBox(height: 44, width: 44, child: Image.asset(asset)),
+              SizedBox(
+                height: r.w(44),
+                width: r.w(44),
+                child: Image.asset(asset, fit: BoxFit.contain),
+              ),
             ],
           ),
         ),
@@ -2806,14 +2833,15 @@ class _DecorCircle extends StatelessWidget {
 }
 
 class _DecorTriangle extends StatelessWidget {
-  const _DecorTriangle({required this.color});
+  const _DecorTriangle({required this.color, required this.size});
 
   final Color color;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      size: const Size(18, 18),
+      size: Size(size, size),
       painter: _TrianglePainter(color),
     );
   }
