@@ -62,11 +62,10 @@ class CommunicationScreen extends StatelessWidget {
               assignment: access.assignment,
               categories: access.categories,
             );
-            final boards = CommunicationFigmaCatalog.homeBoardOrder
-                .where((id) => allowedBoardIds.contains(id))
-                .map(CommunicationFigmaCatalog.boardForId)
-                .whereType<CommunicationBoardDefinition>()
-                .toList();
+            final boards = _orderedBoards(
+              allowedBoardIds: allowedBoardIds,
+              categories: access.categories,
+            );
             if (boards.isEmpty) {
               return const Center(
                 child: Padding(
@@ -114,23 +113,10 @@ class CommunicationScreen extends StatelessWidget {
     final boardById = <String, CommunicationBoardDefinition>{
       for (final board in CommunicationFigmaCatalog.boards) board.id: board,
     };
-    final categoryToBoardId = <String, String>{};
-    for (final category in categories) {
-      if (boardById.containsKey(category.id)) {
-        categoryToBoardId[category.id] = category.id;
-        continue;
-      }
-      final matchedByTitle = CommunicationFigmaCatalog.boards
-          .where(
-            (board) =>
-                board.title.toLowerCase() == category.title.toLowerCase(),
-          )
-          .map((board) => board.id)
-          .firstWhere((_) => true, orElse: () => '');
-      if (matchedByTitle.isNotEmpty) {
-        categoryToBoardId[category.id] = matchedByTitle;
-      }
-    }
+    final categoryToBoardId = _categoryToBoardIdMap(
+      categories: categories,
+      boardById: boardById,
+    );
 
     final allowed = <String>{};
     if (selectedIds.isEmpty) {
@@ -146,6 +132,76 @@ class CommunicationScreen extends StatelessWidget {
       }
     }
     return allowed;
+  }
+
+  List<CommunicationBoardDefinition> _orderedBoards({
+    required Set<String> allowedBoardIds,
+    required List<ContentCategory> categories,
+  }) {
+    if (allowedBoardIds.isEmpty) {
+      return const <CommunicationBoardDefinition>[];
+    }
+
+    final boardById = <String, CommunicationBoardDefinition>{
+      for (final board in CommunicationFigmaCatalog.boards) board.id: board,
+    };
+    final categoryToBoardId = _categoryToBoardIdMap(
+      categories: categories,
+      boardById: boardById,
+    );
+    final orderedIds = <String>[];
+
+    void addIfAllowed(String id) {
+      if (!allowedBoardIds.contains(id) || orderedIds.contains(id)) {
+        return;
+      }
+      if (!boardById.containsKey(id)) {
+        return;
+      }
+      orderedIds.add(id);
+    }
+
+    for (final id in CommunicationFigmaCatalog.homeBoardOrder) {
+      addIfAllowed(id);
+    }
+
+    for (final category in categories) {
+      final mapped = categoryToBoardId[category.id];
+      if (mapped != null) {
+        addIfAllowed(mapped);
+      }
+    }
+
+    for (final board in CommunicationFigmaCatalog.boards) {
+      addIfAllowed(board.id);
+    }
+
+    return orderedIds
+        .map((id) => boardById[id])
+        .whereType<CommunicationBoardDefinition>()
+        .toList();
+  }
+
+  Map<String, String> _categoryToBoardIdMap({
+    required List<ContentCategory> categories,
+    required Map<String, CommunicationBoardDefinition> boardById,
+  }) {
+    final boardByTitle = <String, String>{
+      for (final board in CommunicationFigmaCatalog.boards)
+        board.title.trim().toLowerCase(): board.id,
+    };
+    final categoryToBoardId = <String, String>{};
+    for (final category in categories) {
+      if (boardById.containsKey(category.id)) {
+        categoryToBoardId[category.id] = category.id;
+        continue;
+      }
+      final mappedByTitle = boardByTitle[category.title.trim().toLowerCase()];
+      if (mappedByTitle != null) {
+        categoryToBoardId[category.id] = mappedByTitle;
+      }
+    }
+    return categoryToBoardId;
   }
 }
 
