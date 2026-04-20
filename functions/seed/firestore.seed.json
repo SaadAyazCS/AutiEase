@@ -535,7 +535,7 @@
       "learningCategoryKey": "move_play",
       "learningCategoryTitle": "Move & Play",
       "gameTypeKey": "drag_game",
-      "levelRange": "Level 1",
+      "levelRange": "Level 2",
       "assetRefs": ["category:numbers", "category:food", "category:shapes"],
       "sortOrder": 2,
       "isActive": true
@@ -548,7 +548,7 @@
       "learningCategoryKey": "move_play",
       "learningCategoryTitle": "Move & Play",
       "gameTypeKey": "trace_game",
-      "levelRange": "Level 1",
+      "levelRange": "Level 3",
       "assetRefs": ["category:shapes", "category:alphabets"],
       "sortOrder": 3,
       "isActive": true

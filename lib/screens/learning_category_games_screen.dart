@@ -33,6 +33,25 @@ class LearningCategoryGamesScreen extends StatelessWidget {
         .replaceAll(RegExp(r'^_|_$'), '');
   }
 
+  String _displayLevelLabel(LearningModuleModel module) {
+    if (category.key != 'move_play') {
+      return module.levelRange;
+    }
+    final fingerprint = _normalizeKey(
+      '${module.gameTypeKey} ${module.id} ${module.title}',
+    );
+    if (fingerprint.contains('tap')) {
+      return 'Level 1';
+    }
+    if (fingerprint.contains('drag')) {
+      return 'Level 2';
+    }
+    if (fingerprint.contains('trace')) {
+      return 'Level 3';
+    }
+    return module.levelRange;
+  }
+
   @override
   Widget build(BuildContext context) {
     return SessionGuard(
@@ -159,7 +178,7 @@ class LearningCategoryGamesScreen extends StatelessWidget {
                                 size: 16,
                                 color: AppColors.primaryBlue,
                               ),
-                              label: Text(module.levelRange),
+                              label: Text(_displayLevelLabel(module)),
                             ),
                           ],
                         ),
