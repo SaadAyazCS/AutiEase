@@ -105,13 +105,18 @@ class CommunicationScreen extends StatelessWidget {
     required List<ContentCategory> categories,
   }) {
     if (assignment == null) {
-      return <String>{...CommunicationFigmaCatalog.homeBoardOrder};
+      return <String>{
+        for (final id in CommunicationFigmaCatalog.homeBoardOrder)
+          if (!CommunicationFigmaCatalog.isHiddenBoardId(id)) id,
+      };
     }
 
     final selectedIds = assignment.assignedCategoryIds;
 
     final boardById = <String, CommunicationBoardDefinition>{
-      for (final board in CommunicationFigmaCatalog.boards) board.id: board,
+      for (final board in CommunicationFigmaCatalog.boards)
+        if (!CommunicationFigmaCatalog.isHiddenBoardId(board.id))
+          board.id: board,
     };
     final categoryToBoardId = _categoryToBoardIdMap(
       categories: categories,
@@ -123,11 +128,16 @@ class CommunicationScreen extends StatelessWidget {
       return allowed;
     }
     for (final id in selectedIds) {
+      if (CommunicationFigmaCatalog.isHiddenBoardId(id)) {
+        continue;
+      }
       if (boardById.containsKey(id)) {
         allowed.add(id);
       }
       final mapped = categoryToBoardId[id];
-      if (mapped != null && mapped.isNotEmpty) {
+      if (mapped != null &&
+          mapped.isNotEmpty &&
+          !CommunicationFigmaCatalog.isHiddenBoardId(mapped)) {
         allowed.add(mapped);
       }
     }
@@ -143,7 +153,9 @@ class CommunicationScreen extends StatelessWidget {
     }
 
     final boardById = <String, CommunicationBoardDefinition>{
-      for (final board in CommunicationFigmaCatalog.boards) board.id: board,
+      for (final board in CommunicationFigmaCatalog.boards)
+        if (!CommunicationFigmaCatalog.isHiddenBoardId(board.id))
+          board.id: board,
     };
     final categoryToBoardId = _categoryToBoardIdMap(
       categories: categories,
@@ -153,6 +165,9 @@ class CommunicationScreen extends StatelessWidget {
 
     void addIfAllowed(String id) {
       if (!allowedBoardIds.contains(id) || orderedIds.contains(id)) {
+        return;
+      }
+      if (CommunicationFigmaCatalog.isHiddenBoardId(id)) {
         return;
       }
       if (!boardById.containsKey(id)) {
@@ -188,10 +203,15 @@ class CommunicationScreen extends StatelessWidget {
   }) {
     final boardByTitle = <String, String>{
       for (final board in CommunicationFigmaCatalog.boards)
-        board.title.trim().toLowerCase(): board.id,
+        if (!CommunicationFigmaCatalog.isHiddenBoardId(board.id))
+          board.title.trim().toLowerCase(): board.id,
     };
     final categoryToBoardId = <String, String>{};
     for (final category in categories) {
+      if (CommunicationFigmaCatalog.isHiddenBoardId(category.id) ||
+          CommunicationFigmaCatalog.isHiddenBoardTitle(category.title)) {
+        continue;
+      }
       if (boardById.containsKey(category.id)) {
         categoryToBoardId[category.id] = category.id;
         continue;

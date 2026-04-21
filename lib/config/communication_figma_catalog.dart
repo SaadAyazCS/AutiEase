@@ -43,10 +43,12 @@ class CommunicationFigmaCatalog {
     'colors',
     'numbers',
     'animals',
-    'feelings',
     'alphabets',
     'clothes',
   ];
+
+  static const Set<String> hiddenBoardIds = <String>{'feelings'};
+  static const Set<String> hiddenBoardTitles = <String>{'feelings'};
 
   static const List<CommunicationBoardDefinition> boards =
       <CommunicationBoardDefinition>[
@@ -515,5 +517,13 @@ class CommunicationFigmaCatalog {
       }
     }
     return null;
+  }
+
+  static bool isHiddenBoardId(String id) {
+    return hiddenBoardIds.contains(id.trim().toLowerCase());
+  }
+
+  static bool isHiddenBoardTitle(String title) {
+    return hiddenBoardTitles.contains(title.trim().toLowerCase());
   }
 }

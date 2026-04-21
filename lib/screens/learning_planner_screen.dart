@@ -81,6 +81,19 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
     _selectedCategoryIds
       ..clear()
       ..addAll(assignment?.assignedCategoryIds ?? const <String>[]);
+    final hiddenCategoryIds = categories
+        .where(
+          (category) =>
+              CommunicationFigmaCatalog.isHiddenBoardId(category.id) ||
+              CommunicationFigmaCatalog.isHiddenBoardTitle(category.title),
+        )
+        .map((category) => category.id)
+        .toSet();
+    _selectedCategoryIds.removeWhere(
+      (categoryId) =>
+          CommunicationFigmaCatalog.isHiddenBoardId(categoryId) ||
+          hiddenCategoryIds.contains(categoryId),
+    );
     _selectedModuleIds
       ..clear()
       ..addAll(assignment?.assignedModuleIds ?? const <String>[]);
@@ -771,6 +784,9 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
       return CommunicationFigmaCatalog.homeBoardOrder
           .map(CommunicationFigmaCatalog.boardForId)
           .whereType<CommunicationBoardDefinition>()
+          .where(
+            (board) => !CommunicationFigmaCatalog.isHiddenBoardId(board.id),
+          )
           .map(
             (board) => _PlannerCommunicationItem(
               id: board.id,
@@ -783,7 +799,8 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
 
     final boardByNormalizedTitle = <String, CommunicationBoardDefinition>{
       for (final board in CommunicationFigmaCatalog.boards)
-        board.title.toLowerCase(): board,
+        if (!CommunicationFigmaCatalog.isHiddenBoardId(board.id))
+          board.title.toLowerCase(): board,
     };
     final categoriesById = <String, ContentCategory>{
       for (final category in _categories) category.id: category,
@@ -831,6 +848,10 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
     }
 
     for (final category in _categories) {
+      if (CommunicationFigmaCatalog.isHiddenBoardId(category.id) ||
+          CommunicationFigmaCatalog.isHiddenBoardTitle(category.title)) {
+        continue;
+      }
       if (consumedIds.contains(category.id)) {
         continue;
       }
@@ -846,6 +867,9 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
 
     final seenIds = ordered.map((item) => item.id).toSet();
     for (final board in CommunicationFigmaCatalog.boards) {
+      if (CommunicationFigmaCatalog.isHiddenBoardId(board.id)) {
+        continue;
+      }
       if (seenIds.contains(board.id)) {
         continue;
       }
