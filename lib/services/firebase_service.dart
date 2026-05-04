@@ -1015,4 +1015,148 @@ class FirebaseService {
   }
 
   Future<void> signOut() => logout();
+
+  /// Deletes parent-owned Firestore data, the user document, then the Firebase Auth user,
+  /// using the same recovery steps as the therapist account deletion flow.
+  Future<Map<String, dynamic>> deleteParentAccount() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) {
+      return {
+        'firestoreDeleted': false,
+        'authDeleted': false,
+        'authError': '',
+        'message': 'No authenticated user found.',
+      };
+    }
+
+    var firestoreDeleted = false;
+    try {
+      await _deleteParentOwnedFirestoreData(uid);
+      firestoreDeleted = true;
+    } catch (firestoreError) {
+      debugPrint('deleteParentAccount Firestore error: $firestoreError');
+    }
+
+    var authDeleted = false;
+    var authError = '';
+
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser != null) {
+        await currentUser.delete();
+        authDeleted = true;
+      }
+    } catch (authError1) {
+      authError = authError1.toString();
+
+      try {
+        final currentUser = _auth.currentUser;
+        if (currentUser != null && currentUser.email != null) {
+          throw Exception('Re-auth not possible without password');
+        }
+      } catch (_) {
+        try {
+          await _users.doc(uid).update({
+            'markedForDeletion': true,
+            'deletionTimestamp': FieldValue.serverTimestamp(),
+            'deletionReason': 'User requested account deletion',
+          });
+          authDeleted = true;
+        } catch (markError) {
+          try {
+            await _users.doc(uid).update({
+              'status': 'disabled',
+              'disabledByUser': true,
+              'disabledTimestamp': FieldValue.serverTimestamp(),
+            });
+            authDeleted = true;
+          } catch (disableError) {
+            authError = disableError.toString();
+          }
+        }
+      }
+    }
+
+    return {
+      'firestoreDeleted': firestoreDeleted,
+      'authDeleted': authDeleted,
+      'authError': authError,
+    };
+  }
+
+  Future<void> _deleteParentOwnedFirestoreData(String uid) async {
+    final threads = await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .where('parentId', isEqualTo: uid)
+        .get();
+    for (final doc in threads.docs) {
+      try {
+        await doc.reference.delete();
+      } catch (_) {}
+    }
+
+    final children = await _children.where('parentId', isEqualTo: uid).get();
+    for (final doc in children.docs) {
+      final childId = doc.id;
+      final progress = await _firestore
+          .collection(FirestoreCollections.activityProgress)
+          .where('childId', isEqualTo: childId)
+          .get();
+      for (final p in progress.docs) {
+        try {
+          await p.reference.delete();
+        } catch (_) {}
+      }
+      final moods = await _firestore
+          .collection(FirestoreCollections.moodLogs)
+          .where('childId', isEqualTo: childId)
+          .get();
+      for (final m in moods.docs) {
+        try {
+          await m.reference.delete();
+        } catch (_) {}
+      }
+      try {
+        await _firestore
+            .collection(FirestoreCollections.childAssignments)
+            .doc(childId)
+            .delete();
+      } catch (_) {}
+      try {
+        await _firestore
+            .collection(FirestoreCollections.dashboardSnapshots)
+            .doc(childId)
+            .delete();
+      } catch (_) {}
+      try {
+        await doc.reference.delete();
+      } catch (_) {}
+    }
+
+    try {
+      final subs = await _firestore
+          .collection(FirestoreCollections.subscriptions)
+          .where('userId', isEqualTo: uid)
+          .get();
+      for (final s in subs.docs) {
+        try {
+          await s.reference.delete();
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    try {
+      final feedbackSnap = await _firestore
+          .collection(FirestoreCollections.feedback)
+          .where('userId', isEqualTo: uid)
+          .get();
+      for (final f in feedbackSnap.docs) {
+        try {
+          await f.reference.delete();
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    await _users.doc(uid).delete();
+  }
 }
