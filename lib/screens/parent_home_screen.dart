@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
@@ -11,14 +13,105 @@ import 'parent_home_info_flow_screen.dart';
 import 'professional_support_screen.dart';
 import 'settings_screen.dart';
 
-class ParentHomeScreen extends StatelessWidget {
+class ParentHomeScreen extends StatefulWidget {
   const ParentHomeScreen({super.key});
 
-  void _openInfoFlow(BuildContext context) {
-    Navigator.push(
+  @override
+  State<ParentHomeScreen> createState() => _ParentHomeScreenState();
+}
+
+/// Persisted so the welcome coachmark appears only once per parent account.
+const String parentHomeCoachmarkSeenField = 'hasSeenParentHomeInfoCoachmark';
+
+class _ParentHomeScreenState extends State<ParentHomeScreen> {
+  bool _showCoachmark = false;
+  bool _pulseInfoGlow = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _evaluateParentCoachmark());
+  }
+
+  Future<void> _evaluateParentCoachmark() async {
+    if (!mounted) {
+      return;
+    }
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      return;
+    }
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection(FirestoreCollections.users)
+          .doc(uid)
+          .get();
+      final hasSeen =
+          snapshot.data()?[parentHomeCoachmarkSeenField] == true;
+      if (!mounted || hasSeen) {
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 420));
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _showCoachmark = true;
+        _pulseInfoGlow = true;
+      });
+    } catch (_) {
+      // Non-blocking: omit coachmark when Firestore is unavailable.
+    }
+  }
+
+  Future<void> _markCoachmarkSeen() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      return;
+    }
+    try {
+      await FirebaseFirestore.instance
+          .collection(FirestoreCollections.users)
+          .doc(uid)
+          .set(
+            {parentHomeCoachmarkSeenField: true},
+            SetOptions(merge: true),
+          );
+    } catch (_) {
+      // Best-effort; avoid blocking the UI.
+    }
+  }
+
+  Future<void> _startInfoWalkthrough() async {
+    if (_showCoachmark || _pulseInfoGlow) {
+      await _markCoachmarkSeen();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _showCoachmark = false;
+        _pulseInfoGlow = false;
+      });
+    }
+    if (!mounted) {
+      return;
+    }
+    await Navigator.push<void>(
       context,
       MaterialPageRoute(builder: (_) => const ParentHomeInfoFlowScreen()),
     );
+  }
+
+  Future<void> _dismissCoachmarkWithoutWalkthrough() async {
+    await _markCoachmarkSeen();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showCoachmark = false;
+      _pulseInfoGlow = false;
+    });
   }
 
   Widget _buildScreenForModule(AppModule module) {
@@ -104,6 +197,136 @@ class ParentHomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = context.responsive;
+
+    Widget coachmarkTriangle() {
+      return CustomPaint(
+        size: Size(r.w(26), r.h(12)),
+        painter: _CoachmarkBubbleTrianglePainter(
+          color: const Color(0xFF3D8BD4),
+        ),
+      );
+    }
+
+    Widget coachmarkBubble() {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Container(
+            constraints: BoxConstraints(maxWidth: r.w(248)),
+            padding: EdgeInsets.fromLTRB(
+              r.w(14),
+              r.h(14),
+              r.w(14),
+              r.h(12),
+            ),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF56B9F5),
+                  Color(0xFF3D8BD4),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(r.w(16)),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.35),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF3D8BD4).withValues(alpha: 0.28),
+                  blurRadius: r.h(14),
+                  offset: Offset(0, r.h(8)),
+                  spreadRadius: 0,
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.16),
+                  blurRadius: r.h(8),
+                  offset: Offset(0, r.h(4)),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(r.w(5)),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.22),
+                        borderRadius: BorderRadius.circular(r.w(8)),
+                      ),
+                      child: Icon(
+                        Icons.waving_hand_rounded,
+                        color: Colors.white,
+                        size: r.sp(17, min: 14, max: 20),
+                      ),
+                    ),
+                    SizedBox(width: r.w(8)),
+                    Expanded(
+                      child: Text(
+                        'Welcome!',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: r.sp(15.5, min: 13, max: 18),
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: r.h(8)),
+                Text(
+                  'Tap the circular (i) icon just below Settings to explore '
+                  'what each tab does. That opens a step-by-step tour of your '
+                  'home—starting with Dashboard, then the other sections.',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.94),
+                    fontSize: r.sp(13, min: 11.5, max: 15),
+                    height: 1.45,
+                  ),
+                ),
+                SizedBox(height: r.h(10)),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _dismissCoachmarkWithoutWalkthrough,
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.symmetric(horizontal: r.w(10)),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(
+                      'Maybe later',
+                      style: TextStyle(
+                        fontSize: r.sp(12.5),
+                        decoration: TextDecoration.underline,
+                        decorationColor:
+                            Colors.white.withValues(alpha: 0.9),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.only(right: r.w(28)),
+            child: Transform.translate(
+              offset: Offset(r.w(-2), 0),
+              child: coachmarkTriangle(),
+            ),
+          ),
+        ],
+      );
+    }
+
     return SessionGuard(
       role: SessionGuardRole.parent,
       child: Scaffold(
@@ -250,13 +473,21 @@ class ParentHomeScreen extends StatelessWidget {
                 ],
               ),
             ),
+            if (_showCoachmark)
+              Positioned(
+                right: r.w(36),
+                bottom: r.h(88) + r.w(30) + r.h(10),
+                child: coachmarkBubble(),
+              ),
             Positioned(
               right: r.w(48),
               bottom: r.h(90),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () => _openInfoFlow(context),
-                child: Container(
+                onTap: () async => _startInfoWalkthrough(),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeOutCubic,
                   width: r.w(30),
                   height: r.w(30),
                   decoration: BoxDecoration(
@@ -266,6 +497,26 @@ class ParentHomeScreen extends StatelessWidget {
                       color: const Color(0xFF101010),
                       width: r.w(1.8),
                     ),
+                    boxShadow: [
+                      if (_pulseInfoGlow) ...[
+                        BoxShadow(
+                          color: const Color(0xFF4EA9E3).withValues(alpha: 0.55),
+                          blurRadius: r.h(16),
+                          spreadRadius: r.h(1.5),
+                        ),
+                        BoxShadow(
+                          color: const Color(0xFF56B9F5).withValues(alpha: 0.35),
+                          blurRadius: r.h(24),
+                          spreadRadius: 0,
+                          offset: Offset(0, r.h(6)),
+                        ),
+                      ],
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.22),
+                        blurRadius: r.h(6),
+                        offset: Offset(0, r.h(3)),
+                      ),
+                    ],
                   ),
                   alignment: Alignment.center,
                   child: Icon(
@@ -281,6 +532,28 @@ class ParentHomeScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CoachmarkBubbleTrianglePainter extends CustomPainter {
+  const _CoachmarkBubbleTrianglePainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    final path = Path()
+      ..moveTo(size.width / 2, 0)
+      ..lineTo(0, size.height)
+      ..lineTo(size.width, size.height)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _ParentHomeBadge extends StatelessWidget {

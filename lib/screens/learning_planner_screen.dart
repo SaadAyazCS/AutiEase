@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../config/communication_figma_catalog.dart';
 import '../models/app_models.dart';
+import '../navigation/app_route_observer.dart';
 import '../repositories/app_repositories.dart';
 import '../utils/duration_utils.dart';
+import '../utils/parent_support_areas.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
 import 'communication_info_screen.dart';
@@ -18,7 +20,10 @@ class LearningPlannerScreen extends StatefulWidget {
 
 enum _PlannerView { home, communication, learn, dailyActivities }
 
-class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
+class _LearningPlannerScreenState extends State<LearningPlannerScreen>
+    with RouteAware {
+  PageRoute<dynamic>? _observedRoute;
+
   final Set<String> _selectedCategoryIds = <String>{};
   final Set<String> _selectedModuleIds = <String>{};
   final Set<String> _selectedActivityIds = <String>{};
@@ -46,9 +51,44 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<dynamic>) {
+      if (_observedRoute != route) {
+        if (_observedRoute != null) {
+          appRouteObserver.unsubscribe(this);
+        }
+        _observedRoute = route;
+        appRouteObserver.subscribe(this, route);
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
     _activityNameController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    _loadPlannerState();
+  }
+
+  void _enforceSupportAreasForCurrentView() {
+    final child = _child;
+    if (child == null) {
+      return;
+    }
+    if (!childHasCommunicationSupport(child) &&
+        _view == _PlannerView.communication) {
+      _view = _PlannerView.home;
+    }
+    if (!childHasLearningPlaySupport(child) && _view == _PlannerView.learn) {
+      _view = _PlannerView.home;
+    }
   }
 
   Future<void> _loadPlannerState() async {
@@ -116,6 +156,7 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
       _modules = modules;
       _dailyActivities = dailyActivities;
       _isLoading = false;
+      _enforceSupportAreasForCurrentView();
     });
   }
 
@@ -745,6 +786,8 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
   }
 
   Widget _buildPlannerHome() {
+    final commOk = childHasCommunicationSupport(_child);
+    final learnOk = childHasLearningPlaySupport(_child);
     return ListView(
       padding: const EdgeInsets.fromLTRB(8, 12, 8, 170),
       children: [
@@ -754,6 +797,8 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
             title: 'Communication',
             imagePath: 'assets/images/Communication.png',
             color: const Color(0xFFD7B6B8),
+            locked: !commOk,
+            lockedAreaLabel: 'Communication',
             onTap: () => setState(() => _view = _PlannerView.communication),
           ),
         ),
@@ -763,6 +808,8 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
             title: 'Learn',
             imagePath: 'assets/images/Learn.png',
             color: const Color(0xFF86D34A),
+            locked: !learnOk,
+            lockedAreaLabel: 'Learning & Play',
             onTap: () => setState(() => _view = _PlannerView.learn),
           ),
         ),
@@ -1391,12 +1438,16 @@ class _PlannerHomeCard extends StatelessWidget {
     required this.imagePath,
     required this.color,
     required this.onTap,
+    this.locked = false,
+    this.lockedAreaLabel = '',
   });
 
   final String title;
   final String imagePath;
   final Color color;
   final VoidCallback onTap;
+  final bool locked;
+  final String lockedAreaLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -1410,7 +1461,16 @@ class _PlannerHomeCard extends StatelessWidget {
             child: Material(
               color: Colors.transparent,
               child: InkWell(
-                onTap: onTap,
+                onTap: () {
+                  if (locked) {
+                    showLockedParentSupportAreaDialog(
+                      context,
+                      areaLabel: lockedAreaLabel,
+                    );
+                  } else {
+                    onTap();
+                  }
+                },
                 borderRadius: BorderRadius.circular(14),
                 child: Ink(
                   height: 124,
@@ -1419,24 +1479,89 @@ class _PlannerHomeCard extends StatelessWidget {
                     color: color,
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  child: Stack(
+                    clipBehavior: Clip.antiAlias,
+                    alignment: Alignment.center,
                     children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 21,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF121D32),
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              fontSize: 21,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF121D32),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Image.asset(
+                            imagePath,
+                            width: 36,
+                            height: 36,
+                            fit: BoxFit.contain,
+                          ),
+                        ],
+                      ),
+                      if (locked)
+                        Positioned.fill(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(
+                                      alpha: 0.1,
+                                    ),
+                                  ),
+                                  child: const SizedBox.expand(),
+                                ),
+                                Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.94,
+                                        ),
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color:
+                                                Colors.black.withValues(alpha: 0.12),
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Icon(
+                                        Icons.lock_rounded,
+                                        size: 28,
+                                        color: Colors.grey.shade800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Locked',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.black.withValues(
+                                          alpha: 0.55,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      Image.asset(
-                        imagePath,
-                        width: 36,
-                        height: 36,
-                        fit: BoxFit.contain,
-                      ),
                     ],
                   ),
                 ),

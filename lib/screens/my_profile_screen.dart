@@ -136,6 +136,19 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           _newPasswordController.clear();
         }
       } else if (_child != null) {
+        if (!_communicationEnabled && !_learningEnabled) {
+          if (!mounted) {
+            return;
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Please keep at least one support area enabled for your child.',
+              ),
+            ),
+          );
+          return;
+        }
         await AppRepositories.users.upsertChildProfile(
           ChildProfile(
             id: _child!.id,

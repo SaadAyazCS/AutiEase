@@ -378,9 +378,8 @@ class FirebaseService {
         final defaultModules = wantsLearning
             ? await AppRepositories.content.getAllLearningModules()
             : const <LearningModuleModel>[];
-        final defaultActivities = wantsLearning
-            ? await AppRepositories.content.getAllActivityTemplates()
-            : const <DailyActivityTemplate>[];
+        final defaultActivities =
+            await AppRepositories.content.getAllActivityTemplates();
         final defaultCommunicationIds = wantsCommunication
             ? List<String>.from(CommunicationFigmaCatalog.homeBoardOrder)
             : const <String>[];
