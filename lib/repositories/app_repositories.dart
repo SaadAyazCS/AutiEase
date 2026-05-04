@@ -273,6 +273,20 @@ class FirebaseUserRepository implements UserRepository {
 
   CollectionReference<Map<String, dynamic>> get _therapists =>
       _firestore.collection(FirestoreCollections.therapistProfiles);
+  static const Set<String> _supportedParentNotificationKeys = <String>{
+    'therapistsUpdate',
+    'levelProgressNotification',
+    'subscription',
+    'routineReminders',
+  };
+  static const Set<String> _legacyParentNotificationKeys = <String>{
+    'activityAlerts',
+    'dailyReminder',
+    'dailyReminders',
+    'emailNotifications',
+    'progressUpdates',
+    'pushNotifications',
+  };
 
   @override
   Future<UserProfile?> getCurrentUserProfile() async {
@@ -345,7 +359,35 @@ class FirebaseUserRepository implements UserRepository {
   Future<void> updateNotificationPreferences(
     Map<String, bool> preferences,
   ) async {
-    await updateCurrentUser({'notificationPreferences': preferences});
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw StateError('No logged in user');
+    }
+
+    final profile = await getCurrentUserProfile();
+    if (profile?.role != 'parent') {
+      await updateCurrentUser({'notificationPreferences': preferences});
+      return;
+    }
+
+    final sanitized = <String, bool>{
+      for (final key in _supportedParentNotificationKeys)
+        key: preferences[key] ?? false,
+    };
+    final existingKeys = profile?.notificationPreferences.keys.toSet() ?? <String>{};
+    final nestedKeysToDelete = existingKeys
+        .difference(_supportedParentNotificationKeys)
+        .union(_legacyParentNotificationKeys);
+
+    final payload = <String, dynamic>{
+      for (final entry in sanitized.entries)
+        'notificationPreferences.${entry.key}': entry.value,
+      for (final key in nestedKeysToDelete)
+        'notificationPreferences.$key': FieldValue.delete(),
+      for (final key in _legacyParentNotificationKeys) key: FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    await _users.doc(user.uid).update(payload);
   }
 
   @override

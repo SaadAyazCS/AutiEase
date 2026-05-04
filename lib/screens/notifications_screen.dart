@@ -12,6 +12,13 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
+  static const Set<String> _supportedKeys = <String>{
+    'therapistsUpdate',
+    'levelProgressNotification',
+    'subscription',
+    'routineReminders',
+  };
+
   bool _isSaving = false;
   Map<String, bool> _preferences = {
     'therapistsUpdate': false,
@@ -58,12 +65,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
     setState(() => _isSaving = true);
     try {
-      await AppRepositories.users.updateNotificationPreferences(_preferences);
+      final sanitized = <String, bool>{
+        for (final key in _supportedKeys) key: _preferences[key] ?? false,
+      };
+      await AppRepositories.users.updateNotificationPreferences(sanitized);
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Notification preferences saved.')),
+        const SnackBar(content: Text('Notifications saved successfully.')),
       );
     } catch (_) {
       if (!mounted) {
