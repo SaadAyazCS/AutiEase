@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../utils/responsive.dart';
-import '../utils/app_colors.dart';
+import 'module_bottom_wave_overlay.dart';
 
 class FigmaModuleScaffold extends StatelessWidget {
   const FigmaModuleScaffold({
@@ -93,131 +94,15 @@ class FigmaModuleScaffold extends StatelessWidget {
               ],
             ),
           if (!isKeyboardOpen)
-            // Wave and decor shapes moved to the end of Stack to appear ON TOP of content
             Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: IgnorePointer(
-              child: Stack(
-                alignment: Alignment.bottomCenter,
-                children: [
-                  ClipPath(
-                    clipper: _BottomWaveClipper(),
-                    child: Container(
-                      height: r.h(150),
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [AppColors.lightBlue, AppColors.primaryBlue],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: r.h(34),
-                    left: r.w(44),
-                    child: Container(
-                      width: r.w(20),
-                      height: r.w(20),
-                      color: AppColors.yellow,
-                    ),
-                  ),
-                  Positioned(
-                    bottom: r.h(54),
-                    left: r.w(100),
-                    child: Icon(
-                      Icons.star,
-                      color: AppColors.pink,
-                      size: r.sp(24, min: 18, max: 28),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: r.h(20),
-                    right: r.w(152),
-                    child: CustomPaint(
-                      size: Size(r.w(20), r.w(20)),
-                      painter: _TrianglePainter(color: AppColors.red),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: r.h(10),
-                    right: r.w(44),
-                    child: Container(
-                      width: r.w(16),
-                      height: r.w(16),
-                      decoration: const BoxDecoration(
-                        color: AppColors.green,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: const ModuleBottomWaveLayer(),
             ),
-          ),
         ],
       ),
       ),
     );
   }
-}
-
-class _BottomWaveClipper extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    var path = Path();
-    path.moveTo(0, 60);
-
-    var firstControlPoint = Offset(size.width / 4, 0);
-    var firstEndPoint = Offset(size.width / 2, 40);
-    path.quadraticBezierTo(
-      firstControlPoint.dx,
-      firstControlPoint.dy,
-      firstEndPoint.dx,
-      firstEndPoint.dy,
-    );
-
-    var secondControlPoint = Offset(size.width * 3 / 4, 80);
-    var secondEndPoint = Offset(size.width, 30);
-    path.quadraticBezierTo(
-      secondControlPoint.dx,
-      secondControlPoint.dy,
-      secondEndPoint.dx,
-      secondEndPoint.dy,
-    );
-
-    path.lineTo(size.width, size.height);
-    path.lineTo(0, size.height);
-    path.close();
-    return path;
-  }
-
-  @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
-}
-
-class _TrianglePainter extends CustomPainter {
-  const _TrianglePainter({required this.color});
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    var path = Path();
-    path.moveTo(size.width / 2, 0);
-    path.lineTo(size.width, size.height);
-    path.lineTo(0, size.height);
-    path.close();
-
-    var paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

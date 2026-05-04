@@ -5,7 +5,6 @@ import '../models/app_models.dart';
 import '../utils/app_colors.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
-import 'alphabets_screen.dart';
 import 'drag_game_screen.dart';
 import 'learning_game_screen.dart';
 import 'tap_game_screen.dart';
@@ -125,20 +124,10 @@ class LearningCategoryGamesScreen extends StatelessWidget {
                                     gameKey == 'trace_game' ||
                                     moduleKey.contains('trace') ||
                                     titleKey.contains('trace');
-                                final isAlphabetsGame =
-                                    gameKey.contains('alphabet') ||
-                                    moduleKey.contains('alphabet') ||
-                                    titleKey.contains('alphabet');
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
                                     builder: (_) {
-                                      if (isAlphabetsGame) {
-                                        return AlphabetsScreen(
-                                          childId: childId,
-                                          module: module,
-                                        );
-                                      }
                                       if (isTapGame) {
                                         return TapGameScreen(
                                           childId: childId,

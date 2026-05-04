@@ -80,7 +80,8 @@ abstract class PlannerRepository {
     required String childId,
     required String itemId,
     String? moduleId,
-    int score,
+    int score = 0,
+    Map<String, dynamic>? metadata,
   });
   Future<void> undoActivityCompletion({
     required String childId,
@@ -896,6 +897,7 @@ class FirebasePlannerRepository implements PlannerRepository {
     required String itemId,
     String? moduleId,
     int score = 0,
+    Map<String, dynamic>? metadata,
   }) async {
     await _firestore.collection(FirestoreCollections.activityProgress).add({
       'childId': childId,
@@ -905,6 +907,7 @@ class FirebasePlannerRepository implements PlannerRepository {
       'score': score,
       'attempts': 1,
       'completedAt': FieldValue.serverTimestamp(),
+      if (metadata != null) ...metadata,
     });
   }
 

@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>AutiEase needs the microphone so your child can practice speaking in Speak &amp; Learn.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>AutiEase uses speech recognition to help your child practice pronunciation in Speak &amp; Learn.</string>
 </dict>
 </plist>

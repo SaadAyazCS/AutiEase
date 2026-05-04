@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../config/learning_catalog.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
+import '../modules/speak_learn/speak_learn_screen.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
 import 'learning_category_games_screen.dart';
@@ -88,17 +89,30 @@ class LearningModulesScreen extends StatelessWidget {
 
                 return _LearnCategoryCard(
                   category: category,
-                  gameCount: categoryModules.length,
+                  selectionCount: categoryModules.length,
                   onTap: () {
-                    Navigator.push(
+                    final modules = List<LearningModuleModel>.from(
+                      categoryModules,
+                    );
+                    if (category.key == 'speak_learn') {
+                      Navigator.push<void>(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => SpeakLearnScreen(
+                            childId: childId,
+                            modules: modules,
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+                    Navigator.push<void>(
                       context,
-                      MaterialPageRoute(
+                      MaterialPageRoute<void>(
                         builder: (_) => LearningCategoryGamesScreen(
                           childId: childId,
                           category: category,
-                          modules: List<LearningModuleModel>.from(
-                            categoryModules,
-                          ),
+                          modules: modules,
                         ),
                       ),
                     );
@@ -116,12 +130,12 @@ class LearningModulesScreen extends StatelessWidget {
 class _LearnCategoryCard extends StatelessWidget {
   const _LearnCategoryCard({
     required this.category,
-    required this.gameCount,
+    required this.selectionCount,
     required this.onTap,
   });
 
   final LearningCategoryDefinition category;
-  final int gameCount;
+  final int selectionCount;
   final VoidCallback onTap;
 
   @override
@@ -155,7 +169,9 @@ class _LearnCategoryCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '$gameCount games selected',
+                        category.key == 'speak_learn'
+                            ? '$selectionCount level${selectionCount == 1 ? '' : 's'} selected'
+                            : '$selectionCount game${selectionCount == 1 ? '' : 's'} selected',
                         style: const TextStyle(
                           color: Color(0xFF2C405B),
                           fontWeight: FontWeight.w500,
