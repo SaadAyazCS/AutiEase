@@ -285,36 +285,38 @@ class _LoginScreenState extends State<LoginScreen>
   Widget build(BuildContext context) {
     final r = context.responsive;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    final screenHeight = MediaQuery.of(context).size.height;
     final isKeyboardOpen = bottomInset > 0;
 
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      backgroundColor: const Color(0xFFF1F1F1),
+      backgroundColor: const Color(0xFFC6E9FF),
       body: WaveBackground(
         showTopWave: false,
         showBottomWave: false,
         showDecorations: false,
         child: SafeArea(
-          child: SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: SizedBox(
-              height: isKeyboardOpen
-                  ? screenHeight -
-                        MediaQuery.of(context).padding.top +
-                        bottomInset
-                  : screenHeight - MediaQuery.of(context).padding.top,
-              child: Column(
-                children: [
-                  SizedBox(height: r.h(36)),
-                  FadeTransition(
-                    opacity: _fadeAnimation,
-                    child: LogoWidget(
-                      size: isKeyboardOpen ? r.w(190) : r.w(210),
-                    ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                physics: const ClampingScrollPhysics(),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight,
                   ),
-                  if (!isKeyboardOpen) SizedBox(height: r.h(70)),
-                  if (!isKeyboardOpen) const Spacer(),
+                  child: IntrinsicHeight(
+                    child: Column(
+                      children: [
+                        SizedBox(height: r.h(36)),
+                        FadeTransition(
+                          opacity: _fadeAnimation,
+                          child: LogoWidget(
+                            size: isKeyboardOpen ? r.w(150) : r.w(210),
+                          ),
+                        ),
+                        
+                        // This Expanded pushes the blue container to the bottom.
+                        // It collapses if there is not enough vertical space.
+                        Expanded(child: SizedBox(height: r.h(40))),
 
                   SlideTransition(
                     position: _slideAnimation,
@@ -372,7 +374,7 @@ class _LoginScreenState extends State<LoginScreen>
                                 ),
 
                               CustomTextField(
-                                hintText: 'Username/E-mail',
+                                hintText: 'Email',
                                 prefixIcon: Icons.account_circle_outlined,
                                 controller: _emailController,
                                 keyboardType: TextInputType.emailAddress,
@@ -636,8 +638,11 @@ class _LoginScreenState extends State<LoginScreen>
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
+        );
+      },
+    ),
+  ),
+),
+);
+}
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/responsive.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
 
@@ -8,101 +9,257 @@ class AboutApplicationScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
     return SessionGuard(
       role: SessionGuardRole.authenticated,
       child: FigmaModuleScaffold(
         title: 'About Application',
         onBack: () => Navigator.pop(context),
-        child: Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.only(bottomRight: Radius.circular(38)),
-          ),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 170),
-            children: const [
-              Text(
-                'AutiEase is an easy-to-use support application created to help children with Autism Spectrum Disorder (ASD) improve communication, learning, and daily living skills in a friendly and interactive way.',
-                style: TextStyle(
-                  fontSize: 18 / 1.2,
-                  height: 1.45,
-                  color: Color(0xFF1F1F1F),
+        child: ListView(
+          padding: EdgeInsets.fromLTRB(r.w(16), r.h(16), r.w(16), r.h(160)),
+          children: [
+            // App Logo Section
+            Center(
+              child: Container(
+                width: r.w(110),
+                height: r.w(110),
+                padding: EdgeInsets.all(r.w(14)),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Image.asset(
+                  'assets/images/autiease.png',
+                  fit: BoxFit.contain,
                 ),
               ),
-              SizedBox(height: 12),
-              Text(
-                'Key Features',
+            ),
+            SizedBox(height: r.h(16)),
+            Center(
+              child: Text(
+                'AutiEase',
                 style: TextStyle(
-                  fontSize: 34 / 1.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1A1A1A),
+                  fontSize: r.sp(28, min: 22, max: 34),
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF1A2D4B),
+                  letterSpacing: -0.5,
                 ),
               ),
-              SizedBox(height: 4),
-              _AboutBullet('AAC Board Support'),
-              _AboutBullet('Daily Routine Visual Schedules'),
-              _AboutBullet('Interactive Learning Activities'),
-              _AboutBullet('Caretaker & Therapist Support Tools'),
-              SizedBox(height: 14),
-              Text(
-                'Purpose / Mission Statement',
+            ),
+            Center(
+              child: Text(
+                'Empowering Communication • Version 1.0.0',
                 style: TextStyle(
-                  fontSize: 34 / 1.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1A1A1A),
+                  fontSize: r.sp(13, min: 11, max: 15),
+                  color: const Color(0xFF64748B),
+                  fontWeight: FontWeight.w500,
                 ),
               ),
-              SizedBox(height: 4),
-              Text(
-                'Our mission is to provide accessible digital support to help children with ASD learn, express themselves, and build meaningful daily skills.',
+            ),
+            SizedBox(height: r.h(28)),
+
+            // Introduction Section
+            _AboutSection(
+              title: 'Overview',
+              icon: Icons.info_outline_rounded,
+              color: const Color(0xFF3B82F6),
+              child: Text(
+                'AutiEase is a dedicated support platform designed to empower children with Autism Spectrum Disorder (ASD). We focus on improving communication, fostering independent learning, and enhancing daily living skills through an interactive, friendly interface.',
                 style: TextStyle(
-                  fontSize: 18 / 1.2,
-                  height: 1.45,
-                  color: Color(0xFF1F1F1F),
+                  fontSize: r.sp(14.5, min: 13, max: 17),
+                  height: 1.5,
+                  color: const Color(0xFF334155),
                 ),
               ),
-              SizedBox(height: 14),
-              Text(
-                'Developer / Organization',
+            ),
+
+            SizedBox(height: r.h(20)),
+
+            // Key Features Grid
+            Text(
+              'Key Capabilities',
+              style: TextStyle(
+                fontSize: r.sp(19, min: 16, max: 23),
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF1E293B),
+              ),
+            ),
+            SizedBox(height: r.h(12)),
+            GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 2,
+              mainAxisSpacing: r.w(12),
+              crossAxisSpacing: r.w(12),
+              childAspectRatio: 1.45,
+              children: [
+                _FeatureTile(
+                  icon: Icons.dashboard_customize_outlined,
+                  title: 'AAC Board',
+                  color: const Color(0xFFF59E0B),
+                ),
+                _FeatureTile(
+                  icon: Icons.calendar_today_outlined,
+                  title: 'Visual Schedules',
+                  color: const Color(0xFF10B981),
+                ),
+                _FeatureTile(
+                  icon: Icons.games_outlined,
+                  title: 'Learning Games',
+                  color: const Color(0xFF8B5CF6),
+                ),
+                _FeatureTile(
+                  icon: Icons.people_outline,
+                  title: 'Therapist Hub',
+                  color: const Color(0xFFEC4899),
+                ),
+              ],
+            ),
+
+            SizedBox(height: r.h(24)),
+
+            // Mission Section
+            _AboutSection(
+              title: 'Our Mission',
+              icon: Icons.auto_awesome_outlined,
+              color: const Color(0xFF10B981),
+              child: Text(
+                'To provide a seamless digital companion that helps every child express their world and navigate their daily life with confidence and joy.',
                 style: TextStyle(
-                  fontSize: 34 / 1.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1A1A1A),
+                  fontSize: r.sp(14.5, min: 13, max: 17),
+                  height: 1.5,
+                  color: const Color(0xFF334155),
                 ),
               ),
-              SizedBox(height: 4),
-              Text(
-                'Developed by: AutiEase Team\nDesigned for educational and support purposes.',
+            ),
+
+            SizedBox(height: r.h(20)),
+
+            // Credits Section
+            _AboutSection(
+              title: 'Credits',
+              icon: Icons.favorite_border_rounded,
+              color: const Color(0xFFF43F5E),
+              child: Text(
+                'Developed with love by the AutiEase Team. Built for the community to make a difference in specialized education.',
                 style: TextStyle(
-                  fontSize: 18 / 1.2,
-                  height: 1.45,
-                  color: Color(0xFF1F1F1F),
+                  fontSize: r.sp(14, min: 12, max: 16),
+                  height: 1.5,
+                  color: const Color(0xFF64748B),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _AboutBullet extends StatelessWidget {
-  const _AboutBullet(this.text);
+class _AboutSection extends StatelessWidget {
+  const _AboutSection({
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.child,
+  });
 
-  final String text;
+  final String title;
+  final IconData icon;
+  final Color color;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: Text(
-        '• $text',
-        style: const TextStyle(
-          fontSize: 18 / 1.2,
-          color: Color(0xFF1F1F1F),
-          height: 1.4,
-        ),
+    final r = context.responsive;
+    return Container(
+      padding: EdgeInsets.all(r.w(16)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: EdgeInsets.all(r.w(6)),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: color, size: r.sp(18)),
+              ),
+              SizedBox(width: r.w(10)),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: r.sp(17, min: 14, max: 20),
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF1E293B),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: r.h(12)),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _FeatureTile extends StatelessWidget {
+  const _FeatureTile({
+    required this.icon,
+    required this.title,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String title;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = context.responsive;
+    return Container(
+      padding: EdgeInsets.all(r.w(12)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF1F5F9)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: color, size: r.sp(26)),
+          SizedBox(height: r.h(8)),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: r.sp(13.5, min: 12, max: 16),
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF334155),
+            ),
+          ),
+        ],
       ),
     );
   }

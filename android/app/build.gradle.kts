@@ -16,13 +16,12 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
-fun getKeystoreProp(name: String): String {
+fun getKeystoreProp(name: String): String? {
     return keystoreProperties.getProperty(name)
-        ?: throw GradleException("Missing '$name' in android/key.properties")
 }
 
 android {
-    namespace = "com.example.autiease"
+    namespace = "com.autiease.fyp2026"
     compileSdk = 36
     ndkVersion = "27.0.12077973"
 
@@ -36,7 +35,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.autiease"
+        applicationId = "com.autiease.fyp2026"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -44,21 +43,26 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            keyAlias = getKeystoreProp("keyAlias")
-            keyPassword = getKeystoreProp("keyPassword")
+        val alias = getKeystoreProp("keyAlias")
+        val keyPass = getKeystoreProp("keyPassword")
+        val storePass = getKeystoreProp("storePassword")
+        val storeFilePath = getKeystoreProp("storeFile")
 
-            // IMPORTANT: storeFile must point to keystore inside android/app/
-            val ksFileName = getKeystoreProp("storeFile")
-            storeFile = file(ksFileName)
-
-            storePassword = getKeystoreProp("storePassword")
+        if (alias != null && keyPass != null && storePass != null && storeFilePath != null) {
+            create("release") {
+                keyAlias = alias
+                keyPassword = keyPass
+                storeFile = file(storeFilePath)
+                storePassword = storePass
+            }
         }
     }
 
     buildTypes {
         getByName("release") {
-            signingConfig = signingConfigs.getByName("release")
+            if (signingConfigs.findByName("release") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
             isShrinkResources = false
         }

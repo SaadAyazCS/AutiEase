@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,27 +8,48 @@ import '../repositories/app_repositories.dart';
 import '../utils/app_colors.dart';
 import '../widgets/session_guard.dart';
 import 'therapist_chat_screen.dart';
+import 'certificate_viewer_screen.dart';
 
 class _TherapistPlaceholderAvatar extends StatelessWidget {
   const _TherapistPlaceholderAvatar({
     required this.size,
     this.backgroundColor = const Color(0xFFDDF7E5),
     this.padding = 4,
+    this.photoBase64,
   });
 
   final double size;
   final Color backgroundColor;
   final double padding;
+  final String? photoBase64;
 
   @override
   Widget build(BuildContext context) {
+    Widget imageWidget;
+    if (photoBase64 != null && photoBase64!.isNotEmpty) {
+      try {
+        final imageBytes = base64Decode(photoBase64!);
+        imageWidget = Image.memory(
+          imageBytes,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
+          },
+        );
+      } catch (e) {
+        imageWidget = Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
+      }
+    } else {
+      imageWidget = Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
+    }
+
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(shape: BoxShape.circle, color: backgroundColor),
       padding: EdgeInsets.all(padding),
       child: ClipOval(
-        child: Image.asset('assets/images/autiease.png', fit: BoxFit.contain),
+        child: imageWidget,
       ),
     );
   }
@@ -657,17 +679,10 @@ class _TherapistListCard extends StatelessWidget {
     return fallback;
   }
 
-  String _priceLabel(TherapistProfile profile) {
-    final raw = profile.pricing.trim();
-    if (raw.isEmpty) return '\$49.99/month';
-    if (raw.toLowerCase().contains('/month')) return raw;
-    return raw.contains('\$') ? '$raw/month' : '\$$raw/month';
-  }
 
   @override
   Widget build(BuildContext context) {
     final specialization = _specialization(therapist);
-    final price = _priceLabel(therapist);
     final years = _yearsExp(therapist, 0);
 
     return InkWell(
@@ -693,7 +708,10 @@ class _TherapistListCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _TherapistPlaceholderAvatar(size: 44),
+                _TherapistPlaceholderAvatar(
+                  size: 44,
+                  photoBase64: therapist.photoUrlBase64,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -744,7 +762,7 @@ class _TherapistListCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               therapist.bio.isEmpty
-                  ? 'Specialized autism support with personalized care plans.'
+                  ? 'Bio not provided'
                   : therapist.bio,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -757,16 +775,7 @@ class _TherapistListCard extends StatelessWidget {
             const SizedBox(height: 8),
             Row(
               children: [
-                Expanded(
-                  child: Text(
-                    price,
-                    style: const TextStyle(
-                      fontSize: 18.5,
-                      color: Color(0xFF111827),
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
+                const Spacer(),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
@@ -918,6 +927,7 @@ class _SupportTherapistDetailsScreenState
   bool _loadingTherapistMeta = true;
   int _yearsFromProfile = 0;
   String _credentialsFromProfile = '';
+  String? _certificateBase64;
   List<_SupportServicePackage> _packages = const <_SupportServicePackage>[];
   int _activePackageIndex = 0;
 
@@ -942,6 +952,7 @@ class _SupportTherapistDetailsScreenState
       setState(() {
         _yearsFromProfile = intFrom(data['yearsOfExperience']);
         _credentialsFromProfile = (data['credentials'] ?? '').toString();
+        _certificateBase64 = (data['certificateBase64'] ?? '').toString();
         _packages = parsed;
         _loadingTherapistMeta = false;
       });
@@ -969,23 +980,7 @@ class _SupportTherapistDetailsScreenState
     final visible = _packages
         .where((package) => package.visible)
         .toList(growable: false);
-    if (visible.isNotEmpty) {
-      return visible;
-    }
-    final fallbackPrice = _priceLabel(profile).replaceAll('\$', '');
-    final parsedPrice =
-        double.tryParse(fallbackPrice.replaceAll(',', '')) ?? 49.99;
-    return <_SupportServicePackage>[
-      _SupportServicePackage(
-        title: 'Standard Therapy Session',
-        durationMinutes: 60,
-        sessionsPerWeek: 3,
-        price: parsedPrice,
-        description:
-            '1-hour therapy session including assessment, intervention, and parent consultation',
-        visible: true,
-      ),
-    ];
+    return visible;
   }
 
   int _selectedPackageIndexWithin(int count) {
@@ -1031,12 +1026,7 @@ class _SupportTherapistDetailsScreenState
     return 0;
   }
 
-  String _priceLabel(TherapistProfile profile) {
-    final raw = profile.pricing.trim();
-    final parsed = RegExp(r'(\d+[.,]?\d*)').firstMatch(raw)?.group(1);
-    if (parsed == null) return '\$49.99';
-    return '\$${parsed.replaceAll(',', '')}';
-  }
+
 
   Future<void> _subscribe() async {
     if (!widget.paymentsEnabled) {
@@ -1054,14 +1044,41 @@ class _SupportTherapistDetailsScreenState
     });
   }
 
+  Future<void> _viewCertificate() async {
+    if (_certificateBase64 == null || _certificateBase64!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No certificate available.')),
+      );
+      return;
+    }
+
+    try {
+      final pdfBytes = base64Decode(_certificateBase64!);
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => CertificateViewerScreen(
+            pdfBytes: pdfBytes,
+            title: '${widget.therapist.displayName} - Certificate',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to open certificate: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final therapist = widget.therapist;
     final allSpecializations = _specializations(therapist);
     final specialization = _specialization(therapist);
-    final packages = _visiblePackages(therapist);
-    final safePackageIndex = _selectedPackageIndexWithin(packages.length);
-    final selectedPackage = packages[safePackageIndex];
+    final visiblePackages = _visiblePackages(therapist);
+    final safePackageIndex = _selectedPackageIndexWithin(visiblePackages.length);
+    final selectedPackage = visiblePackages.isNotEmpty ? visiblePackages[safePackageIndex] : null;
     final years = _yearsExp(therapist);
 
     return Scaffold(
@@ -1080,7 +1097,11 @@ class _SupportTherapistDetailsScreenState
                   _SupportDetailCard(
                     child: Column(
                       children: [
-                        const _TherapistPlaceholderAvatar(size: 82, padding: 6),
+                        _TherapistPlaceholderAvatar(
+                          size: 82,
+                          padding: 6,
+                          photoBase64: therapist.photoUrlBase64,
+                        ),
                         const SizedBox(height: 12),
                         Text(
                           therapist.displayName,
@@ -1191,9 +1212,22 @@ class _SupportTherapistDetailsScreenState
                           icon: Icons.verified_outlined,
                           title: 'Certifications',
                           value: _credentialsFromProfile.trim().isEmpty
-                              ? 'Board Certified, Licensed Therapist'
+                              ? 'No certifications listed'
                               : _credentialsFromProfile.trim(),
                         ),
+                        if (_certificateBase64 != null && _certificateBase64!.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed: _viewCertificate,
+                            icon: const Icon(Icons.description_outlined),
+                            label: const Text('View Therapist Certificate'),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(40),
+                              side: const BorderSide(color: Color(0xFF11B5CF)),
+                              foregroundColor: const Color(0xFF11B5CF),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -1212,19 +1246,10 @@ class _SupportTherapistDetailsScreenState
                         ),
                         const SizedBox(height: 10),
                         Text(
-                          therapist.bio.isEmpty
-                              ? 'Specialized in autism support and therapeutic communication plans for children and families.'
+                          therapist.bio.trim().isEmpty
+                              ? 'Bio not provided'
                               : therapist.bio,
                           style: const TextStyle(
-                            color: Color(0xFF4B5563),
-                            height: 1.5,
-                            fontSize: 13.6,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'With extensive experience working with children and families, I provide personalized care and evidence-based therapeutic interventions to support your child\'s development and well-being.',
-                          style: TextStyle(
                             color: Color(0xFF4B5563),
                             height: 1.5,
                             fontSize: 13.6,
@@ -1265,11 +1290,24 @@ class _SupportTherapistDetailsScreenState
                               ),
                             ),
                           )
+                        else if (visiblePackages.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 20),
+                            child: Center(
+                              child: Text(
+                                'No packages listed',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ),
+                          )
                         else
-                          _PackageSwipeCard(
-                            packages: packages,
+                          _PackageSelectionList(
+                            packages: visiblePackages,
                             currentIndex: safePackageIndex,
-                            onPageChanged: (index) {
+                            onPackageSelected: (index) {
                               if (!mounted) {
                                 return;
                               }
@@ -1277,141 +1315,133 @@ class _SupportTherapistDetailsScreenState
                             },
                           ),
                         const SizedBox(height: 12),
-                        Text(
-                          selectedPackage.title,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        if (_isSubscribed) ...[
-                          const Center(
-                            child: Text(
-                              'You already have an active subscription',
-                              style: TextStyle(color: Colors.white),
+                        if (visiblePackages.isNotEmpty && selectedPackage != null) ...[
+                          const SizedBox(height: 12),
+                          if (_isSubscribed) ...[
+                            const Center(
+                              child: Text(
+                                'You already have an active subscription',
+                                style: TextStyle(color: Colors.white),
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 2),
-                          Center(
-                            child: TextButton(
-                              onPressed: widget.chatEnabled
-                                  ? () => widget.onOpenMessages()
-                                  : () {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Coming soon'),
-                                        ),
-                                      );
-                                    },
-                              style: TextButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                textStyle: const TextStyle(
-                                  fontSize: 12,
-                                  decoration: TextDecoration.underline,
+                            const SizedBox(height: 2),
+                            Center(
+                              child: TextButton(
+                                onPressed: widget.chatEnabled
+                                    ? () => widget.onOpenMessages()
+                                    : () {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Coming soon'),
+                                          ),
+                                        );
+                                      },
+                                style: TextButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  textStyle: const TextStyle(
+                                    fontSize: 12,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Go to Messages to start chatting',
                                 ),
                               ),
-                              child: const Text(
-                                'Go to Messages to start chatting',
-                              ),
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton(
-                              onPressed: widget.paymentsEnabled
-                                  ? () async {
-                                      await widget.onCancelSubscription();
-                                      if (!mounted) {
-                                        return;
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton(
+                                onPressed: widget.paymentsEnabled
+                                    ? () async {
+                                        await widget.onCancelSubscription();
+                                        if (!mounted) {
+                                          return;
+                                        }
+                                        setState(() {
+                                          _isSubscribed = false;
+                                        });
                                       }
-                                      setState(() {
-                                        _isSubscribed = false;
-                                      });
-                                    }
-                                  : () {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Coming soon'),
+                                    : () {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Coming soon'),
+                                          ),
+                                        );
+                                      },
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: const BorderSide(
+                                    color: Colors.white,
+                                    width: 1.2,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 11,
+                                  ),
+                                ),
+                                child: const Text('Cancel Subscription'),
+                              ),
+                            ),
+                          ] else
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _isSubscribing
+                                    ? null
+                                    : (widget.paymentsEnabled
+                                          ? _subscribe
+                                          : () {
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text('Coming soon'),
+                                                ),
+                                              );
+                                            }),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.white,
+                                  foregroundColor: const Color(0xFF00A63E),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 13,
+                                  ),
+                                ),
+                                child: _isSubscribing
+                                    ? const SizedBox(
+                                        height: 16,
+                                        width: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Color(0xFF00A63E),
                                         ),
-                                      );
-                                    },
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: const BorderSide(
-                                  color: Colors.white,
-                                  width: 1.2,
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 11,
-                                ),
-                              ),
-                              child: const Text('Cancel Subscription'),
-                            ),
-                          ),
-                        ] else
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: _isSubscribing
-                                  ? null
-                                  : (widget.paymentsEnabled
-                                        ? _subscribe
-                                        : () {
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              const SnackBar(
-                                                content: Text('Coming soon'),
-                                              ),
-                                            );
-                                          }),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: const Color(0xFF00A63E),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 13,
-                                ),
-                              ),
-                              child: _isSubscribing
-                                  ? const SizedBox(
-                                      height: 16,
-                                      width: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Color(0xFF00A63E),
+                                      )
+                                    : Text(
+                                        'Subscribe ${selectedPackage.priceLabel}/month',
                                       ),
-                                    )
-                                  : Text(
-                                      'Subscribe ${selectedPackage.priceLabel}/month',
-                                    ),
+                              ),
+                            ),
+                          const SizedBox(height: 10),
+                          Text(
+                            widget.paymentsEnabled
+                                ? 'Secure payment powered by Stripe. Cancel your subscription anytime from your account settings.'
+                                : 'Coming soon',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF6B7280),
                             ),
                           ),
+                        ],
                       ],
                     ),
                   ),
-                  if (!_isSubscribed) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      widget.paymentsEnabled
-                          ? 'Secure payment powered by Stripe. Cancel your subscription anytime from your account settings.'
-                          : 'Coming soon',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF6B7280),
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -1422,97 +1452,115 @@ class _SupportTherapistDetailsScreenState
   }
 }
 
-class _PackageSwipeCard extends StatelessWidget {
-  const _PackageSwipeCard({
+class _PackageSelectionList extends StatelessWidget {
+  const _PackageSelectionList({
     required this.packages,
     required this.currentIndex,
-    required this.onPageChanged,
+    required this.onPackageSelected,
   });
 
   final List<_SupportServicePackage> packages;
   final int currentIndex;
-  final ValueChanged<int> onPageChanged;
+  final ValueChanged<int> onPackageSelected;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        SizedBox(
-          height: 212,
-          child: PageView.builder(
-            onPageChanged: onPageChanged,
-            itemCount: packages.length,
-            itemBuilder: (context, index) {
-              final package = packages[index];
-              return Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF3ACB6D),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    RichText(
-                      text: TextSpan(
-                        text: package.priceLabel,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 25.5,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        children: const [
-                          TextSpan(
-                            text: '/month',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    _FeatureLine(
-                      text:
-                          '${package.durationMinutes} min/session • ${package.sessionsPerWeek} sessions/week',
-                    ),
-                    if (package.description.trim().isNotEmpty)
-                      _FeatureLine(text: package.description.trim()),
-                    const _FeatureLine(
-                      text: 'Unlimited messaging with therapist',
-                    ),
-                    const _FeatureLine(text: '24-hour response time'),
-                    const _FeatureLine(text: 'Progress tracking & reports'),
-                    const _FeatureLine(text: 'Cancel anytime'),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-        if (packages.length > 1) ...[
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List<Widget>.generate(
-              packages.length,
-              (index) => Container(
-                width: 7,
-                height: 7,
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: index == currentIndex
-                      ? Colors.white
-                      : Colors.white.withValues(alpha: 0.45),
-                ),
-              ),
+        for (int i = 0; i < packages.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _PackageListItem(
+              package: packages[i],
+              isSelected: i == currentIndex,
+              onTap: () => onPackageSelected(i),
             ),
           ),
-        ],
       ],
+    );
+  }
+}
+
+class _PackageListItem extends StatelessWidget {
+  const _PackageListItem({
+    required this.package,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final _SupportServicePackage package;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? Colors.white.withValues(alpha: 0.15)
+              : const Color(0xFF3ACB6D),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.3),
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    package.title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (isSelected)
+                  const Icon(Icons.check_circle, color: Colors.white, size: 20),
+              ],
+            ),
+            const SizedBox(height: 4),
+            RichText(
+              text: TextSpan(
+                text: package.priceLabel,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                ),
+                children: const [
+                  TextSpan(
+                    text: '/month',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            _FeatureLine(
+              text:
+                  '${package.durationMinutes} min/session • ${package.sessionsPerWeek} sessions/week',
+            ),
+            if (package.description.trim().isNotEmpty)
+              _FeatureLine(text: package.description.trim()),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1606,6 +1654,18 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
         .toList(growable: false);
   }
 
+  int _yearsExp(TherapistProfile profile) {
+    if (profile.yearsOfExperience > 0) {
+      return profile.yearsOfExperience;
+    }
+    final source = '${profile.availability} ${profile.bio}';
+    final match = RegExp(r'(\d{1,2})\s*\+?\s*years?').firstMatch(source);
+    if (match != null) {
+      return int.tryParse(match.group(1) ?? '') ?? 8;
+    }
+    return 0;
+  }
+
   String _specialization(TherapistProfile profile) {
     final specs = _specializations(profile);
     if (specs.isNotEmpty) {
@@ -1620,8 +1680,9 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
       barrierColor: Colors.black54,
       builder: (context) {
         final therapist = widget.therapist;
-        final yearsText = therapist.yearsOfExperience > 0
-            ? '${therapist.yearsOfExperience} years of practice'
+        final years = _yearsExp(therapist);
+        final yearsText = years > 0
+            ? '$years years of practice'
             : 'Experience not set';
         return Dialog(
           insetPadding: const EdgeInsets.symmetric(
@@ -1704,9 +1765,9 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
                         style: const TextStyle(height: 1.4),
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'Certifications\nBoard Certified, Licensed Therapist',
-                        style: TextStyle(height: 1.4),
+                      Text(
+                        'Certifications\n${therapist.credentials.trim().isEmpty ? 'No certifications listed' : therapist.credentials.trim()}',
+                        style: const TextStyle(height: 1.4),
                       ),
                       const SizedBox(height: 10),
                       const Divider(height: 1),
@@ -1720,8 +1781,8 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        therapist.bio.isEmpty
-                            ? 'Specialized in autism spectrum disorders and speech development.'
+                        therapist.bio.trim().isEmpty
+                            ? 'Bio not provided'
                             : therapist.bio,
                         style: const TextStyle(height: 1.4),
                       ),

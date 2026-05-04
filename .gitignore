@@ -1,63 +1,97 @@
-# Miscellaneous
-*.class
+# --- General ---
 *.log
-*.pyc
+*.tmp
+*.temp
 *.swp
+*.swo
+*.pid
+*.seed
+*.out
+*.err
+*.stackdump
 .DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+Thumbs.db
+Desktop.ini
 
-# IntelliJ related
+# --- IDE / Editor ---
+.idea/
+.vscode/
 *.iml
 *.ipr
 *.iws
-.idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
-
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
+# --- Flutter / Dart ---
 .dart_tool/
+.packages
+.pub/
+.pub-cache/
 .flutter-plugins
 .flutter-plugins-dependencies
-.pub-cache/
-.pub/
+.metadata
 /build/
+**/doc/api/
+**/ios/Flutter/.last_build_id
 
-# Symbolication related
+# Generated artifacts
+*.class
 app.*.symbols
-
-# Obfuscation related
 app.*.map.json
 
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
+# --- Android ---
+**/android/.gradle/
+**/android/local.properties
+**/android/captures/
+**/android/**/build/
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
 
-# Local Firebase credentials and generated config
+# --- iOS ---
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/Generated.xcconfig
+
+# --- Node / React / JS toolchains ---
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Environment / Secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+*.service-account.json
+service-account*.json
+
+# Firebase and cloud credentials/config generated locally
 .firebaserc
 firebase-debug.log
 firestore-debug.log
 ui-debug.log
 android/app/google-services.json
+android/app/google-services*.json
 ios/Runner/GoogleService-Info.plist
+ios/Runner/GoogleService-Info*.plist
 lib/firebase_options.dart
-*.service-account.json
-service-account*.json
 
-# Local/generated folders for this repo
+# --- Project local/temp ---
 .tmp/
+.cache/
+.history/
+.build/
+.buildlog/
+migrate_working_dir/
+
+# Keep dependency folders ignored in subprojects
 functions/node_modules/
 stripe-backend/node_modules/
-android/app/google-services*.json
-ios/Runner/GoogleService-Info*.plist

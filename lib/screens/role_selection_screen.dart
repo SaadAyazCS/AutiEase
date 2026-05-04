@@ -4,8 +4,10 @@ import '../models/app_models.dart';
 import '../navigation/session_navigation.dart';
 import '../repositories/app_repositories.dart';
 import '../services/firebase_service.dart';
+import '../utils/app_colors.dart';
 import '../utils/responsive.dart';
 import '../widgets/custom_widgets.dart';
+import '../widgets/wave_background.dart' as wb;
 import 'login_screen.dart';
 import 'parent_signup_screen.dart';
 import 'therapist_signup_screen.dart';
@@ -111,149 +113,167 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
   @override
   Widget build(BuildContext context) {
     final r = context.responsive;
+    final screenHeight = MediaQuery.of(context).size.height;
+
     return Scaffold(
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          return Stack(
-            children: [
-              const Positioned.fill(
-                child: ColoredBox(color: Color(0xFF66CAF5)),
-              ),
-              Positioned(
-                top: r.h(38),
-                left: 0,
-                right: 0,
-                bottom: r.h(122),
-                child: ClipPath(
-                  clipper: _RoleMainPanelClipper(),
-                  child: const ColoredBox(color: Color(0xFFF2F2F2)),
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          // Top wave
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: ClipPath(
+              clipper: wb.WaveClipper(),
+              child: Container(
+                height: screenHeight * 0.35,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [AppColors.primaryBlue, AppColors.lightBlue],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
                 ),
               ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: r.h(170),
-                child: ClipPath(
-                  clipper: _RoleBottomClipper(),
-                  child: const ColoredBox(color: Color(0xFF57C1F3)),
+            ),
+          ),
+
+          // Bottom wave
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: ClipPath(
+              clipper: wb.BottomWaveClipper(),
+              child: Container(
+                height: 150,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [AppColors.lightBlue, AppColors.primaryBlue],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
                 ),
               ),
-              Positioned(
-                left: r.w(44),
-                bottom: r.h(34),
-                child: _DecorSquare(
-                  color: const Color(0xFFF6E72F),
-                  size: r.w(20),
-                ),
+            ),
+          ),
+
+          // Decorative shapes
+          Positioned(
+            bottom: 34,
+            left: 44,
+            child: Container(width: 20, height: 20, color: AppColors.yellow),
+          ),
+          Positioned(
+            bottom: 54,
+            left: 100,
+            child: const Icon(Icons.star, color: AppColors.pink, size: 24),
+          ),
+          Positioned(
+            bottom: 20,
+            right: 152,
+            child: CustomPaint(
+              size: const Size(20, 20),
+              painter: wb.TrianglePainter(color: AppColors.red),
+            ),
+          ),
+          Positioned(
+            bottom: 10,
+            right: 44,
+            child: Container(
+              width: 16,
+              height: 16,
+              decoration: const BoxDecoration(
+                color: AppColors.green,
+                shape: BoxShape.circle,
               ),
-              Positioned(
-                left: r.w(100),
-                bottom: r.h(54),
-                child: Icon(
-                  Icons.star,
-                  size: r.sp(20, min: 16, max: 24),
-                  color: const Color(0xFFFF4081),
-                ),
-              ),
-              Positioned(
-                left: r.w(188),
-                bottom: r.h(20),
-                child: _DecorTriangle(
-                  color: const Color(0xFFFF5722),
-                  size: r.w(18),
-                ),
-              ),
-              Positioned(
-                right: r.w(44),
-                bottom: r.h(10),
-                child: _DecorCircle(
-                  color: const Color(0xFF4CAF50),
-                  size: r.w(15),
-                ),
-              ),
-              SafeArea(
-                child: Stack(
-                  children: [
-                    Positioned(
-                      top: r.h(2),
-                      left: r.w(2),
-                      child: IconButton(
-                        onPressed: () {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const LoginScreen(),
-                            ),
-                          );
-                        },
-                        icon: Icon(
-                          Icons.arrow_back,
-                          color: Color(0xFF152748),
-                          size: r.sp(26, min: 20, max: 30),
+            ),
+          ),
+
+          // Main content
+          SafeArea(
+            child: Stack(
+              children: [
+                Positioned(
+                  top: r.h(12),
+                  left: r.w(2),
+                  child: IconButton(
+                    onPressed: () {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const LoginScreen(),
                         ),
-                      ),
+                      );
+                    },
+                    icon: Icon(
+                      Icons.arrow_back,
+                      color: const Color(0xFF152748),
+                      size: r.sp(26, min: 20, max: 30),
                     ),
-                    Positioned.fill(
-                      top: r.h(56),
-                      bottom: r.h(176),
-                      child: LayoutBuilder(
-                        builder: (context, contentBox) {
-                          return SingleChildScrollView(
-                            physics: const ClampingScrollPhysics(),
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                minHeight: contentBox.maxHeight,
-                              ),
-                              child: Center(
-                                child: FadeTransition(
-                                  opacity: _fadeAnimation,
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      LogoWidget(size: r.w(148)),
-                                      SizedBox(height: r.h(20)),
-                                      Text(
-                                        'Welcome! I am',
-                                        style: TextStyle(
-                                          fontSize: r.sp(34, min: 24, max: 38),
-                                          fontWeight: FontWeight.w700,
-                                          color: const Color(0xFF223651),
-                                        ),
+                  ),
+                ),
+                Positioned.fill(
+                  top: r.h(26),
+                  child: LayoutBuilder(
+                    builder: (context, contentBox) {
+                      return SingleChildScrollView(
+                        physics: const ClampingScrollPhysics(),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: contentBox.maxHeight,
+                          ),
+                          child: IntrinsicHeight(
+                            child: Center(
+                              child: FadeTransition(
+                                opacity: _fadeAnimation,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    LogoWidget(size: r.w(148)),
+                                    SizedBox(height: r.h(80)),
+                                    Text(
+                                      'Welcome! I am',
+                                      style: TextStyle(
+                                        fontSize: r.sp(34, min: 24, max: 38),
+                                        fontWeight: FontWeight.w700,
+                                        color: const Color(0xFF223651),
                                       ),
-                                      SizedBox(height: r.h(20)),
-                                      _RoleChoiceCard(
-                                        title: 'Parent & Child',
-                                        subtitle: 'Monitor and Guide',
-                                        color: const Color(0xFFC6BCDE),
-                                        imageAsset:
-                                            'assets/images/parent_child.png',
-                                        onTap: () => _selectRole('parent'),
-                                      ),
-                                      SizedBox(height: r.h(16)),
-                                      _RoleChoiceCard(
-                                        title: 'Therapist',
-                                        subtitle: 'Connect and Support',
-                                        color: const Color(0xFF91D650),
-                                        imageAsset:
-                                            'assets/images/therapist.png',
-                                        onTap: () => _selectRole('therapist'),
-                                      ),
-                                    ],
-                                  ),
+                                    ),
+                                    SizedBox(height: r.h(20)),
+                                    _RoleChoiceCard(
+                                      title: 'Parent & Child',
+                                      subtitle: 'Monitor and Guide',
+                                      color: const Color(0xFFC6BCDE),
+                                      imageAsset:
+                                          'assets/images/parent_child.png',
+                                      onTap: () => _selectRole('parent'),
+                                    ),
+                                    SizedBox(height: r.h(16)),
+                                    _RoleChoiceCard(
+                                      title: 'Therapist',
+                                      subtitle: 'Connect and Support',
+                                      color: const Color(0xFF91D650),
+                                      imageAsset:
+                                          'assets/images/therapist.png',
+                                      onTap: () => _selectRole('therapist'),
+                                    ),
+                                    Expanded(child: SizedBox(height: r.h(40))),
+                                  ],
                                 ),
                               ),
                             ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ],
-          );
-        },
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -324,110 +344,4 @@ class _RoleChoiceCard extends StatelessWidget {
   }
 }
 
-class _RoleMainPanelClipper extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    final path = Path();
-    path.moveTo(0, 34);
-    path.quadraticBezierTo(size.width * 0.18, 8, size.width * 0.42, 32);
-    path.quadraticBezierTo(size.width * 0.66, 56, size.width, 18);
-    path.lineTo(size.width, size.height - 64);
-    path.quadraticBezierTo(
-      size.width * 0.88,
-      size.height - 6,
-      size.width * 0.66,
-      size.height - 16,
-    );
-    path.quadraticBezierTo(
-      size.width * 0.40,
-      size.height - 24,
-      size.width * 0.21,
-      size.height - 54,
-    );
-    path.quadraticBezierTo(0, size.height - 84, 0, size.height - 66);
-    path.close();
-    return path;
-  }
 
-  @override
-  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
-}
-
-class _RoleBottomClipper extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    final path = Path();
-    path.moveTo(0, 56);
-    path.quadraticBezierTo(size.width * 0.22, 20, size.width * 0.45, 50);
-    path.quadraticBezierTo(size.width * 0.70, 86, size.width, 40);
-    path.lineTo(size.width, size.height);
-    path.lineTo(0, size.height);
-    path.close();
-    return path;
-  }
-
-  @override
-  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
-}
-
-class _DecorSquare extends StatelessWidget {
-  const _DecorSquare({required this.color, required this.size});
-
-  final Color color;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(width: size, height: size, color: color);
-  }
-}
-
-class _DecorCircle extends StatelessWidget {
-  const _DecorCircle({required this.color, required this.size});
-
-  final Color color;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-    );
-  }
-}
-
-class _DecorTriangle extends StatelessWidget {
-  const _DecorTriangle({required this.color, required this.size});
-
-  final Color color;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      size: Size(size, size),
-      painter: _TrianglePainter(color),
-    );
-  }
-}
-
-class _TrianglePainter extends CustomPainter {
-  const _TrianglePainter(this.color);
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(size.width / 2, 0)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
-    canvas.drawPath(path, Paint()..color = color);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}

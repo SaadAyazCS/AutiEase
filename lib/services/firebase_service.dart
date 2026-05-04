@@ -18,7 +18,9 @@ class FirebaseService {
   FirebaseService()
     : _auth = FirebaseAuth.instance,
       _firestore = FirebaseFirestore.instance,
-      _googleSignIn = GoogleSignIn();
+      _googleSignIn = GoogleSignIn(
+        serverClientId: '373824401794-dhrdq1p62q1lrcgmp3q3cv2vu5iuunfk.apps.googleusercontent.com',
+      );
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
@@ -967,6 +969,50 @@ class FirebaseService {
       'feedback': feedback,
       'createdAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  Future<Map<String, dynamic>> updateCurrentUserPassword({
+    required String newPassword,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      return {
+        'success': false,
+        'message': 'No authenticated user found. Please log in again.',
+      };
+    }
+
+    try {
+      await user.updatePassword(newPassword);
+      await _users.doc(user.uid).set({
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return {'success': true, 'message': 'Password updated successfully.'};
+    } on FirebaseAuthException catch (error) {
+      switch (error.code) {
+        case 'requires-recent-login':
+          return {
+            'success': false,
+            'message':
+                'For security, please log out and log in again before changing your password.',
+          };
+        case 'weak-password':
+          return {
+            'success': false,
+            'message': 'Password is too weak. Please choose a stronger password.',
+          };
+        default:
+          return {
+            'success': false,
+            'message': _friendlyAuthMessage(
+              error,
+              fallback: 'Failed to update password.',
+            ),
+          };
+      }
+    } catch (error) {
+      return {'success': false, 'message': error.toString()};
+    }
   }
 
   Future<void> signOut() => logout();

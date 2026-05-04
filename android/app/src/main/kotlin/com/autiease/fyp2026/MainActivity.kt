@@ -1,4 +1,4 @@
-package com.example.autiease
+package com.autiease.fyp2026
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -83,14 +83,93 @@ class _ChildProfileScreenState extends State<ChildProfileScreen>
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
+    final bool isKeyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
 
     return Scaffold(
-      body: WaveBackground(
-        child: SafeArea(
-          child: FadeTransition(
-            opacity: _fadeAnimation,
-            child: Column(
-              children: [
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          // Top wave
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: ClipPath(
+              clipper: WaveClipper(),
+              child: Container(
+                height: screenHeight * 0.35,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [AppColors.primaryBlue, AppColors.lightBlue],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Bottom wave
+          if (!isKeyboardOpen)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: ClipPath(
+                clipper: BottomWaveClipper(),
+                child: Container(
+                  height: 150,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [AppColors.lightBlue, AppColors.primaryBlue],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // Decorative shapes
+          if (!isKeyboardOpen) ...[
+            Positioned(
+              bottom: 34,
+              left: 44,
+              child: Container(width: 20, height: 20, color: AppColors.yellow),
+            ),
+            Positioned(
+              bottom: 54,
+              left: 100,
+              child: const Icon(Icons.star, color: AppColors.pink, size: 24),
+            ),
+            Positioned(
+              bottom: 20,
+              right: 152,
+              child: CustomPaint(
+                size: const Size(20, 20),
+                painter: TrianglePainter(color: AppColors.red),
+              ),
+            ),
+            Positioned(
+              bottom: 10,
+              right: 44,
+              child: Container(
+                width: 16,
+                height: 16,
+                decoration: const BoxDecoration(
+                  color: AppColors.green,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+          ],
+
+          // Main content
+          SafeArea(
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: Column(
+                children: [
                 // Header
                 Container(
                   width: double.infinity,
@@ -137,11 +216,16 @@ class _ChildProfileScreenState extends State<ChildProfileScreen>
                         const SizedBox(height: 10),
                         Container(
                           decoration: BoxDecoration(
-                            color: AppColors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: AppColors.textGrey.withValues(alpha: 0.3),
-                            ),
+                            color: const Color(0xFFF4F7FB),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFD2DCE6)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFFB0C4DE).withValues(alpha: 0.4),
+                                blurRadius: 8,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
                           ),
                           child: TextField(
                             controller: _nameController,
@@ -323,7 +407,8 @@ class _ChildProfileScreenState extends State<ChildProfileScreen>
             ),
           ),
         ),
-      ),
-    );
+      ],
+    ),
+  );
   }
 }

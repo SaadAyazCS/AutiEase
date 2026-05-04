@@ -471,8 +471,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                     const SizedBox(height: 10),
                     Text('Experience\n$yearsText'),
                     const SizedBox(height: 8),
-                    const Text(
-                      'Certifications\nBoard Certified, Licensed Therapist',
+                    Text(
+                      'Certifications\n${therapist.credentials.isEmpty ? 'No certifications listed' : therapist.credentials}',
                     ),
                     const SizedBox(height: 10),
                     const Divider(height: 1),
@@ -486,8 +486,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      therapist.bio.isEmpty
-                          ? 'Specialized in autism spectrum disorders and speech development.'
+                      therapist.bio.trim().isEmpty
+                          ? 'Bio not provided'
                           : therapist.bio,
                       style: const TextStyle(height: 1.4),
                     ),

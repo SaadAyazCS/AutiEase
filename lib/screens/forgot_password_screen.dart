@@ -148,30 +148,115 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     final isKeyboardOpen = bottomInset > 0;
 
     return Scaffold(
-      resizeToAvoidBottomInset: false,
-      backgroundColor: const Color(0xFFF1F1F1),
-      body: WaveBackground(
-        showBottomWave: !isKeyboardOpen,
-        showDecorations: !isKeyboardOpen,
-        child: SafeArea(
-          child: SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight:
-                    screenHeight -
-                    MediaQuery.of(context).padding.top -
-                    MediaQuery.of(context).padding.bottom,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: _emailSent
-                    ? _buildSuccessContent()
-                    : _buildFormContent(isKeyboardOpen, bottomInset),
+      resizeToAvoidBottomInset: true,
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          // Header top wave matching original design
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: ClipPath(
+              clipper: WaveClipper(),
+              child: Container(
+                height: screenHeight * 0.35,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [AppColors.primaryBlue, AppColors.lightBlue],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
               ),
             ),
           ),
-        ),
+
+          // Bottom wave matching original design
+          if (!isKeyboardOpen)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: ClipPath(
+                clipper: BottomWaveClipper(),
+                child: Container(
+                  height: 150,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [AppColors.lightBlue, AppColors.primaryBlue],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // Decorative shapes
+          if (!isKeyboardOpen) ...[
+            Positioned(
+              bottom: 34,
+              left: 44,
+              child: Container(width: 20, height: 20, color: AppColors.yellow),
+            ),
+            Positioned(
+              bottom: 54,
+              left: 100,
+              child: const Icon(Icons.star, color: AppColors.pink, size: 24),
+            ),
+            Positioned(
+              bottom: 20,
+              right: 152,
+              child: CustomPaint(
+                size: const Size(20, 20),
+                painter: TrianglePainter(color: AppColors.red),
+              ),
+            ),
+            Positioned(
+              bottom: 10,
+              right: 44,
+              child: Container(
+                width: 16,
+                height: 16,
+                decoration: const BoxDecoration(
+                  color: AppColors.green,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+          ],
+
+          // Main Layout with anti-overflow
+          SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  physics: const ClampingScrollPhysics(),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: IntrinsicHeight(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Column(
+                          children: [
+                            if (_emailSent)
+                              _buildSuccessContent()
+                            else
+                              _buildFormContent(isKeyboardOpen, bottomInset),
+                            
+                            // Pushes content down and prevents overflow
+                            Expanded(child: SizedBox(height: 40)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -203,7 +288,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
             ),
             FadeTransition(
               opacity: _fadeAnimation,
-              child: LogoWidget(size: isKeyboardOpen ? 50 : 80),
+              child: LogoWidget(size: isKeyboardOpen ? 100 : 100),
             ),
           ],
         ),
@@ -215,7 +300,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
           child: FadeTransition(
             opacity: _fadeAnimation,
             child: const Text(
-              'We will send a password reset link to your registered e-mail address.',
+              'We will send a password reset link to your registered email address.',
               style: TextStyle(
                 fontSize: 18,
                 color: Color.fromARGB(255, 0, 0, 0),
@@ -234,11 +319,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
             opacity: _fadeAnimation,
             child: Container(
               width: double.infinity,
-              padding: EdgeInsets.only(
+              padding: const EdgeInsets.only(
                 left: 24,
                 right: 24,
                 top: 28,
-                bottom: isKeyboardOpen ? 28 + bottomInset : 28,
+                bottom: 28,
               ),
               decoration: BoxDecoration(
                 color: AppColors.white,
@@ -256,7 +341,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    'E-MAIL',
+                    'EMAIL',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w600,
@@ -326,8 +411,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
           ),
         ),
 
-        // Add spacing to avoid overlap with bottom wave
-        const SizedBox(height: 180),
+        const SizedBox(height: 40),
       ],
     );
   }
@@ -340,14 +424,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const SizedBox(height: 60),
+        const SizedBox(height: 120),
 
         // Success Icon
         FadeTransition(
           opacity: _fadeAnimation,
           child: Container(
             width: 100,
-            height: 100,
+            height: 230,
             decoration: BoxDecoration(
               color: Colors.green.withValues(alpha: 0.1),
               shape: BoxShape.circle,
@@ -359,7 +443,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
             ),
           ),
         ),
-        const SizedBox(height: 30),
+        const SizedBox(height: 2),
 
         const Text(
           'Email Sent!',
@@ -446,3 +530,5 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     );
   }
 }
+
+

@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
+import '../utils/responsive.dart';
 import '../widgets/wave_background.dart';
 import '../services/firebase_service.dart';
+import '../widgets/custom_widgets.dart';
 import 'login_screen.dart';
 
 class EmailVerificationScreen extends StatefulWidget {
@@ -165,17 +167,109 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
 
   @override
   Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final r = context.responsive;
+
     return Scaffold(
-      body: WaveBackground(
-        child: SafeArea(
-          child: FadeTransition(
-            opacity: _fadeAnimation,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 30),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Email Icon
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          // Top wave
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: ClipPath(
+              clipper: WaveClipper(),
+              child: Container(
+                height: screenHeight * 0.35,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [AppColors.primaryBlue, AppColors.lightBlue],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Bottom wave
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: ClipPath(
+              clipper: BottomWaveClipper(),
+              child: Container(
+                height: 150,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [AppColors.lightBlue, AppColors.primaryBlue],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Decorative shapes
+          Positioned(
+            bottom: 34,
+            left: 44,
+            child: Container(width: 20, height: 20, color: AppColors.yellow),
+          ),
+          Positioned(
+            bottom: 54,
+            left: 100,
+            child: const Icon(Icons.star, color: AppColors.pink, size: 24),
+          ),
+          Positioned(
+            bottom: 20,
+            right: 152,
+            child: CustomPaint(
+              size: const Size(20, 20),
+              painter: TrianglePainter(color: AppColors.red),
+            ),
+          ),
+          Positioned(
+            bottom: 10,
+            right: 44,
+            child: Container(
+              width: 16,
+              height: 16,
+              decoration: const BoxDecoration(
+                color: AppColors.green,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+
+          // Main content
+          SafeArea(
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                      child: IntrinsicHeight(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 30),
+                          child: Column(
+                            children: [
+                              SizedBox(height: r.h(10)),
+                              // Logo at the top
+                              const LogoWidget(size: 150),
+                              
+                              Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                  // Email Icon
                   Container(
                     width: 100,
                     height: 100,
@@ -189,7 +283,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                       color: AppColors.primaryBlue,
                     ),
                   ),
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 10),
 
                   // Title
                   const Text(
@@ -344,11 +438,21 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                       ),
                     ],
                   ),
-                ],
+                                  ],
+                                ),
+                              ),
+                              SizedBox(height: r.h(100)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }

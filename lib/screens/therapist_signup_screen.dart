@@ -3,6 +3,8 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 
 import '../utils/app_colors.dart';
+import '../utils/responsive.dart';
+import '../widgets/wave_background.dart';
 import '../services/firebase_service.dart';
 import 'therapist_terms_screen.dart';
 import 'login_screen.dart';
@@ -248,7 +250,9 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.responsive;
     final screenHeight = MediaQuery.of(context).size.height;
+    final bool isKeyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
     final bool isEmailReadOnly =
         _firebaseService.currentUser?.providerData.any(
           (provider) => provider.providerId == 'google.com',
@@ -256,10 +260,10 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
         false;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFA9DCF5),
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
-          // Top blue curved background
+          // Top blue curved header (small bar — same as Parent Signup)
           Positioned(
             top: 0,
             left: 0,
@@ -281,7 +285,59 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
           ),
 
           // Bottom wave
-          Positioned(bottom: 0, left: 0, right: 0, child: _buildBottomWave()),
+          if (!isKeyboardOpen)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: ClipPath(
+                clipper: BottomWaveClipper(),
+                child: Container(
+                  height: 130,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [AppColors.lightBlue, AppColors.primaryBlue],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // Decorative shapes
+          if (!isKeyboardOpen) ...[
+            Positioned(
+              bottom: 34,
+              left: 44,
+              child: Container(width: 20, height: 20, color: AppColors.yellow),
+            ),
+            Positioned(
+              bottom: 54,
+              left: 100,
+              child: const Icon(Icons.star, color: AppColors.pink, size: 24),
+            ),
+            Positioned(
+              bottom: 20,
+              right: 152,
+              child: CustomPaint(
+                size: const Size(20, 20),
+                painter: TrianglePainter(color: AppColors.red),
+              ),
+            ),
+            Positioned(
+              bottom: 10,
+              right: 44,
+              child: Container(
+                width: 16,
+                height: 16,
+                decoration: const BoxDecoration(
+                  color: AppColors.green,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+          ],
 
           // Main content
           SafeArea(
@@ -290,61 +346,57 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
                 children: [
                   SizedBox(height: screenHeight * 0.08),
 
+                  // Form container
                   Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 24),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 30,
+                    margin: EdgeInsets.symmetric(horizontal: r.w(24)),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: r.w(24),
+                      vertical: r.h(10),
                     ),
                     decoration: BoxDecoration(
                       color: Colors.transparent,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(r.w(24)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _buildLabel('Therapist First Name'),
-                        const SizedBox(height: 8),
+                        SizedBox(height: r.h(8)),
                         _buildTextField(_firstNameController),
-
-                        const SizedBox(height: 16),
+                        SizedBox(height: r.h(16)),
 
                         _buildLabel('Therapist Last Name'),
-                        const SizedBox(height: 8),
+                        SizedBox(height: r.h(8)),
                         _buildTextField(_lastNameController),
-
-                        const SizedBox(height: 16),
+                        SizedBox(height: r.h(16)),
 
                         _buildLabel('Therapist Email'),
-                        const SizedBox(height: 8),
+                        SizedBox(height: r.h(8)),
                         _buildTextField(
                           _emailController,
                           keyboardType: TextInputType.emailAddress,
                           readOnly: isEmailReadOnly,
                         ),
-
-                        const SizedBox(height: 16),
+                        SizedBox(height: r.h(16)),
 
                         _buildLabel('Therapist Phone Number'),
-                        const SizedBox(height: 8),
+                        SizedBox(height: r.h(8)),
                         _buildTextField(
                           _phoneController,
                           keyboardType: TextInputType.phone,
                         ),
-
-                        const SizedBox(height: 16),
+                        SizedBox(height: r.h(16)),
 
                         _buildLabel('Password'),
-                        const SizedBox(height: 8),
+                        SizedBox(height: r.h(8)),
                         _buildTextField(_passwordController, obscureText: true),
-
-                        const SizedBox(height: 16),
+                        SizedBox(height: r.h(16)),
 
                         Row(
                           children: [
                             SizedBox(
-                              width: 24,
-                              height: 24,
+                              width: r.w(24),
+                              height: r.w(24),
                               child: Checkbox(
                                 value: _agreeTerms,
                                 onChanged: (value) {
@@ -356,15 +408,15 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            SizedBox(width: r.w(8)),
                             Flexible(
                               child: Wrap(
                                 children: [
-                                  const Text(
+                                  Text(
                                     'Agree with ',
                                     style: TextStyle(
-                                      color: Color(0xFF2A364E),
-                                      fontSize: 15,
+                                      color: const Color(0xFF2A364E),
+                                      fontSize: r.sp(15, min: 13, max: 18),
                                     ),
                                   ),
                                   GestureDetector(
@@ -377,11 +429,11 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
                                         ),
                                       );
                                     },
-                                    child: const Text(
+                                    child: Text(
                                       'Terms and Conditions',
                                       style: TextStyle(
-                                        color: Color(0xFF2F89FC),
-                                        fontSize: 15,
+                                        color: const Color(0xFF2F89FC),
+                                        fontSize: r.sp(15, min: 13, max: 18),
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -392,19 +444,19 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
                           ],
                         ),
 
-                        const SizedBox(height: 24),
+                        SizedBox(height: r.h(24)),
 
                         Container(
                           width: double.infinity,
-                          height: 50,
+                          height: r.h(50),
                           decoration: BoxDecoration(
                             color: const Color(0xFFFF8D20),
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(r.w(20)),
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withValues(alpha: 0.24),
-                                blurRadius: 6,
-                                offset: const Offset(0, 4),
+                                blurRadius: r.w(6),
+                                offset: Offset(0, r.h(4)),
                               ),
                             ],
                           ),
@@ -414,40 +466,40 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
                               backgroundColor: Colors.transparent,
                               shadowColor: Colors.transparent,
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(20),
+                                borderRadius: BorderRadius.circular(r.w(20)),
                               ),
                               elevation: 0,
                             ),
                             child: _isLoading
-                                ? const SizedBox(
-                                    width: 24,
-                                    height: 24,
-                                    child: CircularProgressIndicator(
+                                ? SizedBox(
+                                    width: r.w(24),
+                                    height: r.w(24),
+                                    child: const CircularProgressIndicator(
                                       color: Color(0xFF0B1421),
                                       strokeWidth: 2,
                                     ),
                                   )
-                                : const Text(
+                                : Text(
                                     'Sign up',
                                     style: TextStyle(
-                                      color: Color(0xFF0B1421),
-                                      fontSize: 24,
+                                      color: const Color(0xFF0B1421),
+                                      fontSize: r.sp(24, min: 18, max: 28),
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
                           ),
                         ),
 
-                        const SizedBox(height: 16),
+                        SizedBox(height: r.h(16)),
 
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text(
+                            Text(
                               'Already have an account? ',
                               style: TextStyle(
-                                color: Color(0xFF0F1A2F),
-                                fontSize: 16,
+                                color: const Color(0xFF0F1A2F),
+                                fontSize: r.sp(16, min: 14, max: 18),
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -461,12 +513,12 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
                                   (route) => false,
                                 );
                               },
-                              child: const Text(
+                              child: Text(
                                 'Login',
                                 style: TextStyle(
-                                  color: Color(0xFF2F89FC),
+                                  color: const Color(0xFF2F89FC),
                                   fontWeight: FontWeight.w600,
-                                  fontSize: 16,
+                                  fontSize: r.sp(16, min: 14, max: 18),
                                 ),
                               ),
                             ),
@@ -476,7 +528,7 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: 150),
+                  SizedBox(height: r.h(130)),
                 ],
               ),
             ),
@@ -487,32 +539,34 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
   }
 
   Widget _buildLabel(String text) {
+    final r = context.responsive;
     return Text(
       text,
-      style: const TextStyle(
-        fontSize: 23,
+      style: TextStyle(
+        fontSize: r.sp(18, min: 14, max: 22),
         fontWeight: FontWeight.w500,
-        color: Color(0xFF1A2543),
+        color: const Color(0xFF1A2543),
       ),
     );
   }
 
-  // ✅ UPDATED: readOnly properly changes background (same as Parent Signup fix)
   Widget _buildTextField(
     TextEditingController controller, {
     TextInputType keyboardType = TextInputType.text,
     bool obscureText = false,
     bool readOnly = false,
   }) {
+    final r = context.responsive;
     return Container(
       decoration: BoxDecoration(
-        color: readOnly ? const Color(0xFFE8EDF3) : AppColors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
+        color: readOnly ? const Color(0xFFE8EDF3) : const Color(0xFFF4F7FB),
+        borderRadius: BorderRadius.circular(r.w(16)),
+        border: Border.all(color: const Color(0xFFD2DCE6)),
+        boxShadow: [
           BoxShadow(
-            color: Color.fromRGBO(0, 0, 0, 0.18),
-            blurRadius: 4,
-            offset: Offset(0, 3),
+            color: const Color(0xFFB0C4DE).withValues(alpha: 0.4),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -521,9 +575,9 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
         keyboardType: keyboardType,
         obscureText: obscureText,
         readOnly: readOnly,
-        style: const TextStyle(
-          fontSize: 18,
-          color: Color(0xFF1A2543),
+        style: TextStyle(
+          fontSize: r.sp(18, min: 14, max: 20),
+          color: const Color(0xFF1A2543),
           fontWeight: FontWeight.w500,
         ),
         decoration: const InputDecoration(
@@ -534,77 +588,4 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
     );
   }
 
-  Widget _buildBottomWave() {
-    return ClipPath(
-      clipper: BottomWaveClipper(),
-      child: Container(
-        height: 120,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [AppColors.lightBlue, AppColors.primaryBlue],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class BottomWaveClipper extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    var path = Path();
-    path.moveTo(0, 50);
-
-    var firstControlPoint = Offset(size.width / 4, 0);
-    var firstEndPoint = Offset(size.width / 2, 30);
-    path.quadraticBezierTo(
-      firstControlPoint.dx,
-      firstControlPoint.dy,
-      firstEndPoint.dx,
-      firstEndPoint.dy,
-    );
-
-    var secondControlPoint = Offset(size.width * 3 / 4, 60);
-    var secondEndPoint = Offset(size.width, 20);
-    path.quadraticBezierTo(
-      secondControlPoint.dx,
-      secondControlPoint.dy,
-      secondEndPoint.dx,
-      secondEndPoint.dy,
-    );
-
-    path.lineTo(size.width, size.height);
-    path.lineTo(0, size.height);
-    path.close();
-    return path;
-  }
-
-  @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
-}
-
-class TrianglePainter extends CustomPainter {
-  final Color color;
-
-  TrianglePainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    var path = Path();
-    path.moveTo(size.width / 2, 0);
-    path.lineTo(size.width, size.height);
-    path.lineTo(0, size.height);
-    path.close();
-
-    var paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(CustomPainter oldDelegate) => false;
 }

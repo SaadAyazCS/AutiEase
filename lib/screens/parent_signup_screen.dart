@@ -318,6 +318,7 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
   Widget build(BuildContext context) {
     final r = context.responsive;
     final screenHeight = MediaQuery.of(context).size.height;
+    final bool isKeyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
     final bool isEmailReadOnly =
         _firebaseService.currentUser?.providerData.any(
           (provider) => provider.providerId == 'google.com',
@@ -325,7 +326,7 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
         false;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFA9DCF5),
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
           // Top blue curved background
@@ -350,39 +351,42 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
           ),
 
           // Bottom wave
-          Positioned(bottom: 0, left: 0, right: 0, child: _buildBottomWave()),
+          if (!isKeyboardOpen)
+            Positioned(bottom: 0, left: 0, right: 0, child: _buildBottomWave()),
 
           // Decorative shapes
-          Positioned(
-            bottom: 34,
-            left: 44,
-            child: Container(width: 20, height: 20, color: AppColors.yellow),
-          ),
-          Positioned(
-            bottom: 54,
-            left: 100,
-            child: const Icon(Icons.star, color: AppColors.pink, size: 24),
-          ),
-          Positioned(
-            bottom: 20,
-            right: 152,
-            child: CustomPaint(
-              size: const Size(20, 20),
-              painter: TrianglePainter(color: AppColors.red),
+          if (!isKeyboardOpen) ...[
+            Positioned(
+              bottom: 34,
+              left: 44,
+              child: Container(width: 20, height: 20, color: AppColors.yellow),
             ),
-          ),
-          Positioned(
-            bottom: 10,
-            right: 44,
-            child: Container(
-              width: 16,
-              height: 16,
-              decoration: const BoxDecoration(
-                color: AppColors.green,
-                shape: BoxShape.circle,
+            Positioned(
+              bottom: 54,
+              left: 100,
+              child: const Icon(Icons.star, color: AppColors.pink, size: 24),
+            ),
+            Positioned(
+              bottom: 20,
+              right: 152,
+              child: CustomPaint(
+                size: const Size(20, 20),
+                painter: TrianglePainter(color: AppColors.red),
               ),
             ),
-          ),
+            Positioned(
+              bottom: 10,
+              right: 44,
+              child: Container(
+                width: 16,
+                height: 16,
+                decoration: const BoxDecoration(
+                  color: AppColors.green,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+          ],
 
           // Main content
           SafeArea(
@@ -573,7 +577,7 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
                     ),
                   ),
 
-                  SizedBox(height: r.h(150)),
+                  SizedBox(height: r.h(130)),
                 ],
               ),
             ),
@@ -588,7 +592,7 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
     return Text(
       text,
       style: TextStyle(
-        fontSize: r.sp(23, min: 18, max: 26),
+        fontSize: r.sp(18, min: 14, max: 22),
         fontWeight: FontWeight.w500,
         color: const Color(0xFF1A2543),
       ),
@@ -605,13 +609,14 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
     final r = context.responsive;
     return Container(
       decoration: BoxDecoration(
-        color: readOnly ? const Color(0xFFE8EDF3) : AppColors.white,
+        color: readOnly ? const Color(0xFFE8EDF3) : const Color(0xFFF4F7FB),
         borderRadius: BorderRadius.circular(r.w(16)),
-        boxShadow: const [
+        border: Border.all(color: const Color(0xFFD2DCE6)),
+        boxShadow: [
           BoxShadow(
-            color: Color.fromRGBO(0, 0, 0, 0.18),
-            blurRadius: 4,
-            offset: Offset(0, 3),
+            color: const Color(0xFFB0C4DE).withValues(alpha: 0.4),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
           ),
         ],
       ),

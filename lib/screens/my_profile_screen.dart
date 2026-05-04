@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
+import '../services/firebase_service.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
 
@@ -21,10 +22,17 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _childNameController = TextEditingController();
+  final _savedPasswordDisplay = TextEditingController(
+    text: '************',
+  );
+  final _newPasswordController = TextEditingController();
+  final FirebaseService _firebaseService = FirebaseService();
 
   bool _communicationEnabled = false;
   bool _learningEnabled = false;
   bool _isSaving = false;
+  bool _revealSavedPassword = false;
+  bool _obscureNewPassword = true;
   UserProfile? _profile;
   ChildProfile? _child;
   String? _loadError;
@@ -80,6 +88,21 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         final firstName = _firstNameController.text.trim();
         final lastName = _lastNameController.text.trim();
         final fullName = '$firstName $lastName'.trim();
+        final newPassword = _newPasswordController.text.trim();
+
+        if (newPassword.isNotEmpty) {
+          final passwordError = _validatePassword(newPassword);
+          if (passwordError.isNotEmpty) {
+            if (!mounted) {
+              return;
+            }
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(passwordError)),
+            );
+            return;
+          }
+        }
+
         await AppRepositories.users.updateCurrentUser({
           'firstName': firstName,
           'lastName': lastName,
@@ -95,6 +118,22 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           } catch (_) {
             // Ignore auth profile update failures; Firestore remains source of truth.
           }
+        }
+
+        if (newPassword.isNotEmpty) {
+          final result = await _firebaseService.updateCurrentUserPassword(
+            newPassword: newPassword,
+          );
+          if (result['success'] != true) {
+            if (!mounted) {
+              return;
+            }
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(result['message']?.toString() ?? 'Failed to update password.')),
+            );
+            return;
+          }
+          _newPasswordController.clear();
         }
       } else if (_child != null) {
         await AppRepositories.users.upsertChildProfile(
@@ -141,6 +180,8 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     _emailController.dispose();
     _phoneController.dispose();
     _childNameController.dispose();
+    _savedPasswordDisplay.dispose();
+    _newPasswordController.dispose();
     super.dispose();
   }
 
@@ -246,17 +287,78 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         _buildField(_emailController, readOnly: true),
         _buildLabel('Phone Number'),
         _buildField(_phoneController),
-        const SizedBox(height: 12),
-        const Text(
-          'Password is hidden for security. Use "Forgot Password" on login to change it.',
-          style: TextStyle(
-            fontSize: 12,
-            color: Color(0xFF556070),
-            fontWeight: FontWeight.w500,
+        _buildLabel('Current password'),
+        ..._savedPasswordWidgets(),
+        _buildLabel('New password (optional)'),
+        _buildField(
+          _newPasswordController,
+          obscureText: _obscureNewPassword,
+          trailing: IconButton(
+            onPressed: () {
+              setState(() => _obscureNewPassword = !_obscureNewPassword);
+            },
+            icon: Icon(
+              _obscureNewPassword ? Icons.visibility_off : Icons.visibility,
+              color: const Color(0xFF556070),
+            ),
           ),
         ),
       ],
     );
+  }
+
+  static const String _savedPasswordRevealMessageParent =
+      'Your actual password is not displayed on this screen for security. Tap the eye to hide again. Use the field below only when you want to set a new password.';
+
+  bool _parentHasEmailPassword() =>
+      FirebaseAuth.instance.currentUser?.providerData.any(
+        (provider) => provider.providerId == 'password',
+      ) ??
+      false;
+
+  void _toggleParentSavedPasswordVisibility() {
+    setState(() {
+      _revealSavedPassword = !_revealSavedPassword;
+      _savedPasswordDisplay.text = _revealSavedPassword
+          ? _savedPasswordRevealMessageParent
+          : '************';
+    });
+  }
+
+  List<Widget> _savedPasswordWidgets() {
+    if (!_parentHasEmailPassword()) {
+      return [
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Text(
+            'You signed in with Google. Your password is managed through your Google account.',
+            style: TextStyle(
+              fontSize: 12,
+              color: Color(0xFF556070),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ];
+    }
+
+    return [
+      _buildField(
+        _savedPasswordDisplay,
+        readOnly: true,
+        obscureText: !_revealSavedPassword,
+        trailing: IconButton(
+          onPressed: _toggleParentSavedPasswordVisibility,
+          icon: Icon(
+            _revealSavedPassword
+                ? Icons.visibility_off
+                : Icons.visibility,
+            color: const Color(0xFF556070),
+          ),
+        ),
+      ),
+      const SizedBox(height: 12),
+    ];
   }
 
   Widget _buildChildSection() {
@@ -428,6 +530,22 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         ),
       ),
     );
+  }
+
+  String _validatePassword(String password) {
+    if (password.length < 6) {
+      return 'Password must be at least 6 characters long';
+    }
+    if (!password.contains(RegExp(r'[A-Z]'))) {
+      return 'Password must contain at least one uppercase letter for strong password';
+    }
+    if (!password.contains(RegExp(r'[a-z]'))) {
+      return 'Password must contain at least one lowercase letter for strong password';
+    }
+    if (!password.contains(RegExp(r'[0-9]'))) {
+      return 'Password must contain at least one number for strong password';
+    }
+    return '';
   }
 }
 
