@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
-import '../utils/app_colors.dart';
+import '../services/tts_service.dart';
 import '../widgets/figma_module_scaffold.dart';
+import '../widgets/move_play_celebration.dart';
+import '../widgets/move_play_feedback.dart';
 import '../widgets/session_guard.dart';
 
 class DragGameScreen extends StatefulWidget {
@@ -20,9 +23,10 @@ class DragGameScreen extends StatefulWidget {
   State<DragGameScreen> createState() => _DragGameScreenState();
 }
 
-enum _DragGameStage { playing, wrongOption, levelCompleted, allLevelsCompleted }
+enum _DragGameStage { playing, celebration }
 
 class _DragGameScreenState extends State<DragGameScreen> {
+  static const _rnd = <int>[4021, 9137, 1193, 6619, 2879, 7711];
   static const _levels = <_DragLevel>[
     _DragLevel(
       prompt: 'Circle',
@@ -83,8 +87,8 @@ class _DragGameScreenState extends State<DragGameScreen> {
       answerKey: 'apple',
       target: _DragPiece(
         key: 'apple',
-        kind: _DragPieceKind.emoji,
-        emoji: '🍎',
+        kind: _DragPieceKind.fruitFilled,
+        fruit: _FruitKind.apple,
         left: 144,
         top: 18,
       ),
@@ -92,35 +96,35 @@ class _DragGameScreenState extends State<DragGameScreen> {
         _DragPiece(
           key: 'banana',
           kind: _DragPieceKind.fruitOutline,
-          fruitOutlineType: _FruitOutlineType.banana,
+          fruit: _FruitKind.banana,
           left: 40,
           top: 150,
         ),
         _DragPiece(
           key: 'watermelon',
           kind: _DragPieceKind.fruitOutline,
-          fruitOutlineType: _FruitOutlineType.watermelon,
+          fruit: _FruitKind.watermelon,
           left: 196,
           top: 150,
         ),
         _DragPiece(
           key: 'grapes',
           kind: _DragPieceKind.fruitOutline,
-          fruitOutlineType: _FruitOutlineType.grapes,
+          fruit: _FruitKind.grapes,
           left: 118,
           top: 244,
         ),
         _DragPiece(
           key: 'apple',
           kind: _DragPieceKind.fruitOutline,
-          fruitOutlineType: _FruitOutlineType.apple,
+          fruit: _FruitKind.apple,
           left: 52,
           top: 318,
         ),
         _DragPiece(
           key: 'lemon',
           kind: _DragPieceKind.fruitOutline,
-          fruitOutlineType: _FruitOutlineType.lemon,
+          fruit: _FruitKind.lemon,
           left: 210,
           top: 318,
         ),
@@ -188,46 +192,87 @@ class _DragGameScreenState extends State<DragGameScreen> {
   bool _isSavingProgress = false;
   bool _savedCompletion = false;
   bool _targetHovering = false;
+  int _starsEarned = 0;
+  int _shuffleSeed = 0;
+  late List<_DragPiece> _activeOptions;
+
+  final TtsService _tts = TtsService();
+  bool _showFeedback = false;
+  MovePlayFeedbackKind _feedbackKind = MovePlayFeedbackKind.mistake;
+  bool _pendingAdvance = false;
 
   _DragLevel get _currentLevel => _levels[_levelIndex];
 
   String get _title {
-    if (_stage == _DragGameStage.playing) {
-      return 'Drag to "${_currentLevel.prompt}"';
+    if (_stage != _DragGameStage.playing) return 'Great Job!';
+    if (_currentLevel.answerKey == '2') return 'Drag the number';
+    return 'Drag the ${_currentLevel.prompt.toLowerCase()}';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _activeOptions = _shuffledOptionsForLevel();
+    _initTtsAndSpeak();
+  }
+
+  Future<void> _initTtsAndSpeak() async {
+    await _tts.init();
+    if (!mounted) return;
+    _speakInstruction();
+  }
+
+  @override
+  void dispose() {
+    _tts.dispose();
+    super.dispose();
+  }
+
+  String _instructionText() {
+    if (RegExp(r'^\d+$').hasMatch(_currentLevel.answerKey)) {
+      final n = _currentLevel.answerKey;
+      return 'Drag the black and white shape of number $n to the colored shape of number $n';
     }
-    if (_stage == _DragGameStage.wrongOption) {
-      return 'Drag Game';
-    }
-    return 'Great Job!';
+    final name = _currentLevel.prompt.trim().toLowerCase();
+    return 'Drag the black and white shape of $name to the colored shape of $name';
+  }
+
+  void _speakInstruction() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _stage != _DragGameStage.playing) return;
+      _tts.speak(_instructionText());
+    });
+  }
+
+  void _showOverlay(MovePlayFeedbackKind kind) {
+    if (_showFeedback) return;
+    setState(() {
+      _showFeedback = true;
+      _feedbackKind = kind;
+    });
   }
 
   Future<void> _handleDrop(String pieceKey) async {
-    if (_stage != _DragGameStage.playing) {
+    if (_stage != _DragGameStage.playing || _showFeedback) {
       return;
     }
     if (pieceKey != _currentLevel.answerKey) {
       setState(() {
         _targetHovering = false;
-        _stage = _DragGameStage.wrongOption;
+        _activeOptions = _shuffledOptionsForLevel();
       });
-      return;
-    }
-
-    if (_levelIndex < _levels.length - 1) {
-      setState(() {
-        _targetHovering = false;
-        _earnedPoints += 100;
-        _stage = _DragGameStage.levelCompleted;
-      });
+      _pendingAdvance = false;
+      _showOverlay(MovePlayFeedbackKind.mistake);
       return;
     }
 
     setState(() {
       _targetHovering = false;
       _earnedPoints += 100;
-      _stage = _DragGameStage.allLevelsCompleted;
     });
-    await _saveProgressIfNeeded();
+    _starsEarned += 1;
+    _pendingAdvance = true;
+    _showOverlay(MovePlayFeedbackKind.success);
   }
 
   Future<void> _saveProgressIfNeeded() async {
@@ -255,38 +300,43 @@ class _DragGameScreenState extends State<DragGameScreen> {
     }
   }
 
-  void _retryLevel() {
+  void _replayAll() {
     setState(() {
+      _levelIndex = 0;
+      _earnedPoints = 0;
+      _starsEarned = 0;
+      _targetHovering = false;
+      _showFeedback = false;
+      _savedCompletion = false;
       _stage = _DragGameStage.playing;
+      _shuffleSeed++;
+      _activeOptions = _shuffledOptionsForLevel();
     });
+    _speakInstruction();
   }
 
-  void _replayCurrentLevel() {
-    setState(() {
-      _stage = _DragGameStage.playing;
-    });
-  }
-
-  void _nextLevel() {
-    if (_levelIndex < _levels.length - 1) {
-      setState(() {
-        _levelIndex += 1;
-        _targetHovering = false;
-        _stage = _DragGameStage.playing;
-      });
-      return;
-    }
-    setState(() {
-      _stage = _DragGameStage.allLevelsCompleted;
-    });
-  }
-
-  void _goHome() {
-    Navigator.pop(context);
-  }
+  void _goBackToMoveAndPlay() => Navigator.pop(context);
 
   @override
   Widget build(BuildContext context) {
+    if (_stage == _DragGameStage.celebration) {
+      return SessionGuard(
+        role: SessionGuardRole.parent,
+        child: MovePlayCelebration(
+          title: 'Amazing work!',
+          subtitle: 'You finished all Drag rounds. Keep shining!',
+          starsEarned: _starsEarned,
+          starsTotal: _levels.length,
+          badgeLabel: 'Silver Badge',
+          trophyLabel: 'Silver Trophy',
+          trophyColor: const Color(0xFFC0C0C0),
+          replayLabel: 'Replay Drag Game',
+          onReplay: _replayAll,
+          onBack: _goBackToMoveAndPlay,
+        ),
+      );
+    }
+
     return SessionGuard(
       role: SessionGuardRole.parent,
       child: FigmaModuleScaffold(
@@ -298,46 +348,84 @@ class _DragGameScreenState extends State<DragGameScreen> {
   }
 
   Widget _buildBody() {
-    switch (_stage) {
-      case _DragGameStage.playing:
-        return _DragLevelBoard(
+    return Stack(
+      children: [
+        _DragLevelBoard(
           level: _currentLevel,
+          options: _activeOptions,
           targetHovering: _targetHovering,
           onHoverChanged: (hovering) {
             if (_targetHovering != hovering) {
-              setState(() {
-                _targetHovering = hovering;
-              });
+              setState(() => _targetHovering = hovering);
             }
           },
           onDrop: _handleDrop,
-        );
-      case _DragGameStage.wrongOption:
-        return _WrongOptionCard(onTryAgain: _retryLevel);
-      case _DragGameStage.levelCompleted:
-        return _LevelCompletedCard(
-          levelNumber: _levelIndex + 1,
-          onReplay: _replayCurrentLevel,
-          onNextLevel: _nextLevel,
-        );
-      case _DragGameStage.allLevelsCompleted:
-        return _AllLevelsCompletedCard(
-          isSavingProgress: _isSavingProgress,
-          onHome: _goHome,
-        );
-    }
+        ),
+        if (_showFeedback)
+          MovePlayFeedbackOverlay(
+            kind: _feedbackKind,
+            primaryLabel:
+                _feedbackKind == MovePlayFeedbackKind.success ? 'Next' : 'Try again',
+            onPrimaryAction: () {
+              if (!mounted) return;
+              final kind = _feedbackKind;
+              setState(() => _showFeedback = false);
+              if (kind == MovePlayFeedbackKind.mistake) {
+                _speakInstruction();
+                return;
+              }
+              if (!_pendingAdvance) return;
+
+              if (_levelIndex < _levels.length - 1) {
+                setState(() {
+                  _levelIndex += 1;
+                  _shuffleSeed++;
+                  _activeOptions = _shuffledOptionsForLevel();
+                });
+                _speakInstruction();
+              } else {
+                setState(() => _stage = _DragGameStage.celebration);
+                _saveProgressIfNeeded();
+              }
+            },
+          ),
+      ],
+    );
   }
+
+  List<_DragPiece> _shuffledOptionsForLevel() {
+    final level = _currentLevel;
+    // Use the original positions as "slots" but shuffle which item uses which slot.
+    final slots = level.options
+        .map((p) => Offset(p.left, p.top))
+        .toList(growable: false);
+    final items = List<_DragPiece>.from(level.options);
+
+    final seed = (_rnd[levelIndexMod] + _shuffleSeed * 997) ^ (level.answerKey.hashCode);
+    final r = math.Random(seed);
+    items.shuffle(r);
+    final out = <_DragPiece>[];
+    for (var i = 0; i < items.length; i++) {
+      final s = slots[i % slots.length];
+      out.add(items[i].copyWith(left: s.dx, top: s.dy));
+    }
+    return out;
+  }
+
+  int get levelIndexMod => _levelIndex % _rnd.length;
 }
 
 class _DragLevelBoard extends StatelessWidget {
   const _DragLevelBoard({
     required this.level,
+    required this.options,
     required this.targetHovering,
     required this.onHoverChanged,
     required this.onDrop,
   });
 
   final _DragLevel level;
+  final List<_DragPiece> options;
   final bool targetHovering;
   final void Function(bool hovering) onHoverChanged;
   final void Function(String pieceKey) onDrop;
@@ -375,7 +463,7 @@ class _DragLevelBoard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: targetHovering
-                            ? AppColors.primaryBlue
+                            ? const Color(0xFF4EA9E3)
                             : Colors.transparent,
                         width: 2,
                       ),
@@ -385,7 +473,7 @@ class _DragLevelBoard extends StatelessWidget {
                 },
               ),
             ),
-            for (final piece in level.options)
+            for (final piece in options)
               Positioned(
                 left: piece.left,
                 top: piece.top,
@@ -422,8 +510,6 @@ class _DragPieceView extends StatelessWidget {
     switch (piece.kind) {
       case _DragPieceKind.icon:
         return Icon(piece.icon!, size: 86, color: piece.color);
-      case _DragPieceKind.emoji:
-        return Text(piece.emoji!, style: const TextStyle(fontSize: 58));
       case _DragPieceKind.number:
         return Text(
           piece.numberText!,
@@ -443,208 +529,21 @@ class _DragPieceView extends StatelessWidget {
         );
       case _DragPieceKind.fruitOutline:
         return SizedBox(
-          width: 92,
-          height: 92,
+          width: 96,
+          height: 96,
           child: CustomPaint(
-            painter: _FruitOutlinePainter(type: piece.fruitOutlineType!),
+            painter: _FruitPainter(kind: piece.fruit!, filled: false),
+          ),
+        );
+      case _DragPieceKind.fruitFilled:
+        return SizedBox(
+          width: 96,
+          height: 96,
+          child: CustomPaint(
+            painter: _FruitPainter(kind: piece.fruit!, filled: true),
           ),
         );
     }
-  }
-}
-
-class _FruitOutlinePainter extends CustomPainter {
-  const _FruitOutlinePainter({required this.type});
-
-  final _FruitOutlineType type;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final stroke = Paint()
-      ..color = Colors.black
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.2
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    switch (type) {
-      case _FruitOutlineType.banana:
-        void drawBanana(double dx, double dy, double scale) {
-          final w = size.width * 0.34 * scale;
-          final h = size.height * 0.34 * scale;
-          final path = Path()
-            ..moveTo(dx + w * 0.08, dy + h * 0.76)
-            ..quadraticBezierTo(
-              dx + w * 0.48,
-              dy + h * 0.02,
-              dx + w * 0.96,
-              dy + h * 0.56,
-            )
-            ..quadraticBezierTo(
-              dx + w * 0.62,
-              dy + h * 0.88,
-              dx + w * 0.08,
-              dy + h * 0.76,
-            )
-            ..moveTo(dx + w * 0.14, dy + h * 0.67)
-            ..quadraticBezierTo(
-              dx + w * 0.46,
-              dy + h * 0.12,
-              dx + w * 0.86,
-              dy + h * 0.55,
-            );
-          canvas.drawPath(path, stroke);
-        }
-
-        drawBanana(size.width * 0.04, size.height * 0.34, 1.0);
-        drawBanana(size.width * 0.24, size.height * 0.28, 1.06);
-        drawBanana(size.width * 0.46, size.height * 0.34, 1.0);
-        break;
-      case _FruitOutlineType.watermelon:
-        final rindRect = Rect.fromLTWH(
-          size.width * 0.12,
-          size.height * 0.28,
-          size.width * 0.78,
-          size.height * 0.56,
-        );
-        canvas.drawArc(rindRect, 0.32, 2.58, false, stroke);
-        canvas.drawLine(
-          Offset(size.width * 0.18, size.height * 0.68),
-          Offset(size.width * 0.84, size.height * 0.54),
-          stroke,
-        );
-        canvas.drawLine(
-          Offset(size.width * 0.24, size.height * 0.73),
-          Offset(size.width * 0.88, size.height * 0.58),
-          stroke,
-        );
-        for (final seed in <Offset>[
-          Offset(size.width * 0.43, size.height * 0.56),
-          Offset(size.width * 0.56, size.height * 0.52),
-          Offset(size.width * 0.68, size.height * 0.49),
-          Offset(size.width * 0.61, size.height * 0.62),
-        ]) {
-          canvas.drawCircle(seed, 2.3, stroke);
-        }
-        break;
-      case _FruitOutlineType.grapes:
-        for (final center in <Offset>[
-          Offset(size.width * 0.28, size.height * 0.38),
-          Offset(size.width * 0.42, size.height * 0.35),
-          Offset(size.width * 0.56, size.height * 0.36),
-          Offset(size.width * 0.7, size.height * 0.39),
-          Offset(size.width * 0.22, size.height * 0.52),
-          Offset(size.width * 0.36, size.height * 0.5),
-          Offset(size.width * 0.5, size.height * 0.5),
-          Offset(size.width * 0.64, size.height * 0.52),
-          Offset(size.width * 0.3, size.height * 0.65),
-          Offset(size.width * 0.44, size.height * 0.64),
-          Offset(size.width * 0.58, size.height * 0.65),
-          Offset(size.width * 0.49, size.height * 0.79),
-        ]) {
-          canvas.drawCircle(center, size.width * 0.088, stroke);
-        }
-        canvas.drawLine(
-          Offset(size.width * 0.46, size.height * 0.18),
-          Offset(size.width * 0.39, size.height * 0.3),
-          stroke,
-        );
-        final leaf = Path()
-          ..moveTo(size.width * 0.49, size.height * 0.2)
-          ..quadraticBezierTo(
-            size.width * 0.66,
-            size.height * 0.13,
-            size.width * 0.61,
-            size.height * 0.31,
-          )
-          ..quadraticBezierTo(
-            size.width * 0.48,
-            size.height * 0.29,
-            size.width * 0.49,
-            size.height * 0.2,
-          );
-        canvas.drawPath(leaf, stroke);
-        break;
-      case _FruitOutlineType.apple:
-        final apple = Path()
-          ..moveTo(size.width * 0.5, size.height * 0.26)
-          ..cubicTo(
-            size.width * 0.24,
-            size.height * 0.2,
-            size.width * 0.16,
-            size.height * 0.58,
-            size.width * 0.5,
-            size.height * 0.82,
-          )
-          ..cubicTo(
-            size.width * 0.84,
-            size.height * 0.58,
-            size.width * 0.76,
-            size.height * 0.2,
-            size.width * 0.5,
-            size.height * 0.26,
-          );
-        canvas.drawPath(apple, stroke);
-        canvas.drawLine(
-          Offset(size.width * 0.5, size.height * 0.24),
-          Offset(size.width * 0.56, size.height * 0.12),
-          stroke,
-        );
-        final leaf = Path()
-          ..moveTo(size.width * 0.58, size.height * 0.15)
-          ..quadraticBezierTo(
-            size.width * 0.76,
-            size.height * 0.08,
-            size.width * 0.69,
-            size.height * 0.24,
-          );
-        canvas.drawPath(leaf, stroke);
-        break;
-      case _FruitOutlineType.lemon:
-        final lemon = Path()
-          ..moveTo(size.width * 0.16, size.height * 0.53)
-          ..quadraticBezierTo(
-            size.width * 0.5,
-            size.height * 0.2,
-            size.width * 0.84,
-            size.height * 0.53,
-          )
-          ..quadraticBezierTo(
-            size.width * 0.5,
-            size.height * 0.85,
-            size.width * 0.16,
-            size.height * 0.53,
-          );
-        canvas.drawPath(lemon, stroke);
-        for (final dot in <Offset>[
-          Offset(size.width * 0.42, size.height * 0.48),
-          Offset(size.width * 0.51, size.height * 0.55),
-          Offset(size.width * 0.58, size.height * 0.46),
-          Offset(size.width * 0.46, size.height * 0.63),
-        ]) {
-          canvas.drawCircle(dot, 1.8, stroke);
-        }
-        canvas.drawLine(
-          Offset(size.width * 0.58, size.height * 0.25),
-          Offset(size.width * 0.67, size.height * 0.15),
-          stroke,
-        );
-        final leaf = Path()
-          ..moveTo(size.width * 0.67, size.height * 0.16)
-          ..quadraticBezierTo(
-            size.width * 0.81,
-            size.height * 0.15,
-            size.width * 0.74,
-            size.height * 0.27,
-          );
-        canvas.drawPath(leaf, stroke);
-        break;
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _FruitOutlinePainter oldDelegate) {
-    return oldDelegate.type != type;
   }
 }
 
@@ -691,256 +590,9 @@ class _OutlinedText extends StatelessWidget {
   }
 }
 
-class _WrongOptionCard extends StatelessWidget {
-  const _WrongOptionCard({required this.onTryAgain});
+enum _DragPieceKind { icon, number, numberOutline, fruitOutline, fruitFilled }
 
-  final VoidCallback onTryAgain;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 260,
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-        decoration: BoxDecoration(
-          color: const Color(0xFFDCDCDC),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Wrong Option',
-              style: TextStyle(fontSize: 38 / 2, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.black54, width: 2),
-              ),
-              child: const Center(
-                child: Icon(
-                  Icons.close_rounded,
-                  color: AppColors.errorRed,
-                  size: 42,
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            ElevatedButton(
-              onPressed: onTryAgain,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFFA260),
-                foregroundColor: Colors.black87,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 10,
-                ),
-              ),
-              child: const Text(
-                'Try Again',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LevelCompletedCard extends StatelessWidget {
-  const _LevelCompletedCard({
-    required this.levelNumber,
-    required this.onReplay,
-    required this.onNextLevel,
-  });
-
-  final int levelNumber;
-  final VoidCallback onReplay;
-  final VoidCallback onNextLevel;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 330,
-        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(32),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.emoji_events_rounded,
-              size: 70,
-              color: Color(0xFFF5B700),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'Level $levelNumber Completed',
-              style: const TextStyle(
-                fontSize: 30 / 2,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.star, color: Color(0xFFFF7043), size: 36),
-                SizedBox(width: 3),
-                Icon(Icons.star, color: Color(0xFFFFB74D), size: 36),
-                SizedBox(width: 3),
-                Icon(Icons.star, color: Color(0xFFFBC02D), size: 36),
-              ],
-            ),
-            const SizedBox(height: 14),
-            const Text(
-              'You have earned 100 points',
-              style: TextStyle(
-                color: Colors.redAccent,
-                fontSize: 30 / 2,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 22),
-            _ActionWideButton(
-              label: 'Replay',
-              backgroundColor: const Color(0xFFF4A9AD),
-              foregroundColor: Colors.black87,
-              trailingIcon: Icons.replay,
-              onTap: onReplay,
-            ),
-            const SizedBox(height: 14),
-            _ActionWideButton(
-              label: levelNumber == 3 ? 'Next' : 'Next Level',
-              backgroundColor: const Color(0xFF76ED67),
-              foregroundColor: Colors.black87,
-              trailingIcon: Icons.arrow_forward,
-              onTap: onNextLevel,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AllLevelsCompletedCard extends StatelessWidget {
-  const _AllLevelsCompletedCard({
-    required this.isSavingProgress,
-    required this.onHome,
-  });
-
-  final bool isSavingProgress;
-  final VoidCallback onHome;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 330,
-        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 28),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(32),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.emoji_events_rounded,
-              size: 72,
-              color: Color(0xFFF5B700),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'You have completed\nDrag Games',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.redAccent,
-                fontSize: 34 / 2,
-                fontWeight: FontWeight.w700,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 24),
-            if (isSavingProgress)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 16),
-                child: CircularProgressIndicator(),
-              ),
-            _ActionWideButton(
-              label: 'Home',
-              backgroundColor: const Color(0xFFF4A9AD),
-              foregroundColor: Colors.black87,
-              trailingIcon: Icons.replay,
-              onTap: onHome,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ActionWideButton extends StatelessWidget {
-  const _ActionWideButton({
-    required this.label,
-    required this.backgroundColor,
-    required this.foregroundColor,
-    required this.trailingIcon,
-    required this.onTap,
-  });
-
-  final String label;
-  final Color backgroundColor;
-  final Color foregroundColor;
-  final IconData trailingIcon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: onTap,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: backgroundColor,
-          foregroundColor: foregroundColor,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        ),
-        child: Row(
-          children: [
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 30 / 2,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const Spacer(),
-            Icon(trailingIcon),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-enum _DragPieceKind { icon, emoji, number, numberOutline, fruitOutline }
-
-enum _FruitOutlineType { banana, watermelon, grapes, apple, lemon }
+enum _FruitKind { apple, banana, grapes, watermelon, lemon }
 
 class _DragLevel {
   const _DragLevel({
@@ -963,9 +615,8 @@ class _DragPiece {
     required this.left,
     required this.top,
     this.icon,
-    this.emoji,
     this.numberText,
-    this.fruitOutlineType,
+    this.fruit,
     this.color = Colors.black,
   });
 
@@ -974,8 +625,205 @@ class _DragPiece {
   final double left;
   final double top;
   final IconData? icon;
-  final String? emoji;
   final String? numberText;
-  final _FruitOutlineType? fruitOutlineType;
+  final _FruitKind? fruit;
   final Color color;
+
+  _DragPiece copyWith({
+    double? left,
+    double? top,
+  }) {
+    return _DragPiece(
+      key: key,
+      kind: kind,
+      left: left ?? this.left,
+      top: top ?? this.top,
+      icon: icon,
+      numberText: numberText,
+      fruit: fruit,
+      color: color,
+    );
+  }
+}
+
+class _FruitPainter extends CustomPainter {
+  const _FruitPainter({required this.kind, required this.filled});
+
+  final _FruitKind kind;
+  final bool filled;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final stroke = Paint()
+      ..color = const Color(0xFF121212)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.4
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final fill = Paint()
+      ..style = PaintingStyle.fill
+      ..color = switch (kind) {
+        _FruitKind.apple => const Color(0xFFE84B4B),
+        _FruitKind.banana => const Color(0xFFFFD447),
+        _FruitKind.grapes => const Color(0xFF7E57C2),
+        _FruitKind.watermelon => const Color(0xFFFF6B6B),
+        _FruitKind.lemon => const Color(0xFFFFE082),
+      };
+
+    void drawPath(Path p) {
+      if (filled) canvas.drawPath(p, fill);
+      canvas.drawPath(p, stroke);
+    }
+
+    switch (kind) {
+      case _FruitKind.apple:
+        final p = Path()
+          ..moveTo(size.width * 0.52, size.height * 0.22)
+          ..cubicTo(
+            size.width * 0.26,
+            size.height * 0.12,
+            size.width * 0.14,
+            size.height * 0.50,
+            size.width * 0.50,
+            size.height * 0.84,
+          )
+          ..cubicTo(
+            size.width * 0.86,
+            size.height * 0.50,
+            size.width * 0.74,
+            size.height * 0.12,
+            size.width * 0.52,
+            size.height * 0.22,
+          );
+        drawPath(p);
+        canvas.drawLine(
+          Offset(size.width * 0.52, size.height * 0.20),
+          Offset(size.width * 0.60, size.height * 0.08),
+          stroke,
+        );
+        final leaf = Path()
+          ..moveTo(size.width * 0.62, size.height * 0.12)
+          ..quadraticBezierTo(
+            size.width * 0.78,
+            size.height * 0.06,
+            size.width * 0.72,
+            size.height * 0.22,
+          );
+        canvas.drawPath(leaf, stroke);
+        break;
+      case _FruitKind.banana:
+        final p = Path()
+          ..moveTo(size.width * 0.22, size.height * 0.66)
+          ..quadraticBezierTo(
+            size.width * 0.48,
+            size.height * 0.14,
+            size.width * 0.84,
+            size.height * 0.44,
+          )
+          ..quadraticBezierTo(
+            size.width * 0.58,
+            size.height * 0.82,
+            size.width * 0.22,
+            size.height * 0.66,
+          );
+        drawPath(p);
+        final inner = Path()
+          ..moveTo(size.width * 0.30, size.height * 0.64)
+          ..quadraticBezierTo(
+            size.width * 0.52,
+            size.height * 0.22,
+            size.width * 0.78,
+            size.height * 0.46,
+          );
+        canvas.drawPath(inner, stroke);
+        break;
+      case _FruitKind.grapes:
+        for (final c in <Offset>[
+          Offset(size.width * 0.32, size.height * 0.34),
+          Offset(size.width * 0.50, size.height * 0.30),
+          Offset(size.width * 0.68, size.height * 0.34),
+          Offset(size.width * 0.26, size.height * 0.52),
+          Offset(size.width * 0.44, size.height * 0.50),
+          Offset(size.width * 0.62, size.height * 0.52),
+          Offset(size.width * 0.38, size.height * 0.68),
+          Offset(size.width * 0.56, size.height * 0.68),
+          Offset(size.width * 0.48, size.height * 0.82),
+        ]) {
+          final r = size.width * 0.12;
+          final o = Path()..addOval(Rect.fromCircle(center: c, radius: r));
+          drawPath(o);
+        }
+        canvas.drawLine(
+          Offset(size.width * 0.50, size.height * 0.12),
+          Offset(size.width * 0.44, size.height * 0.24),
+          stroke,
+        );
+        final leaf = Path()
+          ..moveTo(size.width * 0.54, size.height * 0.14)
+          ..quadraticBezierTo(
+            size.width * 0.74,
+            size.height * 0.10,
+            size.width * 0.66,
+            size.height * 0.26,
+          )
+          ..quadraticBezierTo(
+            size.width * 0.56,
+            size.height * 0.22,
+            size.width * 0.54,
+            size.height * 0.14,
+          );
+        canvas.drawPath(leaf, stroke);
+        break;
+      case _FruitKind.watermelon:
+        final rect = Rect.fromLTWH(
+          size.width * 0.10,
+          size.height * 0.26,
+          size.width * 0.82,
+          size.height * 0.58,
+        );
+        final rind = Path()..addArc(rect, 0.25, 2.60);
+        if (filled) {
+          final fillPaint = Paint()
+            ..color = const Color(0xFFFF6B6B)
+            ..style = PaintingStyle.fill;
+          canvas.drawPath(rind, fillPaint);
+        }
+        canvas.drawPath(rind, stroke);
+        canvas.drawLine(
+          Offset(size.width * 0.18, size.height * 0.68),
+          Offset(size.width * 0.84, size.height * 0.54),
+          stroke,
+        );
+        for (final seed in <Offset>[
+          Offset(size.width * 0.44, size.height * 0.56),
+          Offset(size.width * 0.58, size.height * 0.52),
+          Offset(size.width * 0.70, size.height * 0.50),
+        ]) {
+          canvas.drawCircle(seed, 2.8, stroke);
+        }
+        break;
+      case _FruitKind.lemon:
+        final p = Path()
+          ..moveTo(size.width * 0.18, size.height * 0.54)
+          ..quadraticBezierTo(
+            size.width * 0.50,
+            size.height * 0.18,
+            size.width * 0.82,
+            size.height * 0.54,
+          )
+          ..quadraticBezierTo(
+            size.width * 0.50,
+            size.height * 0.86,
+            size.width * 0.18,
+            size.height * 0.54,
+          );
+        drawPath(p);
+        break;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _FruitPainter oldDelegate) =>
+      oldDelegate.kind != kind || oldDelegate.filled != filled;
 }

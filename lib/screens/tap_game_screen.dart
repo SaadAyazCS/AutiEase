@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
-import '../utils/app_colors.dart';
+import '../services/tts_service.dart';
 import '../widgets/figma_module_scaffold.dart';
+import '../widgets/move_play_celebration.dart';
+import '../widgets/move_play_feedback.dart';
 import '../widgets/session_guard.dart';
 
 class TapGameScreen extends StatefulWidget {
@@ -16,9 +19,16 @@ class TapGameScreen extends StatefulWidget {
   State<TapGameScreen> createState() => _TapGameScreenState();
 }
 
-enum _TapGameStage { playing, wrongOption, levelCompleted, allLevelsCompleted }
+enum _TapGameStage { playing, celebration }
 
 class _TapGameScreenState extends State<TapGameScreen> {
+  static const _slots = <Offset>[
+    Offset(26, 20),
+    Offset(190, 36),
+    Offset(104, 104),
+    Offset(26, 196),
+    Offset(178, 204),
+  ];
   static const _levels = <_TapLevel>[
     _TapLevel(
       prompt: 'Circle',
@@ -171,45 +181,88 @@ class _TapGameScreenState extends State<TapGameScreen> {
   _TapGameStage _stage = _TapGameStage.playing;
   bool _isSavingProgress = false;
   final Set<int> _recordedLevelNumbers = <int>{};
+  int _starsEarned = 0;
+
+  final TtsService _tts = TtsService();
+  bool _showFeedback = false;
+  MovePlayFeedbackKind _feedbackKind = MovePlayFeedbackKind.mistake;
+  bool _pendingAdvance = false;
+  int _shuffleSeed = 0;
+  late List<_TapOption> _activeOptions;
 
   _TapLevel get _currentLevel => _levels[_levelIndex];
 
   String get _title {
-    if (_stage == _TapGameStage.playing) {
-      return 'Tap on "${_currentLevel.prompt}"';
+    return _stage == _TapGameStage.playing ? _instructionText() : 'Great Job!';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _activeOptions = _shuffledOptionsForLevel();
+    _initTtsAndSpeak();
+  }
+
+  Future<void> _initTtsAndSpeak() async {
+    await _tts.init();
+    if (!mounted) return;
+    _speakInstruction();
+  }
+
+  @override
+  void dispose() {
+    _tts.dispose();
+    super.dispose();
+  }
+
+  String _instructionText() {
+    final raw = _currentLevel.prompt.trim();
+    final lower = raw.toLowerCase();
+    if (RegExp(r'^\d+$').hasMatch(raw)) {
+      return 'Tap on number $raw';
     }
-    if (_stage == _TapGameStage.wrongOption) {
-      return 'Tap Game';
+    if (lower == 'apple' ||
+        lower == 'banana' ||
+        lower == 'grapes' ||
+        lower == 'watermelon' ||
+        lower == 'lemon') {
+      return 'Tap on the $lower';
     }
-    return 'Great Job!';
+    return 'Tap on the $lower';
+  }
+
+  void _speakInstruction() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _stage != _TapGameStage.playing) return;
+      _tts.speak(_title);
+    });
+  }
+
+  void _showOverlay(MovePlayFeedbackKind kind) {
+    if (_showFeedback) return;
+    setState(() {
+      _showFeedback = true;
+      _feedbackKind = kind;
+    });
   }
 
   Future<void> _handleTap(_TapOption option) async {
-    if (_stage != _TapGameStage.playing) {
+    if (_stage != _TapGameStage.playing || _showFeedback) {
       return;
     }
 
     if (option.key != _currentLevel.prompt.toLowerCase()) {
-      setState(() {
-        _stage = _TapGameStage.wrongOption;
-      });
-      return;
-    }
-
-    if (_levelIndex < _levels.length - 1) {
-      final completedLevel = _levelIndex + 1;
-      setState(() {
-        _stage = _TapGameStage.levelCompleted;
-      });
-      await _recordLevelCompletion(completedLevel);
+      _pendingAdvance = false;
+      setState(() => _activeOptions = _shuffledOptionsForLevel());
+      _showOverlay(MovePlayFeedbackKind.mistake);
       return;
     }
 
     final completedLevel = _levelIndex + 1;
-    setState(() {
-      _stage = _TapGameStage.allLevelsCompleted;
-    });
+    _starsEarned += 1;
     await _recordLevelCompletion(completedLevel);
+    _pendingAdvance = true;
+    _showOverlay(MovePlayFeedbackKind.success);
   }
 
   Future<void> _recordLevelCompletion(int levelNumber) async {
@@ -237,37 +290,40 @@ class _TapGameScreenState extends State<TapGameScreen> {
     }
   }
 
-  void _retryLevel() {
+  void _replayAll() {
     setState(() {
+      _levelIndex = 0;
+      _starsEarned = 0;
+      _showFeedback = false;
       _stage = _TapGameStage.playing;
+      _shuffleSeed++;
+      _activeOptions = _shuffledOptionsForLevel();
     });
+    _speakInstruction();
   }
 
-  void _replayCurrentLevel() {
-    setState(() {
-      _stage = _TapGameStage.playing;
-    });
-  }
-
-  void _nextLevel() {
-    if (_levelIndex < _levels.length - 1) {
-      setState(() {
-        _levelIndex += 1;
-        _stage = _TapGameStage.playing;
-      });
-      return;
-    }
-    setState(() {
-      _stage = _TapGameStage.allLevelsCompleted;
-    });
-  }
-
-  void _goHome() {
-    Navigator.pop(context);
-  }
+  void _goBackToMoveAndPlay() => Navigator.pop(context);
 
   @override
   Widget build(BuildContext context) {
+    if (_stage == _TapGameStage.celebration) {
+      return SessionGuard(
+        role: SessionGuardRole.parent,
+        child: MovePlayCelebration(
+          title: 'You superstar!',
+          subtitle: 'You finished all Tap rounds. High five!',
+          starsEarned: _starsEarned,
+          starsTotal: _levels.length,
+          badgeLabel: 'Bronze Badge',
+          trophyLabel: 'Bronze Trophy',
+          trophyColor: const Color(0xFFCD7F32),
+          replayLabel: 'Replay Tap Game',
+          onReplay: _replayAll,
+          onBack: _goBackToMoveAndPlay,
+        ),
+      );
+    }
+
     return SessionGuard(
       role: SessionGuardRole.parent,
       child: FigmaModuleScaffold(
@@ -279,30 +335,61 @@ class _TapGameScreenState extends State<TapGameScreen> {
   }
 
   Widget _buildBody() {
-    switch (_stage) {
-      case _TapGameStage.playing:
-        return _TapLevelBoard(level: _currentLevel, onTapOption: _handleTap);
-      case _TapGameStage.wrongOption:
-        return _WrongOptionCard(onTryAgain: _retryLevel);
-      case _TapGameStage.levelCompleted:
-        return _LevelCompletedCard(
-          levelNumber: _levelIndex + 1,
-          onReplay: _replayCurrentLevel,
-          onNextLevel: _nextLevel,
-        );
-      case _TapGameStage.allLevelsCompleted:
-        return _AllLevelsCompletedCard(
-          isSavingProgress: _isSavingProgress,
-          onHome: _goHome,
-        );
+    return Stack(
+      children: [
+        _TapLevelBoard(level: _currentLevel, options: _activeOptions, onTapOption: _handleTap),
+        if (_showFeedback)
+          MovePlayFeedbackOverlay(
+            kind: _feedbackKind,
+            primaryLabel:
+                _feedbackKind == MovePlayFeedbackKind.success ? 'Next' : 'Try again',
+            onPrimaryAction: () {
+              if (!mounted) return;
+              final kind = _feedbackKind;
+              setState(() => _showFeedback = false);
+              if (kind == MovePlayFeedbackKind.mistake) {
+                _speakInstruction();
+                return;
+              }
+              if (!_pendingAdvance) return;
+
+              if (_levelIndex < _levels.length - 1) {
+                setState(() {
+                  _levelIndex += 1;
+                  _shuffleSeed++;
+                  _activeOptions = _shuffledOptionsForLevel();
+                });
+                _speakInstruction();
+              } else {
+                setState(() => _stage = _TapGameStage.celebration);
+              }
+            },
+          ),
+      ],
+    );
+  }
+
+  List<_TapOption> _shuffledOptionsForLevel() {
+    final slots = List<Offset>.from(_slots);
+    final items = List<_TapOption>.from(_currentLevel.options);
+    final r = math.Random((_shuffleSeed * 997) ^ _levelIndex ^ _starsEarned);
+    items.shuffle(r);
+    for (var i = 0; i < items.length && i < slots.length; i++) {
+      items[i] = items[i].copyWith(left: slots[i].dx, top: slots[i].dy);
     }
+    return items;
   }
 }
 
 class _TapLevelBoard extends StatelessWidget {
-  const _TapLevelBoard({required this.level, required this.onTapOption});
+  const _TapLevelBoard({
+    required this.level,
+    required this.options,
+    required this.onTapOption,
+  });
 
   final _TapLevel level;
+  final List<_TapOption> options;
   final void Function(_TapOption option) onTapOption;
 
   @override
@@ -314,7 +401,7 @@ class _TapLevelBoard extends StatelessWidget {
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            for (final option in level.options)
+            for (final option in options)
               Positioned(
                 left: option.left,
                 top: option.top,
@@ -355,253 +442,6 @@ class _TapOptionView extends StatelessWidget {
   }
 }
 
-class _WrongOptionCard extends StatelessWidget {
-  const _WrongOptionCard({required this.onTryAgain});
-
-  final VoidCallback onTryAgain;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 260,
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-        decoration: BoxDecoration(
-          color: const Color(0xFFDCDCDC),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Wrong Option',
-              style: TextStyle(fontSize: 38 / 2, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.black54, width: 2),
-              ),
-              child: const Center(
-                child: Icon(
-                  Icons.close_rounded,
-                  color: AppColors.errorRed,
-                  size: 42,
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            ElevatedButton(
-              onPressed: onTryAgain,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFFA260),
-                foregroundColor: Colors.black87,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 10,
-                ),
-              ),
-              child: const Text(
-                'Try Again',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LevelCompletedCard extends StatelessWidget {
-  const _LevelCompletedCard({
-    required this.levelNumber,
-    required this.onReplay,
-    required this.onNextLevel,
-  });
-
-  final int levelNumber;
-  final VoidCallback onReplay;
-  final VoidCallback onNextLevel;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 330,
-        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(32),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.emoji_events_rounded,
-              size: 70,
-              color: Color(0xFFF5B700),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'Level $levelNumber Completed',
-              style: const TextStyle(
-                fontSize: 30 / 2,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.star, color: Color(0xFFFF7043), size: 36),
-                SizedBox(width: 3),
-                Icon(Icons.star, color: Color(0xFFFFB74D), size: 36),
-                SizedBox(width: 3),
-                Icon(Icons.star, color: Color(0xFFFBC02D), size: 36),
-              ],
-            ),
-            const SizedBox(height: 14),
-            const Text(
-              'You have earned 100 points',
-              style: TextStyle(
-                color: Colors.redAccent,
-                fontSize: 30 / 2,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 22),
-            _ActionWideButton(
-              label: 'Replay',
-              backgroundColor: const Color(0xFFF4A9AD),
-              foregroundColor: Colors.black87,
-              trailingIcon: Icons.replay,
-              onTap: onReplay,
-            ),
-            const SizedBox(height: 14),
-            _ActionWideButton(
-              label: levelNumber == 3 ? 'Next' : 'Next Level',
-              backgroundColor: const Color(0xFF76ED67),
-              foregroundColor: Colors.black87,
-              trailingIcon: Icons.arrow_forward,
-              onTap: onNextLevel,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AllLevelsCompletedCard extends StatelessWidget {
-  const _AllLevelsCompletedCard({
-    required this.isSavingProgress,
-    required this.onHome,
-  });
-
-  final bool isSavingProgress;
-  final VoidCallback onHome;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 330,
-        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 28),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(32),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.emoji_events_rounded,
-              size: 72,
-              color: Color(0xFFF5B700),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'You have completed\nTap Games',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.redAccent,
-                fontSize: 34 / 2,
-                fontWeight: FontWeight.w700,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 24),
-            if (isSavingProgress)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 16),
-                child: CircularProgressIndicator(),
-              ),
-            _ActionWideButton(
-              label: 'Home',
-              backgroundColor: const Color(0xFFF4A9AD),
-              foregroundColor: Colors.black87,
-              trailingIcon: Icons.replay,
-              onTap: onHome,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ActionWideButton extends StatelessWidget {
-  const _ActionWideButton({
-    required this.label,
-    required this.backgroundColor,
-    required this.foregroundColor,
-    required this.trailingIcon,
-    required this.onTap,
-  });
-
-  final String label;
-  final Color backgroundColor;
-  final Color foregroundColor;
-  final IconData trailingIcon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: onTap,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: backgroundColor,
-          foregroundColor: foregroundColor,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        ),
-        child: Row(
-          children: [
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 30 / 2,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const Spacer(),
-            Icon(trailingIcon),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 enum _TapOptionKind { icon, emoji, number }
 
 class _TapLevel {
@@ -633,4 +473,18 @@ class _TapOption {
   final String? emoji;
   final String? numberText;
   final Color color;
+
+  _TapOption copyWith({double? left, double? top}) {
+    return _TapOption(
+      key: key,
+      label: label,
+      kind: kind,
+      left: left ?? this.left,
+      top: top ?? this.top,
+      icon: icon,
+      emoji: emoji,
+      numberText: numberText,
+      color: color,
+    );
+  }
 }
