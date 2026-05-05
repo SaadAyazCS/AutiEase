@@ -7,6 +7,7 @@ import '../modules/speak_learn/speak_learn_screen.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
 import 'move_play_screen.dart';
+import 'focus_games_screen.dart';
 import 'learning_planner_screen.dart';
 
 class LearningModulesScreen extends StatelessWidget {
@@ -107,6 +108,15 @@ class LearningModulesScreen extends StatelessWidget {
                   assetPath: assetPath,
                   cardColor: cardColor,
                   onTap: () {
+                    if (category.key == 'focus_games') {
+                      Navigator.push<void>(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => FocusGamesScreen(childId: childId),
+                        ),
+                      );
+                      return;
+                    }
                     final modules = List<LearningModuleModel>.from(
                       categoryModules,
                     );
