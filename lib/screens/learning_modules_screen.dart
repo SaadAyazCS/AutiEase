@@ -6,7 +6,7 @@ import '../repositories/app_repositories.dart';
 import '../modules/speak_learn/speak_learn_screen.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
-import 'learning_category_games_screen.dart';
+import 'move_play_screen.dart';
 import 'learning_planner_screen.dart';
 
 class LearningModulesScreen extends StatelessWidget {
@@ -109,7 +109,7 @@ class LearningModulesScreen extends StatelessWidget {
                     Navigator.push<void>(
                       context,
                       MaterialPageRoute<void>(
-                        builder: (_) => LearningCategoryGamesScreen(
+                        builder: (_) => MovePlayScreen(
                           childId: childId,
                           category: category,
                           modules: modules,

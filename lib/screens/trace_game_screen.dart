@@ -85,9 +85,9 @@ class _TraceGameScreenState extends State<TraceGameScreen>
 
   String _instructionText() {
     return switch (_currentLevel.kind) {
-      _TraceLevelKind.line => 'Trace the lines one by one.',
-      _TraceLevelKind.curves => 'Trace the curves carefully.',
-      _TraceLevelKind.shapes => 'Trace the shapes.',
+      _TraceLevelKind.line => 'Trace the lines one by one',
+      _TraceLevelKind.curves => 'Trace the curves carefully',
+      _TraceLevelKind.shapes => 'Trace the shapes',
     };
   }
 

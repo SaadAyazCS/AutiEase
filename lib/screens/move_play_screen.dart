@@ -10,8 +10,8 @@ import 'learning_game_screen.dart';
 import 'tap_game_screen.dart';
 import 'trace_game_screen.dart';
 
-class LearningCategoryGamesScreen extends StatelessWidget {
-  const LearningCategoryGamesScreen({
+class MovePlayScreen extends StatelessWidget {
+  const MovePlayScreen({
     super.key,
     required this.childId,
     required this.category,
