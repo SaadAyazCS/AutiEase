@@ -90,59 +90,53 @@ class _ChildProfileHomeScreenState extends State<ChildProfileHomeScreen>
                 padding: const EdgeInsets.fromLTRB(8, 6, 8, 170),
                 children: [
                   const SizedBox(height: 18),
-                  Center(
-                    child: _ChildModuleCard(
-                      title: 'Communication',
-                      iconAssetPath: 'assets/images/Communication.png',
-                      color: const Color(0xFFD9BCC0),
-                      locked: !childHasCommunicationSupport(_child),
-                      lockedAreaLabel: 'Communication',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                CommunicationScreen(childId: _child!.id),
-                          ),
-                        );
-                      },
-                    ),
+                  _ChildModuleCard(
+                    title: 'Communication',
+                    iconAssetPath: 'assets/images/Communication.png',
+                    color: const Color(0xFFD7B6B8), // Matching Planner Red
+                    locked: !childHasCommunicationSupport(_child),
+                    lockedAreaLabel: 'Communication',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              CommunicationScreen(childId: _child!.id),
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 16),
-                  Center(
-                    child: _ChildModuleCard(
-                      title: 'Learn',
-                      iconAssetPath: 'assets/images/Learn.png',
-                      color: const Color(0xFF86D44A),
-                      locked: !childHasLearningPlaySupport(_child),
-                      lockedAreaLabel: 'Learning & Play',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                LearningModulesScreen(childId: _child!.id),
-                          ),
-                        );
-                      },
-                    ),
+                  _ChildModuleCard(
+                    title: 'Learn',
+                    iconAssetPath: 'assets/images/Learn.png',
+                    color: const Color(0xFF86D34A), // Matching Planner Green
+                    locked: !childHasLearningPlaySupport(_child),
+                    lockedAreaLabel: 'Learning & Play',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              LearningModulesScreen(childId: _child!.id),
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 16),
-                  Center(
-                    child: _ChildModuleCard(
-                      title: 'Daily Activities',
-                      iconAssetPath: 'assets/images/Daily_Activities.png',
-                      color: const Color(0xFFB7AFD9),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                DailyActivitiesScreen(childId: _child!.id),
-                          ),
-                        );
-                      },
-                    ),
+                  _ChildModuleCard(
+                    title: 'Daily Activities',
+                    iconAssetPath: 'assets/images/Daily_Activities.png',
+                    color: const Color(0xFFBFB5DD), // Matching Planner Purple
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              DailyActivitiesScreen(childId: _child!.id),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -170,125 +164,83 @@ class _ChildModuleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cardWidth = constraints.maxWidth.clamp(240.0, 330.0).toDouble();
-        return Align(
-          alignment: Alignment.center,
-          child: SizedBox(
-            width: cardWidth,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () {
-                  if (locked) {
-                    showLockedParentSupportAreaDialog(
-                      context,
-                      areaLabel: lockedAreaLabel,
-                    );
-                  } else {
-                    onTap();
-                  }
-                },
-                borderRadius: BorderRadius.circular(14),
-                child: Ink(
-                  height: 124,
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
-                  child: Stack(
-                    clipBehavior: Clip.antiAlias,
-                    alignment: Alignment.center,
+    return Center(
+      child: Container(
+        width: 220,
+        height: 140,
+        margin: const EdgeInsets.only(bottom: 24),
+        child: Material(
+          color: color,
+          borderRadius: BorderRadius.circular(28),
+          child: InkWell(
+            onTap: () {
+              if (locked) {
+                showLockedParentSupportAreaDialog(
+                  context,
+                  areaLabel: lockedAreaLabel,
+                );
+              } else {
+                onTap();
+              }
+            },
+            borderRadius: BorderRadius.circular(28),
+            child: Stack(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            title,
-                            style: const TextStyle(
-                              fontSize: 21 / 1.2,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF1B2843),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Image.asset(
-                            iconAssetPath,
-                            width: 36,
-                            height: 36,
-                            fit: BoxFit.contain,
-                          ),
-                        ],
-                      ),
-                      if (locked)
-                        Positioned.fill(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(14),
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(
-                                      alpha: 0.1,
-                                    ),
-                                  ),
-                                  child: const SizedBox.expand(),
-                                ),
-                                Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.94,
-                                        ),
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color:
-                                                Colors.black.withValues(alpha: 0.12),
-                                            blurRadius: 10,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ],
-                                      ),
-                                      child: Icon(
-                                        Icons.lock_rounded,
-                                        size: 28,
-                                        color: Colors.grey.shade800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'Locked',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.black.withValues(
-                                          alpha: 0.55,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
+                      Text(
+                        title,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.black,
                         ),
+                      ),
+                      const SizedBox(height: 12),
+                      Center(
+                        child: Image.asset(
+                          iconAssetPath,
+                          width: 54,
+                          height: 54,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ),
+                if (locked)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.lock_rounded,
+                            size: 28,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

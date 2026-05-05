@@ -76,7 +76,7 @@ class LearningModulesScreen extends StatelessWidget {
             ];
 
             return ListView.builder(
-              padding: const EdgeInsets.fromLTRB(8, 6, 8, 170),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 170),
               itemCount: orderedKeys.length,
               itemBuilder: (context, index) {
                 final key = orderedKeys[index];
@@ -87,9 +87,25 @@ class LearningModulesScreen extends StatelessWidget {
                   fallbackTitle: categoryModules.first.learningCategoryTitle,
                 );
 
+                String assetPath = '';
+                Color cardColor = category.color;
+                
+                if (key == 'move_play') {
+                  assetPath = 'assets/images/Move&Play.png';
+                  cardColor = const Color(0xFFFFB6B6); // Soft Red
+                } else if (key == 'speak_learn') {
+                  assetPath = 'assets/images/Speak&learn.png';
+                  cardColor = const Color(0xFFC1FF9B); // Soft Green
+                } else if (key == 'focus_games') {
+                  assetPath = 'assets/images/focusgames.png';
+                  cardColor = const Color(0xFFC7F0E3); // Soft Teal
+                }
+
                 return _LearnCategoryCard(
                   category: category,
                   selectionCount: categoryModules.length,
+                  assetPath: assetPath,
+                  cardColor: cardColor,
                   onTap: () {
                     final modules = List<LearningModuleModel>.from(
                       categoryModules,
@@ -132,27 +148,32 @@ class _LearnCategoryCard extends StatelessWidget {
     required this.category,
     required this.selectionCount,
     required this.onTap,
+    required this.assetPath,
+    required this.cardColor,
   });
 
   final LearningCategoryDefinition category;
   final int selectionCount;
   final VoidCallback onTap;
+  final String assetPath;
+  final Color cardColor;
 
   @override
   Widget build(BuildContext context) {
+    final selectionText = category.key == 'speak_learn'
+        ? '$selectionCount level${selectionCount == 1 ? '' : 's'} selected'
+        : '$selectionCount game${selectionCount == 1 ? '' : 's'} selected';
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
+      margin: const EdgeInsets.only(bottom: 20),
       child: Material(
-        color: Colors.transparent,
+        color: cardColor,
+        borderRadius: BorderRadius.circular(28),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(22),
-          child: Ink(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: category.color,
-              borderRadius: BorderRadius.circular(22),
-            ),
+          borderRadius: BorderRadius.circular(28),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
             child: Row(
               children: [
                 Expanded(
@@ -162,25 +183,36 @@ class _LearnCategoryCard extends StatelessWidget {
                       Text(
                         category.title,
                         style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF1A2D4B),
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.black,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 2),
                       Text(
-                        category.key == 'speak_learn'
-                            ? '$selectionCount level${selectionCount == 1 ? '' : 's'} selected'
-                            : '$selectionCount game${selectionCount == 1 ? '' : 's'} selected',
-                        style: const TextStyle(
-                          color: Color(0xFF2C405B),
-                          fontWeight: FontWeight.w500,
+                        selectionText,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black.withValues(alpha: 0.6),
                         ),
                       ),
                     ],
                   ),
                 ),
-                Icon(category.icon, size: 36, color: const Color(0xFF2A4A7A)),
+                if (assetPath.isNotEmpty)
+                  Image.asset(
+                    assetPath,
+                    width: 80,
+                    height: 80,
+                    fit: BoxFit.contain,
+                  )
+                else
+                  Icon(
+                    category.icon,
+                    size: 48,
+                    color: Colors.black.withValues(alpha: 0.7),
+                  ),
               ],
             ),
           ),
