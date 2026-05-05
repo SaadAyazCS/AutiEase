@@ -83,48 +83,54 @@ class _DragGameScreenState extends State<DragGameScreen> {
       ],
     ),
     _DragLevel(
-      prompt: 'Apple',
-      answerKey: 'apple',
+      prompt: 'Sun',
+      answerKey: 'sun',
       target: _DragPiece(
-        key: 'apple',
-        kind: _DragPieceKind.fruitFilled,
-        fruit: _FruitKind.apple,
+        key: 'sun',
+        kind: _DragPieceKind.icon,
+        icon: Icons.wb_sunny_rounded,
+        color: Color(0xFFFFB300),
         left: 144,
         top: 18,
       ),
       options: <_DragPiece>[
         _DragPiece(
-          key: 'banana',
-          kind: _DragPieceKind.fruitOutline,
-          fruit: _FruitKind.banana,
+          key: 'cloud',
+          kind: _DragPieceKind.icon,
+          icon: Icons.cloud_outlined,
+          color: Colors.black,
           left: 40,
           top: 150,
         ),
         _DragPiece(
-          key: 'orange',
-          kind: _DragPieceKind.fruitOutline,
-          fruit: _FruitKind.orange,
+          key: 'moon',
+          kind: _DragPieceKind.icon,
+          icon: Icons.nightlight_outlined,
+          color: Colors.black,
           left: 196,
           top: 150,
         ),
         _DragPiece(
-          key: 'grapes',
-          kind: _DragPieceKind.fruitOutline,
-          fruit: _FruitKind.grapes,
+          key: 'rain',
+          kind: _DragPieceKind.icon,
+          icon: Icons.umbrella_outlined,
+          color: Colors.black,
           left: 118,
           top: 244,
         ),
         _DragPiece(
-          key: 'apple',
-          kind: _DragPieceKind.fruitOutline,
-          fruit: _FruitKind.apple,
+          key: 'sun',
+          kind: _DragPieceKind.icon,
+          icon: Icons.wb_sunny_outlined,
+          color: Colors.black,
           left: 52,
           top: 318,
         ),
         _DragPiece(
-          key: 'mango',
-          kind: _DragPieceKind.fruitOutline,
-          fruit: _FruitKind.mango,
+          key: 'flower',
+          kind: _DragPieceKind.icon,
+          icon: Icons.local_florist_outlined,
+          color: Colors.black,
           left: 210,
           top: 318,
         ),
@@ -526,22 +532,6 @@ class _DragPieceView extends StatelessWidget {
           fillColor: Colors.white,
           strokeWidth: 2.3,
         );
-      case _DragPieceKind.fruitOutline:
-        return SizedBox(
-          width: 96,
-          height: 96,
-          child: CustomPaint(
-            painter: _FruitPainter(kind: piece.fruit!, filled: false),
-          ),
-        );
-      case _DragPieceKind.fruitFilled:
-        return SizedBox(
-          width: 96,
-          height: 96,
-          child: CustomPaint(
-            painter: _FruitPainter(kind: piece.fruit!, filled: true),
-          ),
-        );
     }
   }
 }
@@ -589,9 +579,7 @@ class _OutlinedText extends StatelessWidget {
   }
 }
 
-enum _DragPieceKind { icon, number, numberOutline, fruitOutline, fruitFilled }
-
-enum _FruitKind { apple, banana, orange, grapes, mango }
+enum _DragPieceKind { icon, number, numberOutline }
 
 class _DragLevel {
   const _DragLevel({
@@ -615,7 +603,6 @@ class _DragPiece {
     required this.top,
     this.icon,
     this.numberText,
-    this.fruit,
     this.color = Colors.black,
   });
 
@@ -625,7 +612,6 @@ class _DragPiece {
   final double top;
   final IconData? icon;
   final String? numberText;
-  final _FruitKind? fruit;
   final Color color;
 
   _DragPiece copyWith({
@@ -639,189 +625,8 @@ class _DragPiece {
       top: top ?? this.top,
       icon: icon,
       numberText: numberText,
-      fruit: fruit,
       color: color,
     );
   }
 }
 
-class _FruitPainter extends CustomPainter {
-  const _FruitPainter({required this.kind, required this.filled});
-
-  final _FruitKind kind;
-  final bool filled;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final stroke = Paint()
-      ..color = const Color(0xFF121212)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.4
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final fill = Paint()
-      ..style = PaintingStyle.fill
-      ..color = switch (kind) {
-        _FruitKind.apple => const Color(0xFFE84B4B),
-        _FruitKind.banana => const Color(0xFFFFD447),
-        _FruitKind.orange => const Color(0xFFFF8C00),
-        _FruitKind.grapes => const Color(0xFF7E57C2),
-        _FruitKind.mango => const Color(0xFFFFA500),
-      };
-
-    void drawPath(Path p) {
-      if (filled) canvas.drawPath(p, fill);
-      canvas.drawPath(p, stroke);
-    }
-
-    switch (kind) {
-      case _FruitKind.apple:
-        final p = Path()
-          ..moveTo(size.width * 0.50, size.height * 0.20)
-          ..cubicTo(
-            size.width * 0.30,
-            size.height * 0.20,
-            size.width * 0.25,
-            size.height * 0.40,
-            size.width * 0.30,
-            size.height * 0.55,
-          )
-          ..cubicTo(
-            size.width * 0.35,
-            size.height * 0.75,
-            size.width * 0.65,
-            size.height * 0.75,
-            size.width * 0.70,
-            size.height * 0.55,
-          )
-          ..cubicTo(
-            size.width * 0.75,
-            size.height * 0.40,
-            size.width * 0.70,
-            size.height * 0.20,
-            size.width * 0.50,
-            size.height * 0.20,
-          );
-        drawPath(p);
-        canvas.drawLine(
-          Offset(size.width * 0.50, size.height * 0.20),
-          Offset(size.width * 0.50, size.height * 0.10),
-          stroke,
-        );
-        final leaf = Path()
-          ..moveTo(size.width * 0.50, size.height * 0.20)
-          ..cubicTo(
-            size.width * 0.50,
-            size.height * 0.10,
-            size.width * 0.60,
-            size.height * 0.10,
-            size.width * 0.60,
-            size.height * 0.20,
-          );
-        canvas.drawPath(leaf, stroke);
-        break;
-      case _FruitKind.banana:
-        final p = Path()
-          ..moveTo(size.width * 0.20, size.height * 0.60)
-          ..cubicTo(
-            size.width * 0.40,
-            size.height * 0.10,
-            size.width * 0.80,
-            size.height * 0.10,
-            size.width * 0.85,
-            size.height * 0.40,
-          )
-          ..cubicTo(
-            size.width * 0.70,
-            size.height * 0.70,
-            size.width * 0.40,
-            size.height * 0.80,
-            size.width * 0.20,
-            size.height * 0.60,
-          )
-          ..close();
-        drawPath(p);
-        break;
-      case _FruitKind.orange:
-        final p = Path()
-          ..moveTo(size.width * 0.50, size.height * 0.20)
-          ..cubicTo(
-            size.width * 0.20,
-            size.height * 0.20,
-            size.width * 0.20,
-            size.height * 0.80,
-            size.width * 0.50,
-            size.height * 0.80,
-          )
-          ..cubicTo(
-            size.width * 0.80,
-            size.height * 0.80,
-            size.width * 0.80,
-            size.height * 0.20,
-            size.width * 0.50,
-            size.height * 0.20,
-          )
-          ..close();
-        drawPath(p);
-        break;
-      case _FruitKind.grapes:
-        for (final c in <Offset>[
-          Offset(size.width * 0.40, size.height * 0.30),
-          Offset(size.width * 0.60, size.height * 0.30),
-          Offset(size.width * 0.50, size.height * 0.50),
-        ]) {
-          final r = size.width * 0.10;
-          final o = Path()
-            ..moveTo(c.dx - r, c.dy)
-            ..cubicTo(
-              c.dx - r, c.dy - r,
-              c.dx + r, c.dy - r,
-              c.dx + r, c.dy,
-            )
-            ..cubicTo(
-              c.dx + r, c.dy + r,
-              c.dx - r, c.dy + r,
-              c.dx - r, c.dy,
-            )
-            ..close();
-          drawPath(o);
-        }
-        break;
-      case _FruitKind.mango:
-        final p = Path()
-          ..moveTo(size.width * 0.50, size.height * 0.20)
-          ..cubicTo(
-            size.width * 0.30,
-            size.height * 0.25,
-            size.width * 0.25,
-            size.height * 0.50,
-            size.width * 0.35,
-            size.height * 0.70,
-          )
-          ..cubicTo(
-            size.width * 0.45,
-            size.height * 0.85,
-            size.width * 0.70,
-            size.height * 0.75,
-            size.width * 0.75,
-            size.height * 0.50,
-          )
-          ..cubicTo(
-            size.width * 0.80,
-            size.height * 0.25,
-            size.width * 0.60,
-            size.height * 0.15,
-            size.width * 0.50,
-            size.height * 0.20,
-          )
-          ..close();
-        drawPath(p);
-        break;
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _FruitPainter oldDelegate) =>
-      oldDelegate.kind != kind || oldDelegate.filled != filled;
-}

@@ -85,8 +85,8 @@ class _TraceGameScreenState extends State<TraceGameScreen>
 
   String _instructionText() {
     return switch (_currentLevel.kind) {
-      _TraceLevelKind.line => 'Trace the lines one by one',
-      _TraceLevelKind.curves => 'Trace the curves carefully',
+      _TraceLevelKind.line => 'Trace the lines',
+      _TraceLevelKind.curves => 'Trace the curves',
       _TraceLevelKind.shapes => 'Trace the shapes',
     };
   }
@@ -450,16 +450,18 @@ class _TraceGuidePainter extends CustomPainter {
           black,
         );
 
-        final loopPath = Path()
+        final zigZagPath = Path()
           ..moveTo(222, 202)
-          ..cubicTo(266, 198, 292, 214, 292, 236)
-          ..cubicTo(292, 256, 260, 266, 248, 284)
-          ..cubicTo(240, 296, 244, 310, 256, 316);
-        _drawDashedPath(canvas, loopPath, completedElements.contains(2) ? done : dash);
+          ..lineTo(262, 242)
+          ..lineTo(222, 282)
+          ..lineTo(262, 322)
+          ..lineTo(222, 362)
+          ..lineTo(262, 402);
+        _drawDashedPath(canvas, zigZagPath, completedElements.contains(2) ? done : dash);
         _drawArrow(
           canvas,
-          const Offset(292, 236),
-          const Offset(310, 232),
+          const Offset(262, 402),
+          const Offset(280, 402),
           black,
         );
         break;
@@ -576,7 +578,7 @@ class _TraceGuidePainter extends CustomPainter {
       case _TraceLevelKind.curves:
         if (completedElements.contains(0)) tickAt(const Offset(142, 138));
         if (completedElements.contains(1)) tickAt(const Offset(154, 312));
-        if (completedElements.contains(2)) tickAt(const Offset(292, 236));
+        if (completedElements.contains(2)) tickAt(const Offset(262, 402));
       case _TraceLevelKind.shapes:
         if (completedElements.contains(0)) tickAt(const Offset(180, 160));
         if (completedElements.contains(1)) tickAt(const Offset(240, 340));
@@ -729,12 +731,14 @@ List<_TraceElement> _elementsForLevel(_TraceLevelKind kind, {required int seed})
           minLengthRatio: 0.68,
         ),
         _TraceElement(
-          hitTestRect: const Rect.fromLTWH(220, 200, 100, 120).shift(o2),
+          hitTestRect: const Rect.fromLTWH(210, 200, 70, 210).shift(o2),
           expectedPolyline: [
             Offset(222, 202),
-            Offset(292, 236),
-            Offset(248, 284),
-            Offset(256, 316),
+            Offset(262, 242),
+            Offset(222, 282),
+            Offset(262, 322),
+            Offset(222, 362),
+            Offset(262, 402),
           ].map((p) => p + o2).toList(growable: false),
           tolerancePx: 22,
           minCoverage: 0.68,
