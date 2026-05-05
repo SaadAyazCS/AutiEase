@@ -315,7 +315,6 @@ class _TapGameScreenState extends State<TapGameScreen> {
           starsEarned: _starsEarned,
           starsTotal: _levels.length,
           badgeLabel: 'Bronze Badge',
-          trophyLabel: 'Bronze Trophy',
           trophyColor: const Color(0xFFCD7F32),
           replayLabel: 'Replay Tap Game',
           onReplay: _replayAll,

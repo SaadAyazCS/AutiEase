@@ -101,9 +101,9 @@ class _DragGameScreenState extends State<DragGameScreen> {
           top: 150,
         ),
         _DragPiece(
-          key: 'watermelon',
+          key: 'orange',
           kind: _DragPieceKind.fruitOutline,
-          fruit: _FruitKind.watermelon,
+          fruit: _FruitKind.orange,
           left: 196,
           top: 150,
         ),
@@ -122,9 +122,9 @@ class _DragGameScreenState extends State<DragGameScreen> {
           top: 318,
         ),
         _DragPiece(
-          key: 'lemon',
+          key: 'mango',
           kind: _DragPieceKind.fruitOutline,
-          fruit: _FruitKind.lemon,
+          fruit: _FruitKind.mango,
           left: 210,
           top: 318,
         ),
@@ -328,7 +328,6 @@ class _DragGameScreenState extends State<DragGameScreen> {
           starsEarned: _starsEarned,
           starsTotal: _levels.length,
           badgeLabel: 'Silver Badge',
-          trophyLabel: 'Silver Trophy',
           trophyColor: const Color(0xFFC0C0C0),
           replayLabel: 'Replay Drag Game',
           onReplay: _replayAll,
@@ -592,7 +591,7 @@ class _OutlinedText extends StatelessWidget {
 
 enum _DragPieceKind { icon, number, numberOutline, fruitOutline, fruitFilled }
 
-enum _FruitKind { apple, banana, grapes, watermelon, lemon }
+enum _FruitKind { apple, banana, orange, grapes, mango }
 
 class _DragLevel {
   const _DragLevel({
@@ -666,9 +665,9 @@ class _FruitPainter extends CustomPainter {
       ..color = switch (kind) {
         _FruitKind.apple => const Color(0xFFE84B4B),
         _FruitKind.banana => const Color(0xFFFFD447),
+        _FruitKind.orange => const Color(0xFFFF8C00),
         _FruitKind.grapes => const Color(0xFF7E57C2),
-        _FruitKind.watermelon => const Color(0xFFFF6B6B),
-        _FruitKind.lemon => const Color(0xFFFFE082),
+        _FruitKind.mango => const Color(0xFFFFA500),
       };
 
     void drawPath(Path p) {
@@ -679,145 +678,144 @@ class _FruitPainter extends CustomPainter {
     switch (kind) {
       case _FruitKind.apple:
         final p = Path()
-          ..moveTo(size.width * 0.52, size.height * 0.22)
+          ..moveTo(size.width * 0.50, size.height * 0.20)
           ..cubicTo(
-            size.width * 0.26,
-            size.height * 0.12,
-            size.width * 0.14,
-            size.height * 0.50,
-            size.width * 0.50,
-            size.height * 0.84,
+            size.width * 0.30,
+            size.height * 0.20,
+            size.width * 0.25,
+            size.height * 0.40,
+            size.width * 0.30,
+            size.height * 0.55,
           )
           ..cubicTo(
-            size.width * 0.86,
-            size.height * 0.50,
-            size.width * 0.74,
-            size.height * 0.12,
-            size.width * 0.52,
-            size.height * 0.22,
+            size.width * 0.35,
+            size.height * 0.75,
+            size.width * 0.65,
+            size.height * 0.75,
+            size.width * 0.70,
+            size.height * 0.55,
+          )
+          ..cubicTo(
+            size.width * 0.75,
+            size.height * 0.40,
+            size.width * 0.70,
+            size.height * 0.20,
+            size.width * 0.50,
+            size.height * 0.20,
           );
         drawPath(p);
         canvas.drawLine(
-          Offset(size.width * 0.52, size.height * 0.20),
-          Offset(size.width * 0.60, size.height * 0.08),
+          Offset(size.width * 0.50, size.height * 0.20),
+          Offset(size.width * 0.50, size.height * 0.10),
           stroke,
         );
         final leaf = Path()
-          ..moveTo(size.width * 0.62, size.height * 0.12)
-          ..quadraticBezierTo(
-            size.width * 0.78,
-            size.height * 0.06,
-            size.width * 0.72,
-            size.height * 0.22,
+          ..moveTo(size.width * 0.50, size.height * 0.20)
+          ..cubicTo(
+            size.width * 0.50,
+            size.height * 0.10,
+            size.width * 0.60,
+            size.height * 0.10,
+            size.width * 0.60,
+            size.height * 0.20,
           );
         canvas.drawPath(leaf, stroke);
         break;
       case _FruitKind.banana:
         final p = Path()
-          ..moveTo(size.width * 0.22, size.height * 0.66)
-          ..quadraticBezierTo(
-            size.width * 0.48,
-            size.height * 0.14,
-            size.width * 0.84,
-            size.height * 0.44,
+          ..moveTo(size.width * 0.20, size.height * 0.60)
+          ..cubicTo(
+            size.width * 0.40,
+            size.height * 0.10,
+            size.width * 0.80,
+            size.height * 0.10,
+            size.width * 0.85,
+            size.height * 0.40,
           )
-          ..quadraticBezierTo(
-            size.width * 0.58,
-            size.height * 0.82,
-            size.width * 0.22,
-            size.height * 0.66,
-          );
+          ..cubicTo(
+            size.width * 0.70,
+            size.height * 0.70,
+            size.width * 0.40,
+            size.height * 0.80,
+            size.width * 0.20,
+            size.height * 0.60,
+          )
+          ..close();
         drawPath(p);
-        final inner = Path()
-          ..moveTo(size.width * 0.30, size.height * 0.64)
-          ..quadraticBezierTo(
-            size.width * 0.52,
-            size.height * 0.22,
-            size.width * 0.78,
-            size.height * 0.46,
-          );
-        canvas.drawPath(inner, stroke);
+        break;
+      case _FruitKind.orange:
+        final p = Path()
+          ..moveTo(size.width * 0.50, size.height * 0.20)
+          ..cubicTo(
+            size.width * 0.20,
+            size.height * 0.20,
+            size.width * 0.20,
+            size.height * 0.80,
+            size.width * 0.50,
+            size.height * 0.80,
+          )
+          ..cubicTo(
+            size.width * 0.80,
+            size.height * 0.80,
+            size.width * 0.80,
+            size.height * 0.20,
+            size.width * 0.50,
+            size.height * 0.20,
+          )
+          ..close();
+        drawPath(p);
         break;
       case _FruitKind.grapes:
         for (final c in <Offset>[
-          Offset(size.width * 0.32, size.height * 0.34),
-          Offset(size.width * 0.50, size.height * 0.30),
-          Offset(size.width * 0.68, size.height * 0.34),
-          Offset(size.width * 0.26, size.height * 0.52),
-          Offset(size.width * 0.44, size.height * 0.50),
-          Offset(size.width * 0.62, size.height * 0.52),
-          Offset(size.width * 0.38, size.height * 0.68),
-          Offset(size.width * 0.56, size.height * 0.68),
-          Offset(size.width * 0.48, size.height * 0.82),
+          Offset(size.width * 0.40, size.height * 0.30),
+          Offset(size.width * 0.60, size.height * 0.30),
+          Offset(size.width * 0.50, size.height * 0.50),
         ]) {
-          final r = size.width * 0.12;
-          final o = Path()..addOval(Rect.fromCircle(center: c, radius: r));
+          final r = size.width * 0.10;
+          final o = Path()
+            ..moveTo(c.dx - r, c.dy)
+            ..cubicTo(
+              c.dx - r, c.dy - r,
+              c.dx + r, c.dy - r,
+              c.dx + r, c.dy,
+            )
+            ..cubicTo(
+              c.dx + r, c.dy + r,
+              c.dx - r, c.dy + r,
+              c.dx - r, c.dy,
+            )
+            ..close();
           drawPath(o);
         }
-        canvas.drawLine(
-          Offset(size.width * 0.50, size.height * 0.12),
-          Offset(size.width * 0.44, size.height * 0.24),
-          stroke,
-        );
-        final leaf = Path()
-          ..moveTo(size.width * 0.54, size.height * 0.14)
-          ..quadraticBezierTo(
-            size.width * 0.74,
-            size.height * 0.10,
-            size.width * 0.66,
-            size.height * 0.26,
-          )
-          ..quadraticBezierTo(
-            size.width * 0.56,
-            size.height * 0.22,
-            size.width * 0.54,
-            size.height * 0.14,
-          );
-        canvas.drawPath(leaf, stroke);
         break;
-      case _FruitKind.watermelon:
-        final rect = Rect.fromLTWH(
-          size.width * 0.10,
-          size.height * 0.26,
-          size.width * 0.82,
-          size.height * 0.58,
-        );
-        final rind = Path()..addArc(rect, 0.25, 2.60);
-        if (filled) {
-          final fillPaint = Paint()
-            ..color = const Color(0xFFFF6B6B)
-            ..style = PaintingStyle.fill;
-          canvas.drawPath(rind, fillPaint);
-        }
-        canvas.drawPath(rind, stroke);
-        canvas.drawLine(
-          Offset(size.width * 0.18, size.height * 0.68),
-          Offset(size.width * 0.84, size.height * 0.54),
-          stroke,
-        );
-        for (final seed in <Offset>[
-          Offset(size.width * 0.44, size.height * 0.56),
-          Offset(size.width * 0.58, size.height * 0.52),
-          Offset(size.width * 0.70, size.height * 0.50),
-        ]) {
-          canvas.drawCircle(seed, 2.8, stroke);
-        }
-        break;
-      case _FruitKind.lemon:
+      case _FruitKind.mango:
         final p = Path()
-          ..moveTo(size.width * 0.18, size.height * 0.54)
-          ..quadraticBezierTo(
-            size.width * 0.50,
-            size.height * 0.18,
-            size.width * 0.82,
-            size.height * 0.54,
+          ..moveTo(size.width * 0.50, size.height * 0.20)
+          ..cubicTo(
+            size.width * 0.30,
+            size.height * 0.25,
+            size.width * 0.25,
+            size.height * 0.50,
+            size.width * 0.35,
+            size.height * 0.70,
           )
-          ..quadraticBezierTo(
+          ..cubicTo(
+            size.width * 0.45,
+            size.height * 0.85,
+            size.width * 0.70,
+            size.height * 0.75,
+            size.width * 0.75,
+            size.height * 0.50,
+          )
+          ..cubicTo(
+            size.width * 0.80,
+            size.height * 0.25,
+            size.width * 0.60,
+            size.height * 0.15,
             size.width * 0.50,
-            size.height * 0.86,
-            size.width * 0.18,
-            size.height * 0.54,
-          );
+            size.height * 0.20,
+          )
+          ..close();
         drawPath(p);
         break;
     }

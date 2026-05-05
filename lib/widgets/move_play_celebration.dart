@@ -11,7 +11,6 @@ class MovePlayCelebration extends StatefulWidget {
     required this.starsEarned,
     required this.starsTotal,
     required this.badgeLabel,
-    required this.trophyLabel,
     required this.trophyColor,
     required this.onReplay,
     required this.onBack,
@@ -24,7 +23,6 @@ class MovePlayCelebration extends StatefulWidget {
   final int starsEarned;
   final int starsTotal;
   final String badgeLabel;
-  final String trophyLabel;
   final Color trophyColor;
   final VoidCallback onReplay;
   final VoidCallback onBack;
@@ -141,16 +139,7 @@ class _MovePlayCelebrationState extends State<MovePlayCelebration>
                                 color: widget.trophyColor,
                               ),
                             ),
-                            const SizedBox(height: 10),
-                            Text(
-                              widget.trophyLabel,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w900,
-                                color: Color(0xFF12213D),
-                              ),
-                            ),
-                            const SizedBox(height: 14),
+                            const SizedBox(height: 24),
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 18,

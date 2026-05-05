@@ -249,7 +249,6 @@ class _TraceGameScreenState extends State<TraceGameScreen>
           starsEarned: _starsEarned,
           starsTotal: _levels.length,
           badgeLabel: 'Gold Badge',
-          trophyLabel: 'Gold Trophy',
           trophyColor: const Color(0xFFFFD700),
           replayLabel: 'Replay Trace Game',
           onReplay: _replayAll,
@@ -390,8 +389,6 @@ class _TraceGuidePainter extends CustomPainter {
 
     switch (kind) {
       case _TraceLevelKind.line:
-        // Reference (not traceable) at top.
-        canvas.drawLine(const Offset(110, 34), const Offset(210, 34), black);
         _drawLineElement(
           canvas,
           const Offset(40, 150),
@@ -425,11 +422,70 @@ class _TraceGuidePainter extends CustomPainter {
           done: done,
         );
       case _TraceLevelKind.curves:
-        _drawReferenceWave(canvas, black);
-        _drawElementsFromPolylines(canvas);
+        final midCurve = Path()
+          ..moveTo(42, 60)
+          ..cubicTo(30, 38, 52, 22, 70, 34)
+          ..cubicTo(92, 48, 102, 24, 120, 30)
+          ..cubicTo(144, 38, 118, 76, 98, 88)
+          ..cubicTo(82, 100, 74, 124, 82, 136)
+          ..cubicTo(92, 150, 124, 148, 142, 138);
+        _drawDashedPath(canvas, midCurve, completedElements.contains(0) ? done : dash);
+        _drawArrow(
+          canvas,
+          const Offset(142, 138),
+          const Offset(160, 132),
+          black,
+        );
+
+        final bottomPath = Path()
+          ..moveTo(42, 220)
+          ..lineTo(42, 302)
+          ..quadraticBezierTo(42, 312, 52, 312)
+          ..lineTo(154, 312);
+        _drawDashedPath(canvas, bottomPath, completedElements.contains(1) ? done : dash);
+        _drawArrow(
+          canvas,
+          const Offset(154, 312),
+          const Offset(170, 312),
+          black,
+        );
+
+        final loopPath = Path()
+          ..moveTo(222, 202)
+          ..cubicTo(266, 198, 292, 214, 292, 236)
+          ..cubicTo(292, 256, 260, 266, 248, 284)
+          ..cubicTo(240, 296, 244, 310, 256, 316);
+        _drawDashedPath(canvas, loopPath, completedElements.contains(2) ? done : dash);
+        _drawArrow(
+          canvas,
+          const Offset(292, 236),
+          const Offset(310, 232),
+          black,
+        );
         break;
       case _TraceLevelKind.shapes:
-        _drawElementsFromPolylines(canvas);
+        final square = Path()..addRect(const Rect.fromLTWH(20, 80, 160, 160));
+        _drawDashedPath(canvas, square, completedElements.contains(0) ? done : dash, dashLength: 16, gapLength: 8);
+
+        final triangle = Path()
+          ..moveTo(240, 260)
+          ..lineTo(180, 340)
+          ..lineTo(300, 340)
+          ..close();
+        _drawDashedPath(canvas, triangle, completedElements.contains(1) ? done : dash, dashLength: 16, gapLength: 8);
+
+        final dots = Paint()
+          ..style = PaintingStyle.fill
+          ..color = completedElements.contains(2) ? const Color(0xFF9AA4B2) : Colors.black;
+        final center = const Offset(82, 320);
+        for (var i = 0; i < 14; i++) {
+          final theta = (math.pi * 2 * i) / 14;
+          final point = Offset(
+            center.dx + math.cos(theta) * 46,
+            center.dy + math.sin(theta) * 46,
+          );
+          canvas.drawCircle(point, 6, dots);
+        }
         break;
     }
 
@@ -461,55 +517,38 @@ class _TraceGuidePainter extends CustomPainter {
     _drawCompletionTicks(canvas);
   }
 
-  void _drawReferenceWave(Canvas canvas, Paint paint) {
-    final topWave = Path()
-      ..moveTo(142, 44)
-      ..cubicTo(150, 10, 166, 80, 176, 44)
-      ..cubicTo(186, 10, 198, 74, 218, 44);
-    canvas.drawPath(topWave, paint);
+  void _drawArrow(Canvas canvas, Offset start, Offset end, Paint paint) {
+    canvas.drawLine(start, end, paint);
+    final angle = math.atan2(end.dy - start.dy, end.dx - start.dx);
+    const size = 7.0;
+    final p1 = Offset(
+      end.dx - math.cos(angle - math.pi / 6) * size,
+      end.dy - math.sin(angle - math.pi / 6) * size,
+    );
+    final p2 = Offset(
+      end.dx - math.cos(angle + math.pi / 6) * size,
+      end.dy - math.sin(angle + math.pi / 6) * size,
+    );
+    canvas.drawLine(end, p1, paint);
+    canvas.drawLine(end, p2, paint);
   }
 
-  void _drawElementsFromPolylines(Canvas canvas) {
-    final elements = _elementsForLevel(kind, seed: seed);
-
-    final p = Paint()
-      ..color = Colors.black
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.4
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final done = Paint()
-      ..color = const Color(0xFF9AA4B2)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.4
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    for (var i = 0; i < elements.length; i++) {
-      final poly = elements[i].expectedPolyline;
-      if (poly.length < 2) continue;
-      final path = Path()..moveTo(poly.first.dx, poly.first.dy);
-      for (final pt in poly.skip(1)) {
-        path.lineTo(pt.dx, pt.dy);
-      }
-      final isDone = completedElements.contains(i);
-      canvas.drawPath(isDone ? path : _dashed(path), isDone ? done : p);
-    }
-  }
-
-  Path _dashed(Path source) {
-    // Cheap dashed effect by sampling path metrics and drawing small segments.
-    final out = Path();
-    for (final m in source.computeMetrics()) {
-      var d = 0.0;
-      while (d < m.length) {
-        final next = math.min(d + 14, m.length);
-        out.addPath(m.extractPath(d, next), Offset.zero);
-        d += 24;
+  void _drawDashedPath(
+    Canvas canvas,
+    Path source,
+    Paint paint, {
+    double dashLength = 14,
+    double gapLength = 10,
+  }) {
+    for (final metric in source.computeMetrics()) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        final next = math.min(distance + dashLength, metric.length);
+        final extract = metric.extractPath(distance, next);
+        canvas.drawPath(extract, paint);
+        distance += dashLength + gapLength;
       }
     }
-    return out;
   }
 
   void _drawCompletionTicks(Canvas canvas) {
@@ -535,14 +574,13 @@ class _TraceGuidePainter extends CustomPainter {
         if (completedElements.contains(2)) tickAt(const Offset(300, 270));
         if (completedElements.contains(3)) tickAt(const Offset(300, 330));
       case _TraceLevelKind.curves:
-        if (completedElements.contains(0)) tickAt(const Offset(210, 170));
-        if (completedElements.contains(1)) tickAt(const Offset(178, 392));
-        if (completedElements.contains(2)) tickAt(const Offset(308, 336));
+        if (completedElements.contains(0)) tickAt(const Offset(142, 138));
+        if (completedElements.contains(1)) tickAt(const Offset(154, 312));
+        if (completedElements.contains(2)) tickAt(const Offset(292, 236));
       case _TraceLevelKind.shapes:
-        if (completedElements.contains(0)) tickAt(const Offset(198, 212));
-        if (completedElements.contains(1)) tickAt(const Offset(308, 192));
-        if (completedElements.contains(2)) tickAt(const Offset(300, 328));
-        if (completedElements.contains(3)) tickAt(const Offset(320, 308));
+        if (completedElements.contains(0)) tickAt(const Offset(180, 160));
+        if (completedElements.contains(1)) tickAt(const Offset(240, 340));
+        if (completedElements.contains(2)) tickAt(const Offset(82, 320));
     }
   }
 
@@ -658,121 +696,84 @@ List<_TraceElement> _elementsForLevel(_TraceLevelKind kind, {required int seed})
         ),
       ];
     case _TraceLevelKind.curves:
-      final o0 = j(8, 8);
-      final o1 = j(8, 8);
-      final o2 = j(8, 8);
+      final o0 = j(4, 4);
+      final o1 = j(4, 4);
+      final o2 = j(4, 4);
       return [
         _TraceElement(
-          hitTestRect: const Rect.fromLTWH(36, 120, 190, 190).shift(o0),
+          hitTestRect: const Rect.fromLTWH(40, 30, 200, 120).shift(o0),
           expectedPolyline: [
-            Offset(70, 210),
-            Offset(44, 178),
-            Offset(72, 140),
-            Offset(118, 160),
-            Offset(140, 170),
-            Offset(128, 206),
-            Offset(102, 216),
-            Offset(80, 226),
-            Offset(84, 252),
-            Offset(106, 258),
-            Offset(132, 266),
-            Offset(166, 246),
-            Offset(186, 198),
+            Offset(42, 60),
+            Offset(70, 34),
+            Offset(120, 30),
+            Offset(98, 88),
+            Offset(82, 136),
+            Offset(142, 138),
           ].map((p) => p + o0).toList(growable: false),
-          tolerancePx: 16,
+          tolerancePx: 20,
           minCoverage: 0.75,
           minCloseRatio: 0.70,
+          minLengthRatio: 0.70,
+        ),
+        _TraceElement(
+          hitTestRect: const Rect.fromLTWH(40, 220, 140, 100).shift(o1),
+          expectedPolyline: [
+            Offset(42, 220),
+            Offset(42, 302),
+            Offset(52, 312),
+            Offset(154, 312),
+          ].map((p) => p + o1).toList(growable: false),
+          tolerancePx: 20,
+          minCoverage: 0.73,
+          minCloseRatio: 0.68,
           minLengthRatio: 0.68,
         ),
         _TraceElement(
-          hitTestRect: const Rect.fromLTWH(30, 290, 200, 140).shift(o1),
+          hitTestRect: const Rect.fromLTWH(220, 200, 100, 120).shift(o2),
           expectedPolyline: [
-            Offset(42, 330),
-            Offset(70, 300),
-            Offset(108, 360),
-            Offset(136, 330),
-            Offset(162, 300),
-            Offset(198, 360),
-            Offset(226, 330),
-            Offset(250, 306),
-            Offset(278, 344),
-            Offset(300, 330),
-          ].map((p) => p + o1).toList(growable: false),
-          tolerancePx: 16,
-          minCoverage: 0.74,
-          minCloseRatio: 0.70,
-          minLengthRatio: 0.66,
-        ),
-        _TraceElement(
-          hitTestRect: const Rect.fromLTWH(206, 276, 124, 170).shift(o2),
-          expectedPolyline: [
-            Offset(240, 292) + o2,
-            Offset(240, 408) + o2,
-            Offset(312, 408) + o2,
-          ],
-          tolerancePx: 16,
-          minCoverage: 0.82,
-          minCloseRatio: 0.70,
-          minLengthRatio: 0.78,
+            Offset(222, 202),
+            Offset(292, 236),
+            Offset(248, 284),
+            Offset(256, 316),
+          ].map((p) => p + o2).toList(growable: false),
+          tolerancePx: 22,
+          minCoverage: 0.68,
+          minCloseRatio: 0.65,
+          minLengthRatio: 0.62,
         ),
       ];
     case _TraceLevelKind.shapes:
       final o0 = j(8, 8);
       final o1 = j(8, 8);
-      final o2 = j(8, 6);
-      final o3 = j(8, 8);
+      final o2 = j(8, 8);
       return [
         _TraceElement(
-          hitTestRect: const Rect.fromLTWH(30, 112, 180, 180).shift(o0),
-          expectedPolyline: [
-            Offset(116, 120),
-            Offset(70, 140),
-            Offset(56, 196),
-            Offset(76, 252),
-            Offset(132, 268),
-            Offset(176, 246),
-            Offset(186, 194),
-            Offset(164, 142),
-            Offset(116, 120),
-          ].map((p) => p + o0).toList(growable: false),
-          tolerancePx: 16,
-          minCoverage: 0.78,
-          minCloseRatio: 0.72,
-          minLengthRatio: 0.70,
-        ),
-        _TraceElement(
-          hitTestRect: const Rect.fromLTWH(218, 132, 110, 110).shift(o1),
-          expectedPolyline: List<Offset>.generate(40, (i) {
-            final t = (math.pi * 2 * i) / 40;
-            final c = const Offset(272, 186) + o1;
-            return Offset(c.dx + math.cos(t) * 36, c.dy + math.sin(t) * 36);
-          }),
-          tolerancePx: 16,
-          minCoverage: 0.74,
+          hitTestRect: const Rect.fromLTWH(20, 80, 160, 160).shift(o0),
+          expectedPolyline: [Offset(20, 80) + o0, Offset(180, 80) + o0, Offset(180, 240) + o0, Offset(20, 240) + o0, Offset(20, 80) + o0],
+          tolerancePx: 18,
+          minCoverage: 0.75,
           minCloseRatio: 0.70,
-          minLengthRatio: 0.66,
+          minLengthRatio: 0.68,
         ),
         _TraceElement(
-          hitTestRect: const Rect.fromLTWH(50, 296, 250, 70).shift(o2),
-          expectedPolyline: [Offset(70, 328) + o2, Offset(298, 328) + o2],
-          tolerancePx: 14,
-          minCoverage: 0.84,
-          minCloseRatio: 0.78,
-          minLengthRatio: 0.80,
+          hitTestRect: const Rect.fromLTWH(180, 260, 120, 80).shift(o1),
+          expectedPolyline: [Offset(240, 260) + o1, Offset(180, 340) + o1, Offset(300, 340) + o1, Offset(240, 260) + o1],
+          tolerancePx: 18,
+          minCoverage: 0.75,
+          minCloseRatio: 0.70,
+          minLengthRatio: 0.68,
         ),
         _TraceElement(
-          hitTestRect: const Rect.fromLTWH(200, 270, 130, 140).shift(o3),
-          expectedPolyline: [
-            Offset(220, 290) + o3,
-            Offset(320, 290) + o3,
-            Offset(320, 390) + o3,
-            Offset(220, 390) + o3,
-            Offset(220, 290) + o3,
-          ],
-          tolerancePx: 16,
-          minCoverage: 0.78,
-          minCloseRatio: 0.72,
-          minLengthRatio: 0.70,
+          hitTestRect: const Rect.fromLTWH(36, 274, 92, 92).shift(o2),
+          expectedPolyline: List<Offset>.generate(14, (i) {
+            final theta = (math.pi * 2 * i) / 14;
+            final center = const Offset(82, 320) + o2;
+            return Offset(center.dx + math.cos(theta) * 46, center.dy + math.sin(theta) * 46);
+          }),
+          tolerancePx: 18,
+          minCoverage: 0.70,
+          minCloseRatio: 0.65,
+          minLengthRatio: 0.62,
         ),
       ];
   }
