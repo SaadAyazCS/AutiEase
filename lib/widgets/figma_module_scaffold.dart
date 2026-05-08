@@ -21,8 +21,10 @@ class FigmaModuleScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = context.responsive;
-    final contentBottomInset = r.h(96);
-    final isKeyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
+    final media = MediaQuery.of(context);
+    final isKeyboardOpen = media.viewInsets.bottom > 0;
+    final contentBottomInset = isKeyboardOpen ? r.h(16) : r.h(112);
+    final headerHeight = isKeyboardOpen ? r.h(68) : r.h(112);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
@@ -30,6 +32,7 @@ class FigmaModuleScaffold extends StatelessWidget {
         statusBarBrightness: Brightness.light,
       ),
       child: Scaffold(
+        resizeToAvoidBottomInset: true,
         body: Stack(
           children: [
             const Positioned.fill(child: ColoredBox(color: Colors.white)),
@@ -41,10 +44,14 @@ class FigmaModuleScaffold extends StatelessWidget {
                   child: SafeArea(
                     bottom: false,
                     child: Container(
-                      height: r.h(112),
+                      height: headerHeight,
                       width: double.infinity,
-                      padding:
-                          EdgeInsets.fromLTRB(r.w(8), r.h(8), r.w(16), r.h(8)),
+                      padding: EdgeInsets.fromLTRB(
+                        r.w(8),
+                        r.h(8),
+                        r.w(16),
+                        r.h(8),
+                      ),
                       child: Row(
                         children: [
                           IconButton(
@@ -73,7 +80,9 @@ class FigmaModuleScaffold extends StatelessWidget {
                   ),
                 ),
                 Expanded(
-                  child: Padding(
+                  child: AnimatedPadding(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
                     padding: EdgeInsets.fromLTRB(
                       r.w(16),
                       r.h(12),
@@ -93,15 +102,15 @@ class FigmaModuleScaffold extends StatelessWidget {
                 ),
               ],
             ),
-          if (!isKeyboardOpen)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: const ModuleBottomWaveLayer(),
-            ),
-        ],
-      ),
+            if (!isKeyboardOpen)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: const ModuleBottomWaveLayer(),
+              ),
+          ],
+        ),
       ),
     );
   }

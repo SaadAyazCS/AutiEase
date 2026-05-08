@@ -534,6 +534,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
     return SessionGuard(
       role: SessionGuardRole.authenticated,
       child: Scaffold(
+        resizeToAvoidBottomInset: true,
         appBar: AppBar(
           title: Text(widget.participantName),
           backgroundColor: AppColors.primaryBlue,
@@ -552,234 +553,263 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
             final thread = threadSnapshot.data ?? widget.thread;
             _syncResolvedBanner(thread);
             final canSendMessage = _canSendMessage(thread);
-            return Column(
-              children: [
-                if (widget.readOnly)
-                  const _ChatStateBanner(
-                    text:
-                        'Read-only mode: this conversation remains visible, but new parent messages require an active subscription.',
-                    color: Color(0xFFF2E8C6),
-                  ),
-                if (thread.hasOpenEmergency)
-                  _ChatStateBanner(
-                    text: thread.emergencyRequestedBy == 'parent'
-                        ? 'Emergency requested by parent.'
-                        : 'Emergency requested by therapist.',
-                    color: const Color(0xFFFFD9D9),
-                  )
-                else if (_showResolvedBanner)
-                  const _ChatStateBanner(
-                    text: 'Emergency response has been recorded.',
-                    color: Color(0xFFD8F4DD),
-                  ),
-                Expanded(
-                  child: StreamBuilder<List<TherapistMessage>>(
-                    stream: AppRepositories.support.watchMessages(
-                      widget.thread.id,
-                    ),
-                    builder: (context, snapshot) {
-                      final messages = snapshot.data ?? const [];
-                      if (snapshot.connectionState == ConnectionState.waiting &&
-                          messages.isEmpty) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      if (messages.isEmpty) {
-                        return const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(24),
-                            child: Text(
-                              'No messages yet. Start the conversation to get professional support.',
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                        );
-                      }
-                      return ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: messages.length,
-                        itemBuilder: (context, index) {
-                          final message = messages[index];
-                          if (message.messageType == 'system') {
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: Center(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFE9EEF6),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    message.body,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Color(0xFF334A6E),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final composerMaxHeight = (constraints.maxHeight * 0.45)
+                    .clamp(120.0, 260.0)
+                    .toDouble();
+                return Column(
+                  children: [
+                    if (widget.readOnly)
+                      const _ChatStateBanner(
+                        text:
+                            'Read-only mode: this conversation remains visible, but new parent messages require an active subscription.',
+                        color: Color(0xFFF2E8C6),
+                      ),
+                    if (thread.hasOpenEmergency)
+                      _ChatStateBanner(
+                        text: thread.emergencyRequestedBy == 'parent'
+                            ? 'Emergency requested by parent.'
+                            : 'Emergency requested by therapist.',
+                        color: const Color(0xFFFFD9D9),
+                      )
+                    else if (_showResolvedBanner)
+                      const _ChatStateBanner(
+                        text: 'Emergency response has been recorded.',
+                        color: Color(0xFFD8F4DD),
+                      ),
+                    Expanded(
+                      child: StreamBuilder<List<TherapistMessage>>(
+                        stream: AppRepositories.support.watchMessages(
+                          widget.thread.id,
+                        ),
+                        builder: (context, snapshot) {
+                          final messages = snapshot.data ?? const [];
+                          if (snapshot.connectionState ==
+                                  ConnectionState.waiting &&
+                              messages.isEmpty) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          if (messages.isEmpty) {
+                            return const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(24),
+                                child: Text(
+                                  'No messages yet. Start the conversation to get professional support.',
+                                  textAlign: TextAlign.center,
                                 ),
                               ),
                             );
                           }
-                          final isMine =
-                              message.senderRole == widget.senderRole;
-                          return Align(
-                            alignment: isMine
-                                ? Alignment.centerRight
-                                : Alignment.centerLeft,
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(14),
-                              constraints: BoxConstraints(
-                                maxWidth:
-                                    MediaQuery.of(context).size.width * 0.75,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isMine
-                                    ? AppColors.primaryBlue
-                                    : const Color(0xFFF1F5F9),
-                                borderRadius: BorderRadius.circular(18),
-                              ),
-                              child: Text(
-                                message.body,
-                                style: TextStyle(
-                                  color: isMine ? Colors.white : Colors.black87,
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-                SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (widget.senderRole == 'parent' &&
-                            !thread.hasOpenEmergency &&
-                            canSendMessage)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: OutlinedButton.icon(
-                              onPressed: _requestEmergency,
-                              icon: const Icon(
-                                Icons.warning_amber_rounded,
-                                color: AppColors.errorRed,
-                              ),
-                              label: const Text('Request emergency support'),
-                            ),
-                          ),
-                        if (thread.hasOpenEmergency)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: ElevatedButton.icon(
-                              onPressed: _endEmergency,
-                              icon: const Icon(
-                                Icons.health_and_safety_outlined,
-                              ),
-                              label: const Text('End emergency'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                          ),
-                        if (!canSendMessage)
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF7F7F7),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Text(
-                              'Messaging is currently disabled for this conversation state.',
-                              style: TextStyle(color: Colors.black54),
-                            ),
-                          )
-                        else
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _controller,
-                                  decoration: InputDecoration(
-                                    hintText: 'Send a message',
-                                    filled: true,
-                                    fillColor: const Color(0xFFF1F5F9),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(18),
-                                      borderSide: BorderSide.none,
+                          return ListView.builder(
+                            keyboardDismissBehavior:
+                                ScrollViewKeyboardDismissBehavior.onDrag,
+                            padding: const EdgeInsets.all(16),
+                            itemCount: messages.length,
+                            itemBuilder: (context, index) {
+                              final message = messages[index];
+                              if (message.messageType == 'system') {
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: Center(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFE9EEF6),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        message.body,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Color(0xFF334A6E),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+                              final isMine =
+                                  message.senderRole == widget.senderRole;
+                              return Align(
+                                alignment: isMine
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.all(14),
+                                  constraints: BoxConstraints(
+                                    maxWidth:
+                                        MediaQuery.of(context).size.width *
+                                        0.75,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isMine
+                                        ? AppColors.primaryBlue
+                                        : const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(18),
+                                  ),
+                                  child: Text(
+                                    message.body,
+                                    style: TextStyle(
+                                      color: isMine
+                                          ? Colors.white
+                                          : Colors.black87,
                                     ),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 12),
-                              FloatingActionButton(
-                                onPressed:
-                                    _sendState == _MessageSendState.sending
-                                    ? null
-                                    : _sendMessage,
-                                backgroundColor: AppColors.primaryBlue,
-                                foregroundColor: Colors.white,
-                                child: _sendState == _MessageSendState.sending
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                    SafeArea(
+                      top: false,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: composerMaxHeight,
+                        ),
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (widget.senderRole == 'parent' &&
+                                  !thread.hasOpenEmergency &&
+                                  canSendMessage)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: OutlinedButton.icon(
+                                    onPressed: _requestEmergency,
+                                    icon: const Icon(
+                                      Icons.warning_amber_rounded,
+                                      color: AppColors.errorRed,
+                                    ),
+                                    label: const Text(
+                                      'Request emergency support',
+                                    ),
+                                  ),
+                                ),
+                              if (thread.hasOpenEmergency)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: ElevatedButton.icon(
+                                    onPressed: _endEmergency,
+                                    icon: const Icon(
+                                      Icons.health_and_safety_outlined,
+                                    ),
+                                    label: const Text('End emergency'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              if (!canSendMessage)
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF7F7F7),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Text(
+                                    'Messaging is currently disabled for this conversation state.',
+                                    style: TextStyle(color: Colors.black54),
+                                  ),
+                                )
+                              else
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _controller,
+                                        minLines: 1,
+                                        maxLines: 4,
+                                        decoration: InputDecoration(
+                                          hintText: 'Send a message',
+                                          filled: true,
+                                          fillColor: const Color(0xFFF1F5F9),
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              18,
+                                            ),
+                                            borderSide: BorderSide.none,
+                                          ),
                                         ),
-                                      )
-                                    : const Icon(Icons.send),
-                              ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    FloatingActionButton(
+                                      onPressed:
+                                          _sendState ==
+                                              _MessageSendState.sending
+                                          ? null
+                                          : _sendMessage,
+                                      backgroundColor: AppColors.primaryBlue,
+                                      foregroundColor: Colors.white,
+                                      child:
+                                          _sendState ==
+                                              _MessageSendState.sending
+                                          ? const SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : const Icon(Icons.send),
+                                    ),
+                                  ],
+                                ),
+                              if (_sendState == _MessageSendState.sending)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    'Sending message...',
+                                    style: TextStyle(
+                                      color: AppColors.primaryBlue,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              if (_sendState == _MessageSendState.sent)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    'Message sent',
+                                    style: TextStyle(
+                                      color: Colors.green,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              if (_sendState == _MessageSendState.error)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    _sendError ?? 'Message failed',
+                                    style: const TextStyle(
+                                      color: AppColors.errorRed,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
-                        if (_sendState == _MessageSendState.sending)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 8),
-                            child: Text(
-                              'Sending message...',
-                              style: TextStyle(
-                                color: AppColors.primaryBlue,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        if (_sendState == _MessageSendState.sent)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 8),
-                            child: Text(
-                              'Message sent',
-                              style: TextStyle(
-                                color: Colors.green,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        if (_sendState == _MessageSendState.error)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              _sendError ?? 'Message failed',
-                              style: const TextStyle(
-                                color: AppColors.errorRed,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                      ],
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ],
+                  ],
+                );
+              },
             );
           },
         ),
