@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
+import '../services/learning_metrics_service.dart';
+import '../services/play_preferences_service.dart';
 import '../services/tts_service.dart';
 import '../services/trace_path_validator.dart';
 import '../widgets/figma_module_scaffold.dart';
@@ -47,6 +50,13 @@ class _TraceGameScreenState extends State<TraceGameScreen>
   bool _savedCompletion = false;
   int _starsEarned = 0;
   int _shuffleSeed = 0;
+  int _wrongAttemptsThisLevel = 0;
+  double? _lastTraceAccuracy;
+  PlayPreferences _playPreferences = PlayPreferences.defaults;
+  final PlayPreferencesService _playPreferencesService =
+      const PlayPreferencesService();
+  final LearningMetricsService _metricsService = const LearningMetricsService();
+  final GameplayMetricsTracker _metricsTracker = GameplayMetricsTracker();
 
   final TtsService _tts = TtsService();
   bool _showFeedback = false;
@@ -57,7 +67,9 @@ class _TraceGameScreenState extends State<TraceGameScreen>
   _TraceLevel get _currentLevel => _levels[_levelIndex];
 
   String get _title {
-    return _stage == _TraceGameStage.playing ? _instructionText() : 'Great Job!';
+    return _stage == _TraceGameStage.playing
+        ? _instructionText()
+        : 'Great Job!';
   }
 
   @override
@@ -72,7 +84,12 @@ class _TraceGameScreenState extends State<TraceGameScreen>
 
   Future<void> _initTtsAndSpeak() async {
     await _tts.init();
+    final playPreferences = await _playPreferencesService.getCurrent();
     if (!mounted) return;
+    setState(() => _playPreferences = playPreferences);
+    if (playPreferences.lowStimulationMode) {
+      _sparkleCtrl.stop();
+    }
     _speakInstruction();
   }
 
@@ -155,12 +172,15 @@ class _TraceGameScreenState extends State<TraceGameScreen>
     final result = TracePathValidator.validateFollowPath(
       List<Offset>.from(_tracePoints),
       expectedPolyline: element.expectedPolyline,
-      tolerancePx: element.tolerancePx,
-      minCoverage: element.minCoverage,
-      minCloseRatio: element.minCloseRatio,
-      minLengthRatio: element.minLengthRatio,
+      tolerancePx: _adaptiveTolerance(element.tolerancePx),
+      minCoverage: _adaptiveMinCoverage(element.minCoverage),
+      minCloseRatio: _adaptiveMinCloseRatio(element.minCloseRatio),
+      minLengthRatio: _adaptiveMinLengthRatio(element.minLengthRatio),
     );
+    _lastTraceAccuracy = result.insideRatio;
+    _metricsTracker.markAttempt(wrong: !result.isValid);
     if (result.isValid) {
+      unawaited(_recordTraceMetric(outcome: 'trace_completed'));
       setState(() {
         _completedElements.add(active);
         _tracePoints.clear();
@@ -171,12 +191,71 @@ class _TraceGameScreenState extends State<TraceGameScreen>
       }
       return;
     }
+    _wrongAttemptsThisLevel += 1;
+    unawaited(_recordTraceMetric(outcome: 'trace_missed'));
     setState(() {
       _tracePoints.clear();
       _activeElementIndex = null;
     });
     _pendingAdvance = false;
     _showOverlay(MovePlayFeedbackKind.mistake);
+  }
+
+  double _adaptiveTolerance(double base) {
+    final delta = _adaptiveTraceDelta;
+    return (base + (-delta * 2)).clamp(10.0, 22.0).toDouble();
+  }
+
+  double _adaptiveMinCoverage(double base) {
+    final delta = _adaptiveTraceDelta;
+    return (base + delta * 0.04).clamp(0.62, 0.90).toDouble();
+  }
+
+  double _adaptiveMinCloseRatio(double base) {
+    final delta = _adaptiveTraceDelta;
+    return (base + delta * 0.04).clamp(0.58, 0.84).toDouble();
+  }
+
+  double _adaptiveMinLengthRatio(double base) {
+    final delta = _adaptiveTraceDelta;
+    return (base + delta * 0.04).clamp(0.56, 0.88).toDouble();
+  }
+
+  int get _adaptiveTraceDelta => _playPreferences.adaptiveDelta(
+    wrongAttempts: _wrongAttemptsThisLevel,
+    successCount: _starsEarned,
+  );
+
+  Future<void> _recordTraceMetric({required String outcome}) {
+    return _metricsService.recordGameplayMetric(
+      childId: widget.childId,
+      gameType: 'trace_game',
+      moduleId: widget.module.id,
+      roundId: 'trace-${_levelIndex + 1}-${_activeElementIndex ?? 0}',
+      outcome: outcome,
+      attempts: _metricsTracker.attempts,
+      wrongSelections: _metricsTracker.wrongSelections,
+      responseTimeMs: _metricsTracker.responseTimeMs,
+      traceAccuracy: _lastTraceAccuracy,
+      difficulty: _playPreferences.difficulty,
+      lowStimulationMode: _playPreferences.lowStimulationMode,
+      adaptiveLevel: _adaptiveTraceDelta,
+      metadata: {
+        'prompt': _currentLevel.prompt,
+        'completedElements': _completedElements.length,
+      },
+    );
+  }
+
+  String get _traceWrongHint {
+    return switch (_currentLevel.kind) {
+      _TraceLevelKind.line =>
+        'Good try. Start from the green dot and follow the line to the red dot.',
+      _TraceLevelKind.curves =>
+        'Good try. Follow the arrows from the green dot.',
+      _TraceLevelKind.shapes =>
+        'Good try. Trace one shape from its green dot to its red dot.',
+    };
   }
 
   Offset? _globalToBoard(Offset global) {
@@ -225,6 +304,9 @@ class _TraceGameScreenState extends State<TraceGameScreen>
       _levelIndex = 0;
       _earnedPoints = 0;
       _starsEarned = 0;
+      _wrongAttemptsThisLevel = 0;
+      _lastTraceAccuracy = null;
+      _metricsTracker.reset();
       _savedCompletion = false;
       _completedElements.clear();
       _tracePoints.clear();
@@ -253,6 +335,7 @@ class _TraceGameScreenState extends State<TraceGameScreen>
           replayLabel: 'Replay Trace Game',
           onReplay: _replayAll,
           onBack: _goBackToMoveAndPlay,
+          lowStimulationMode: _playPreferences.lowStimulationMode,
         ),
       );
     }
@@ -292,8 +375,12 @@ class _TraceGameScreenState extends State<TraceGameScreen>
                           tracePoints: _tracePoints,
                           completedElements: _completedElements,
                           activeElementIndex: _activeElementIndex,
-                          sparkleT: _sparkleCtrl.value,
+                          sparkleT: _playPreferences.lowStimulationMode
+                              ? 0
+                              : _sparkleCtrl.value,
                           seed: _shuffleSeed,
+                          lowStimulationMode:
+                              _playPreferences.lowStimulationMode,
                         ),
                       );
                     },
@@ -306,8 +393,13 @@ class _TraceGameScreenState extends State<TraceGameScreen>
         if (_showFeedback)
           MovePlayFeedbackOverlay(
             kind: _feedbackKind,
-            primaryLabel:
-                _feedbackKind == MovePlayFeedbackKind.success ? 'Next' : 'Try again',
+            primaryLabel: _feedbackKind == MovePlayFeedbackKind.success
+                ? 'Next'
+                : 'Try again',
+            message: _feedbackKind == MovePlayFeedbackKind.mistake
+                ? _traceWrongHint
+                : null,
+            lowStimulationMode: _playPreferences.lowStimulationMode,
             onPrimaryAction: () {
               if (!mounted) return;
               final kind = _feedbackKind;
@@ -324,6 +416,9 @@ class _TraceGameScreenState extends State<TraceGameScreen>
                   _completedElements.clear();
                   _tracePoints.clear();
                   _activeElementIndex = null;
+                  _wrongAttemptsThisLevel = 0;
+                  _lastTraceAccuracy = null;
+                  _metricsTracker.reset();
                   _shuffleSeed++;
                 });
                 _speakInstruction();
@@ -355,6 +450,7 @@ class _TraceGuidePainter extends CustomPainter {
     required this.activeElementIndex,
     required this.sparkleT,
     required this.seed,
+    required this.lowStimulationMode,
   });
 
   final _TraceLevelKind kind;
@@ -363,6 +459,7 @@ class _TraceGuidePainter extends CustomPainter {
   final int? activeElementIndex;
   final double sparkleT;
   final int seed;
+  final bool lowStimulationMode;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -429,7 +526,11 @@ class _TraceGuidePainter extends CustomPainter {
           ..cubicTo(144, 38, 118, 76, 98, 88)
           ..cubicTo(82, 100, 74, 124, 82, 136)
           ..cubicTo(92, 150, 124, 148, 142, 138);
-        _drawDashedPath(canvas, midCurve, completedElements.contains(0) ? done : dash);
+        _drawDashedPath(
+          canvas,
+          midCurve,
+          completedElements.contains(0) ? done : dash,
+        );
         _drawArrow(
           canvas,
           const Offset(142, 138),
@@ -442,7 +543,11 @@ class _TraceGuidePainter extends CustomPainter {
           ..lineTo(42, 302)
           ..quadraticBezierTo(42, 312, 52, 312)
           ..lineTo(154, 312);
-        _drawDashedPath(canvas, bottomPath, completedElements.contains(1) ? done : dash);
+        _drawDashedPath(
+          canvas,
+          bottomPath,
+          completedElements.contains(1) ? done : dash,
+        );
         _drawArrow(
           canvas,
           const Offset(154, 312),
@@ -457,7 +562,11 @@ class _TraceGuidePainter extends CustomPainter {
           ..lineTo(262, 322)
           ..lineTo(222, 362)
           ..lineTo(262, 402);
-        _drawDashedPath(canvas, zigZagPath, completedElements.contains(2) ? done : dash);
+        _drawDashedPath(
+          canvas,
+          zigZagPath,
+          completedElements.contains(2) ? done : dash,
+        );
         _drawArrow(
           canvas,
           const Offset(262, 402),
@@ -467,18 +576,32 @@ class _TraceGuidePainter extends CustomPainter {
         break;
       case _TraceLevelKind.shapes:
         final square = Path()..addRect(const Rect.fromLTWH(20, 80, 160, 160));
-        _drawDashedPath(canvas, square, completedElements.contains(0) ? done : dash, dashLength: 16, gapLength: 8);
+        _drawDashedPath(
+          canvas,
+          square,
+          completedElements.contains(0) ? done : dash,
+          dashLength: 16,
+          gapLength: 8,
+        );
 
         final triangle = Path()
           ..moveTo(240, 260)
           ..lineTo(180, 340)
           ..lineTo(300, 340)
           ..close();
-        _drawDashedPath(canvas, triangle, completedElements.contains(1) ? done : dash, dashLength: 16, gapLength: 8);
+        _drawDashedPath(
+          canvas,
+          triangle,
+          completedElements.contains(1) ? done : dash,
+          dashLength: 16,
+          gapLength: 8,
+        );
 
         final dots = Paint()
           ..style = PaintingStyle.fill
-          ..color = completedElements.contains(2) ? const Color(0xFF9AA4B2) : Colors.black;
+          ..color = completedElements.contains(2)
+              ? const Color(0xFF9AA4B2)
+              : Colors.black;
         final center = const Offset(82, 320);
         for (var i = 0; i < 14; i++) {
           final theta = (math.pi * 2 * i) / 14;
@@ -490,6 +613,9 @@ class _TraceGuidePainter extends CustomPainter {
         }
         break;
     }
+
+    _drawStartEndGuides(canvas);
+    _drawActivePathFill(canvas);
 
     if (tracePoints.length > 1) {
       final trace = Paint()
@@ -503,20 +629,102 @@ class _TraceGuidePainter extends CustomPainter {
       }
       canvas.drawPath(path, trace);
 
-      // Sparkle tip effect following the finger.
-      final tip = tracePoints.last;
-      final sparkle = Paint()
-        ..style = PaintingStyle.fill
-        ..color = Color.lerp(
-          const Color(0xFFFFD447),
-          const Color(0xFF7BC9FF),
-          (sparkleT * 2) % 1.0,
-        )!.withValues(alpha: 0.9);
-      canvas.drawCircle(tip, 6.5 + math.sin(sparkleT * math.pi * 2) * 1.2, sparkle);
-      canvas.drawCircle(tip, 2.8, Paint()..color = Colors.white.withValues(alpha: 0.9));
+      if (!lowStimulationMode) {
+        final tip = tracePoints.last;
+        final sparkle = Paint()
+          ..style = PaintingStyle.fill
+          ..color = Color.lerp(
+            const Color(0xFFFFD447),
+            const Color(0xFF7BC9FF),
+            (sparkleT * 2) % 1.0,
+          )!.withValues(alpha: 0.9);
+        canvas.drawCircle(
+          tip,
+          6.5 + math.sin(sparkleT * math.pi * 2) * 1.2,
+          sparkle,
+        );
+        canvas.drawCircle(
+          tip,
+          2.8,
+          Paint()..color = Colors.white.withValues(alpha: 0.9),
+        );
+      }
     }
 
     _drawCompletionTicks(canvas);
+  }
+
+  void _drawStartEndGuides(Canvas canvas) {
+    final elements = _elementsForLevel(kind, seed: seed);
+    final startPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = const Color(0xFF2EBD68);
+    final endPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = const Color(0xFFE85252);
+    final arrowPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round
+      ..color = const Color(0xFF4EA9E3);
+
+    for (var i = 0; i < elements.length; i++) {
+      if (completedElements.contains(i)) {
+        continue;
+      }
+      final points = elements[i].expectedPolyline;
+      if (points.length < 2) {
+        continue;
+      }
+      final isClosedPath = (points.first - points.last).distance <= 1.5;
+      canvas.drawCircle(points.first, 7, startPaint);
+      if (!isClosedPath) {
+        canvas.drawCircle(points.last, 7, endPaint);
+      }
+      if (!lowStimulationMode) {
+        final arrowStart = points[math.max(0, points.length ~/ 2 - 1)];
+        final arrowEnd =
+            points[math.min(points.length - 1, points.length ~/ 2)];
+        _drawArrow(canvas, arrowStart, arrowEnd, arrowPaint);
+      }
+    }
+  }
+
+  void _drawActivePathFill(Canvas canvas) {
+    final active = activeElementIndex;
+    if (active == null || tracePoints.length < 2) {
+      return;
+    }
+    final elements = _elementsForLevel(kind, seed: seed);
+    if (active < 0 || active >= elements.length) {
+      return;
+    }
+    final points = elements[active].expectedPolyline;
+    if (points.length < 2) {
+      return;
+    }
+    final expectedLength = TracePathValidator.strokeLengthForMetrics(points);
+    if (expectedLength <= 0) {
+      return;
+    }
+    final progress =
+        (TracePathValidator.strokeLengthForMetrics(tracePoints) /
+                expectedLength)
+            .clamp(0.0, 1.0)
+            .toDouble();
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 8
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = const Color(0xFF4EA9E3).withValues(alpha: 0.28);
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (final point in points.skip(1)) {
+      path.lineTo(point.dx, point.dy);
+    }
+    for (final metric in path.computeMetrics()) {
+      canvas.drawPath(metric.extractPath(0, metric.length * progress), paint);
+    }
   }
 
   void _drawArrow(Canvas canvas, Offset start, Offset end, Paint paint) {
@@ -627,7 +835,8 @@ class _TraceGuidePainter extends CustomPainter {
         oldDelegate.tracePoints != tracePoints ||
         oldDelegate.completedElements != completedElements ||
         oldDelegate.activeElementIndex != activeElementIndex ||
-        oldDelegate.sparkleT != sparkleT;
+        oldDelegate.sparkleT != sparkleT ||
+        oldDelegate.lowStimulationMode != lowStimulationMode;
   }
 }
 
@@ -651,11 +860,18 @@ class _TraceElement {
   bool hitTest(Offset p) => hitTestRect.contains(p);
 }
 
-List<_TraceElement> _elementsForLevel(_TraceLevelKind kind, {required int seed}) {
+List<_TraceElement> _elementsForLevel(
+  _TraceLevelKind kind, {
+  required int seed,
+}) {
   // Small deterministic jitter to avoid static layouts while preserving playability.
-  final r = math.Random((_TraceLevelKind.values.indexOf(kind) * 997) ^ (seed * 7919));
-  Offset j(double maxDx, double maxDy) =>
-      Offset((r.nextDouble() * 2 - 1) * maxDx, (r.nextDouble() * 2 - 1) * maxDy);
+  final r = math.Random(
+    (_TraceLevelKind.values.indexOf(kind) * 997) ^ (seed * 7919),
+  );
+  Offset j(double maxDx, double maxDy) => Offset(
+    (r.nextDouble() * 2 - 1) * maxDx,
+    (r.nextDouble() * 2 - 1) * maxDy,
+  );
 
   switch (kind) {
     case _TraceLevelKind.line:
@@ -753,7 +969,13 @@ List<_TraceElement> _elementsForLevel(_TraceLevelKind kind, {required int seed})
       return [
         _TraceElement(
           hitTestRect: const Rect.fromLTWH(20, 80, 160, 160).shift(o0),
-          expectedPolyline: [Offset(20, 80) + o0, Offset(180, 80) + o0, Offset(180, 240) + o0, Offset(20, 240) + o0, Offset(20, 80) + o0],
+          expectedPolyline: [
+            Offset(20, 80) + o0,
+            Offset(180, 80) + o0,
+            Offset(180, 240) + o0,
+            Offset(20, 240) + o0,
+            Offset(20, 80) + o0,
+          ],
           tolerancePx: 18,
           minCoverage: 0.75,
           minCloseRatio: 0.70,
@@ -761,7 +983,12 @@ List<_TraceElement> _elementsForLevel(_TraceLevelKind kind, {required int seed})
         ),
         _TraceElement(
           hitTestRect: const Rect.fromLTWH(180, 260, 120, 80).shift(o1),
-          expectedPolyline: [Offset(240, 260) + o1, Offset(180, 340) + o1, Offset(300, 340) + o1, Offset(240, 260) + o1],
+          expectedPolyline: [
+            Offset(240, 260) + o1,
+            Offset(180, 340) + o1,
+            Offset(300, 340) + o1,
+            Offset(240, 260) + o1,
+          ],
           tolerancePx: 18,
           minCoverage: 0.75,
           minCloseRatio: 0.70,
@@ -772,7 +999,10 @@ List<_TraceElement> _elementsForLevel(_TraceLevelKind kind, {required int seed})
           expectedPolyline: List<Offset>.generate(14, (i) {
             final theta = (math.pi * 2 * i) / 14;
             final center = const Offset(82, 320) + o2;
-            return Offset(center.dx + math.cos(theta) * 46, center.dy + math.sin(theta) * 46);
+            return Offset(
+              center.dx + math.cos(theta) * 46,
+              center.dy + math.sin(theta) * 46,
+            );
           }),
           tolerancePx: 18,
           minCoverage: 0.70,

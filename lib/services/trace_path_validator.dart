@@ -249,10 +249,13 @@ class TracePathValidator {
 
     final closeRatio = closeCount / points.length;
     final coverage = smoothed.where((v) => v).length / smoothed.length;
-    final lengthOk = expectedLen <= 0 ? true : strokeLen >= expectedLen * minLengthRatio;
+    final lengthOk = expectedLen <= 0
+        ? true
+        : strokeLen >= expectedLen * minLengthRatio;
 
     return TracePathValidationResult(
-      isValid: closeRatio >= minCloseRatio && coverage >= minCoverage && lengthOk,
+      isValid:
+          closeRatio >= minCloseRatio && coverage >= minCoverage && lengthOk,
       strokeLength: strokeLen,
       insideRatio: closeRatio,
       coveredSegments: (coverage * 10).round(),
@@ -295,6 +298,10 @@ class TracePathValidator {
       distance += (points[i] - points[i - 1]).distance;
     }
     return distance;
+  }
+
+  static double strokeLengthForMetrics(List<Offset> points) {
+    return _strokeLength(points);
   }
 
   static TraceValidationProfile _profileFor(TracePathKind kind) {

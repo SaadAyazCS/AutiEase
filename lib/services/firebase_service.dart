@@ -19,7 +19,8 @@ class FirebaseService {
     : _auth = FirebaseAuth.instance,
       _firestore = FirebaseFirestore.instance,
       _googleSignIn = GoogleSignIn(
-        serverClientId: '373824401794-dhrdq1p62q1lrcgmp3q3cv2vu5iuunfk.apps.googleusercontent.com',
+        serverClientId:
+            '373824401794-dhrdq1p62q1lrcgmp3q3cv2vu5iuunfk.apps.googleusercontent.com',
       );
 
   final FirebaseAuth _auth;
@@ -252,8 +253,8 @@ class FirebaseService {
     final normalizedLastName = lastName.trim();
     final normalizedEmail = _normalizeEmail(email);
     final normalizedPhone = phone.trim();
-    final normalizedFullName =
-        '$normalizedFirstName $normalizedLastName'.trim();
+    final normalizedFullName = '$normalizedFirstName $normalizedLastName'
+        .trim();
     User? resolvedUser;
     var createdPasswordUser = false;
     var isExistingGoogleUser = false;
@@ -355,6 +356,10 @@ class FirebaseService {
         photoUrl: user.photoURL ?? '',
         subscriptionTier: 'free',
         entitlements: const {'professionalSupport': false, 'chatAccess': false},
+        playSettings: const {
+          'difficulty': 'normal',
+          'lowStimulationMode': false,
+        },
         notificationPreferences: const {
           'therapistsUpdate': true,
           'levelProgressNotification': true,
@@ -377,8 +382,8 @@ class FirebaseService {
         final defaultModules = wantsLearning
             ? await AppRepositories.content.getAllLearningModules()
             : const <LearningModuleModel>[];
-        final defaultActivities =
-            await AppRepositories.content.getAllActivityTemplates();
+        final defaultActivities = await AppRepositories.content
+            .getAllActivityTemplates();
         final defaultCommunicationIds = wantsCommunication
             ? List<String>.from(CommunicationFigmaCatalog.homeBoardOrder)
             : const <String>[];
@@ -461,8 +466,8 @@ class FirebaseService {
     final normalizedLastName = lastName.trim();
     final normalizedEmail = _normalizeEmail(email);
     final normalizedPhone = phone.trim();
-    final normalizedFullName =
-        '$normalizedFirstName $normalizedLastName'.trim();
+    final normalizedFullName = '$normalizedFirstName $normalizedLastName'
+        .trim();
     User? resolvedUser;
     var createdPasswordUser = false;
     var isExistingGoogleUser = false;
@@ -552,6 +557,10 @@ class FirebaseService {
         photoUrl: user.photoURL ?? '',
         subscriptionTier: 'provider',
         entitlements: const {'professionalSupport': true, 'chatAccess': true},
+        playSettings: const {
+          'difficulty': 'normal',
+          'lowStimulationMode': false,
+        },
         notificationPreferences: const {
           'pushNotifications': true,
           'emailNotifications': true,
@@ -997,7 +1006,8 @@ class FirebaseService {
         case 'weak-password':
           return {
             'success': false,
-            'message': 'Password is too weak. Please choose a stronger password.',
+            'message':
+                'Password is too weak. Please choose a stronger password.',
           };
         default:
           return {

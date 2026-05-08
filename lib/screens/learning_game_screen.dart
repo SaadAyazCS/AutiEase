@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
+import '../services/learning_metrics_service.dart';
+import '../services/play_preferences_service.dart';
 import '../services/tts_service.dart';
 import '../utils/app_colors.dart';
 import '../widgets/figma_module_scaffold.dart';
@@ -48,6 +50,11 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
   int _earnedStars = 0;
   int _wrongAttempts = 0;
   int _replaySeed = 0;
+  PlayPreferences _playPreferences = PlayPreferences.defaults;
+  final PlayPreferencesService _playPreferencesService =
+      const PlayPreferencesService();
+  final LearningMetricsService _metricsService = const LearningMetricsService();
+  final GameplayMetricsTracker _metricsTracker = GameplayMetricsTracker();
   bool _isSavingProgress = false;
   bool _savedCompletion = false;
   bool _isResolvingSelection = false;
@@ -105,6 +112,14 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
 
     try {
       await _tts.init();
+      final playPreferences = await _playPreferencesService.getCurrent();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _playPreferences = playPreferences;
+      });
+      _metricsTracker.reset();
       if (_isFocusGame) {
         final focusRounds = _buildFocusRounds(_variant, _replaySeed);
         if (!mounted) {
@@ -622,10 +637,72 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
             ),
           ];
 
+    final objectPairs = const [
+      _MatchPair(
+        id: 'toothbrush-toothpaste',
+        leftEmoji: '🪥',
+        leftLabel: 'Toothbrush',
+        rightEmoji: '🦷',
+        rightLabel: 'Toothpaste',
+      ),
+      _MatchPair(
+        id: 'socks-shoes',
+        leftEmoji: '🧦',
+        leftLabel: 'Socks',
+        rightEmoji: '👟',
+        rightLabel: 'Shoes',
+      ),
+      _MatchPair(
+        id: 'cup-water',
+        leftEmoji: '🥤',
+        leftLabel: 'Cup',
+        rightEmoji: '💧',
+        rightLabel: 'Water',
+      ),
+      _MatchPair(
+        id: 'bed-pillow',
+        leftEmoji: '🛏️',
+        leftLabel: 'Bed',
+        rightEmoji: '🛌',
+        rightLabel: 'Pillow',
+      ),
+    ];
+
+    final emotionPairs = const [
+      _MatchPair(
+        id: 'happy-smile',
+        leftEmoji: '😊',
+        leftLabel: 'Happy',
+        rightEmoji: '🙂',
+        rightLabel: 'Smile',
+      ),
+      _MatchPair(
+        id: 'sad-cry',
+        leftEmoji: '😢',
+        leftLabel: 'Sad',
+        rightEmoji: '😭',
+        rightLabel: 'Crying',
+      ),
+      _MatchPair(
+        id: 'angry-mad',
+        leftEmoji: '😠',
+        leftLabel: 'Angry',
+        rightEmoji: '😡',
+        rightLabel: 'Mad face',
+      ),
+      _MatchPair(
+        id: 'sleepy-tired',
+        leftEmoji: '😴',
+        leftLabel: 'Sleepy',
+        rightEmoji: '🥱',
+        rightLabel: 'Tired face',
+      ),
+    ];
+
     final rounds =
         <({String instruction, String category, List<_MatchPair> pairs})>[
           (
-            instruction: 'Match the animals with their related items',
+            instruction: 'Match the animals with their food or items',
             category: 'animals',
             pairs: livingPairs,
           ),
@@ -633,6 +710,16 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
             instruction: 'Match the fruits with their colors',
             category: 'fruits',
             pairs: fruitPairs,
+          ),
+          (
+            instruction: 'Match objects with what goes with them',
+            category: 'objects',
+            pairs: objectPairs,
+          ),
+          (
+            instruction: 'Match each emotion with the face',
+            category: 'emotions',
+            pairs: emotionPairs,
           ),
           (
             instruction: 'Match the shapes with their number of sides',
@@ -861,6 +948,8 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
 
     final isCorrect = optionIndex == _currentLevel.correctOptionIndex;
     if (!isCorrect) {
+      _metricsTracker.markAttempt(wrong: true);
+      unawaited(_recordLearningMetric(outcome: 'wrong'));
       setState(() {
         _stage = _LearningGameStage.wrongOption;
         _isResolvingSelection = false;
@@ -869,6 +958,8 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
     }
 
     if (_levelIndex < _levels.length - 1) {
+      _metricsTracker.markAttempt();
+      unawaited(_recordLearningMetric(outcome: 'correct'));
       setState(() {
         _earnedPoints += 100;
         _stage = _LearningGameStage.levelCompleted;
@@ -877,6 +968,8 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
       return;
     }
 
+    _metricsTracker.markAttempt();
+    unawaited(_recordLearningMetric(outcome: 'correct'));
     setState(() {
       _earnedPoints += 100;
       _stage = _LearningGameStage.allLevelsCompleted;
@@ -889,13 +982,10 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
     if (!_isFocusGame) {
       return 0;
     }
-    if (_wrongAttempts == 0 && _earnedStars > 0) {
-      return 1;
-    }
-    if (_wrongAttempts >= 2) {
-      return -1;
-    }
-    return 0;
+    return _playPreferences.adaptiveDelta(
+      wrongAttempts: _wrongAttempts,
+      successCount: _earnedStars,
+    );
   }
 
   String get _focusBadgeName {
@@ -962,16 +1052,40 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
     };
   }
 
+  String get _currentFocusRoundId {
+    if (_isFocusGame && _focusRounds.isNotEmpty) {
+      return _currentFocusRound.id;
+    }
+    return 'round-$_levelIndex';
+  }
+
+  Future<void> _recordLearningMetric({
+    required String outcome,
+    Map<String, dynamic> metadata = const <String, dynamic>{},
+  }) async {
+    await _metricsService.recordGameplayMetric(
+      childId: widget.childId,
+      gameType: _variant.name,
+      moduleId: widget.module.id,
+      roundId: _currentFocusRoundId,
+      outcome: outcome,
+      attempts: _metricsTracker.attempts,
+      wrongSelections: _metricsTracker.wrongSelections,
+      responseTimeMs: _metricsTracker.responseTimeMs,
+      difficulty: _playPreferences.difficulty,
+      lowStimulationMode: _playPreferences.lowStimulationMode,
+      adaptiveLevel: _adaptiveDifficulty,
+      metadata: metadata,
+    );
+  }
+
   Future<void> _handleFocusWrong() async {
     if (_stage != _LearningGameStage.playing || _isResolvingSelection) {
       return;
     }
-    final messages = <String>[
-      'No problem, try again!',
-      'You are doing great!',
-      'Almost there, try one more time!',
-    ];
-    final message = messages[_wrongAttempts % messages.length];
+    _metricsTracker.markAttempt(wrong: true);
+    unawaited(_recordLearningMetric(outcome: 'wrong'));
+    final message = _focusWrongHint();
     setState(() {
       _wrongAttempts += 1;
       _isResolvingSelection = true;
@@ -993,10 +1107,37 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
     await _speakCurrentPrompt();
   }
 
+  String _focusWrongHint() {
+    final round = _currentFocusRound;
+    switch (_variant) {
+      case _LearningGameVariant.findIt:
+        final target = round.findData?.target.label ?? 'matching emoji';
+        return 'Nice try. Look carefully for the $target.';
+      case _LearningGameVariant.matchIt:
+        final data = round.matchData;
+        if (data != null && data.category == 'fruits') {
+          return 'Good effort. Try matching each fruit with its color.';
+        }
+        if (data != null && data.category == 'animals') {
+          return 'Good effort. Try matching the animal to what goes with it.';
+        }
+        return 'Good effort. Try matching the shape to its clue.';
+      case _LearningGameVariant.holdIt:
+        final label = round.holdData?.label ?? 'item';
+        return 'Good try. Keep holding the $label until the ring is full.';
+      case _LearningGameVariant.generic:
+      case _LearningGameVariant.words:
+      case _LearningGameVariant.sentences:
+        return 'Nice try. Look for the best match.';
+    }
+  }
+
   void _handleHoldEarlyRelease(String message) {
     if (_stage != _LearningGameStage.playing) {
       return;
     }
+    _metricsTracker.markAttempt(wrong: true);
+    unawaited(_recordLearningMetric(outcome: 'hold_released_early'));
     setState(() {
       _wrongAttempts += 1;
     });
@@ -1010,6 +1151,8 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
 
     final round = _currentFocusRound;
     final isLastRound = _levelIndex >= _focusRounds.length - 1;
+    _metricsTracker.markAttempt();
+    unawaited(_recordLearningMetric(outcome: 'correct'));
     setState(() {
       _earnedStars += 1;
       _earnedPoints += 100;
@@ -1044,6 +1187,7 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
       _isResolvingSelection = false;
       _stage = _LearningGameStage.playing;
     });
+    _metricsTracker.reset();
     await _speakCurrentPrompt();
   }
 
@@ -1101,6 +1245,7 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
   }
 
   void _retryLevel() {
+    _metricsTracker.reset();
     setState(() {
       _stage = _LearningGameStage.playing;
       _isResolvingSelection = false;
@@ -1108,6 +1253,7 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
   }
 
   void _replayCurrentLevel() {
+    _metricsTracker.reset();
     setState(() {
       _stage = _LearningGameStage.playing;
       _isResolvingSelection = false;
@@ -1121,6 +1267,7 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
         _stage = _LearningGameStage.playing;
         _isResolvingSelection = false;
       });
+      _metricsTracker.reset();
       await _speakCurrentPrompt();
       return;
     }
@@ -1146,6 +1293,7 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
           backLabel: 'Back to Focus Games',
           onReplay: _playFocusAgain,
           onBack: () => Navigator.pop(context),
+          lowStimulationMode: _playPreferences.lowStimulationMode,
         ),
       );
     }
@@ -1237,6 +1385,7 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
           round: round.findData!,
           seed: _replaySeed + _levelIndex * 37,
           adaptiveDifficulty: _adaptiveDifficulty,
+          preferences: _playPreferences,
           isBusy: _isResolvingSelection,
           onCorrect: _handleFocusSuccess,
           onWrong: _handleFocusWrong,
@@ -1247,6 +1396,7 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
           instruction: instruction,
           round: round.matchData!,
           adaptiveDifficulty: _adaptiveDifficulty,
+          preferences: _playPreferences,
           isBusy: _isResolvingSelection,
           onRoundComplete: _handleFocusSuccess,
           onWrong: _handleFocusWrong,
@@ -1257,6 +1407,7 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
           instruction: instruction,
           round: round.holdData!,
           adaptiveDifficulty: _adaptiveDifficulty,
+          preferences: _playPreferences,
           isBusy: _isResolvingSelection,
           onComplete: _handleFocusSuccess,
           onEarlyRelease: _handleHoldEarlyRelease,
@@ -1537,6 +1688,7 @@ class _FindItBoard extends StatefulWidget {
     required this.round,
     required this.seed,
     required this.adaptiveDifficulty,
+    required this.preferences,
     required this.isBusy,
     required this.onCorrect,
     required this.onWrong,
@@ -1547,6 +1699,7 @@ class _FindItBoard extends StatefulWidget {
   final _FindRoundData round;
   final int seed;
   final int adaptiveDifficulty;
+  final PlayPreferences preferences;
   final bool isBusy;
   final Future<void> Function() onCorrect;
   final Future<void> Function() onWrong;
@@ -1591,13 +1744,16 @@ class _FindItBoardState extends State<_FindItBoard>
   void _scheduleGuidance() {
     _guidanceTimer?.cancel();
     _showGuidance = false;
-    _guidanceTimer = Timer(const Duration(seconds: 8), () {
-      if (mounted) {
-        setState(() {
-          _showGuidance = true;
-        });
-      }
-    });
+    _guidanceTimer = Timer(
+      Duration(seconds: widget.preferences.lowStimulationMode ? 7 : 6),
+      () {
+        if (mounted) {
+          setState(() {
+            _showGuidance = true;
+          });
+        }
+      },
+    );
   }
 
   List<_ScatteredFocusItem> _scatteredItems() {
@@ -1605,7 +1761,11 @@ class _FindItBoardState extends State<_FindItBoard>
     final distractors = List<_FocusEmojiItem>.from(widget.round.distractors)
       ..shuffle(random);
     final maxCount = distractors.length + 1;
-    final minCount = widget.round.crowded ? 8 : 5;
+    final minCount = widget.preferences.lowStimulationMode
+        ? 4
+        : widget.round.crowded
+        ? 8
+        : 5;
     final itemCount = (widget.round.baseItemCount + widget.adaptiveDifficulty)
         .clamp(minCount, maxCount)
         .toInt();
@@ -1616,7 +1776,9 @@ class _FindItBoardState extends State<_FindItBoard>
 
     return List<_ScatteredFocusItem>.generate(selected.length, (index) {
       final isTarget = selected[index].id == widget.round.target.id;
-      final crowded = widget.round.crowded || widget.adaptiveDifficulty > 0;
+      final crowded =
+          !widget.preferences.lowStimulationMode &&
+          (widget.round.crowded || widget.adaptiveDifficulty > 0);
       final partlyHidden = crowded && !isTarget && index % 4 == 0;
       final baseSize = widget.adaptiveDifficulty < 0
           ? 66.0
@@ -1767,7 +1929,10 @@ class _FindItBoardState extends State<_FindItBoard>
             animation: _pulseCtrl,
             builder: (context, _) {
               final pulse = 1 + (_pulseCtrl.value * 0.12);
-              final glow = isTarget && _showGuidance;
+              final glow =
+                  isTarget &&
+                  _showGuidance &&
+                  !widget.preferences.lowStimulationMode;
               return Transform.scale(
                 scale: glow ? pulse : 1,
                 child: DecoratedBox(
@@ -1828,6 +1993,7 @@ class _MatchItBoard extends StatefulWidget {
     required this.instruction,
     required this.round,
     required this.adaptiveDifficulty,
+    required this.preferences,
     required this.isBusy,
     required this.onRoundComplete,
     required this.onWrong,
@@ -1837,6 +2003,7 @@ class _MatchItBoard extends StatefulWidget {
   final Widget instruction;
   final _MatchRoundData round;
   final int adaptiveDifficulty;
+  final PlayPreferences preferences;
   final bool isBusy;
   final Future<void> Function() onRoundComplete;
   final Future<void> Function() onWrong;
@@ -1872,10 +2039,9 @@ class _MatchItBoardState extends State<_MatchItBoard> {
   }
 
   void _prepareRound() {
-    final visibleCount =
-        widget.adaptiveDifficulty > 0 && widget.round.pairs.length > 3
-        ? 4
-        : min(3, widget.round.pairs.length);
+    final visibleCount = (3 + widget.adaptiveDifficulty)
+        .clamp(2, widget.round.pairs.length)
+        .toInt();
     final random = Random(widget.round.seed + visibleCount * 19);
     _pairs = widget.round.pairs.take(visibleCount).toList();
     _rightPairs = List<_MatchPair>.from(_pairs)..shuffle(random);
@@ -2330,6 +2496,7 @@ class _HoldItBoard extends StatefulWidget {
     required this.instruction,
     required this.round,
     required this.adaptiveDifficulty,
+    required this.preferences,
     required this.isBusy,
     required this.onComplete,
     required this.onEarlyRelease,
@@ -2339,6 +2506,7 @@ class _HoldItBoard extends StatefulWidget {
   final Widget instruction;
   final _HoldRoundData round;
   final int adaptiveDifficulty;
+  final PlayPreferences preferences;
   final bool isBusy;
   final Future<void> Function() onComplete;
   final void Function(String message) onEarlyRelease;
@@ -2357,8 +2525,11 @@ class _HoldItBoardState extends State<_HoldItBoard>
   String _statusText = '';
 
   int get _durationSeconds {
-    final adjusted = widget.round.baseSeconds + widget.adaptiveDifficulty;
-    return adjusted.clamp(5, 10).toInt();
+    return widget.preferences.holdSeconds(
+      baseSeconds: widget.round.baseSeconds,
+      wrongAttempts: widget.adaptiveDifficulty < 0 ? 2 : 0,
+      successCount: widget.adaptiveDifficulty > 0 ? 2 : 0,
+    );
   }
 
   String get _actionVerb =>
@@ -2425,6 +2596,10 @@ class _HoldItBoardState extends State<_HoldItBoard>
     final value = _progressCtrl.value;
     final nextText = value >= 0.84
         ? 'Almost there!'
+        : value >= 0.55
+        ? 'Keep holding!'
+        : value >= 0.22
+        ? 'Good!'
         : value > 0
         ? _activeStatusText
         : _idleStatusText;
@@ -2523,10 +2698,14 @@ class _HoldItBoardState extends State<_HoldItBoard>
                             ]),
                             builder: (context, _) {
                               final breathingScale =
-                                  1 + _breathCtrl.value * 0.035;
+                                  widget.preferences.lowStimulationMode
+                                  ? 1.0
+                                  : 1 + _breathCtrl.value * 0.035;
                               final nearDone =
                                   _progressCtrl.value > 0.84 && !_complete;
-                              final shake = nearDone
+                              final shake =
+                                  nearDone &&
+                                      !widget.preferences.lowStimulationMode
                                   ? sin(_breathCtrl.value * pi * 12) * 4
                                   : 0.0;
                               final displayedProgress = _holding || _complete

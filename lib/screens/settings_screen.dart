@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../services/firebase_service.dart';
+import '../services/play_preferences_service.dart';
 import '../utils/responsive.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
@@ -21,7 +22,10 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final FirebaseService _firebaseService = FirebaseService();
+  final PlayPreferencesService _playPreferencesService =
+      const PlayPreferencesService();
   UserProfile? _profile;
+  PlayPreferences _playPreferences = PlayPreferences.defaults;
   bool _isDeleting = false;
 
   @override
@@ -33,8 +37,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadProfile() async {
     final profile = await AppRepositories.users.getCurrentUserProfile();
     if (mounted) {
-      setState(() => _profile = profile);
+      setState(() {
+        _profile = profile;
+        _playPreferences = profile == null
+            ? PlayPreferences.defaults
+            : PlayPreferences.fromMap(profile.playSettings);
+      });
     }
+  }
+
+  Future<void> _showPlayPreferencesDialog() async {
+    var draft = _playPreferences;
+    final saved = await showDialog<PlayPreferences>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Learning game preferences'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Difficulty controls object count, clutter, distractors, and hold duration.',
+                  ),
+                  const SizedBox(height: 14),
+                  SegmentedButton<ParentDifficulty>(
+                    segments: ParentDifficulty.values
+                        .map(
+                          (difficulty) => ButtonSegment<ParentDifficulty>(
+                            value: difficulty,
+                            label: Text(difficulty.label),
+                          ),
+                        )
+                        .toList(),
+                    selected: {draft.difficulty},
+                    onSelectionChanged: (selection) {
+                      setDialogState(() {
+                        draft = draft.copyWith(difficulty: selection.first);
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 18),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Low stimulation mode'),
+                    subtitle: const Text(
+                      'Uses calmer transitions, fewer moving objects, and lighter celebration effects.',
+                    ),
+                    value: draft.lowStimulationMode,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        draft = draft.copyWith(lowStimulationMode: value);
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, draft),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (saved == null) {
+      return;
+    }
+    await _playPreferencesService.save(saved);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _playPreferences = saved);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Learning game preferences saved.')),
+    );
   }
 
   Future<void> _logout() async {
@@ -70,17 +157,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: TextStyle(fontSize: 14, height: 1.4),
                 ),
                 const SizedBox(height: 10),
-                const Text('• Your parent profile (name, phone, and email on file)'),
+                const Text(
+                  '• Your parent profile (name, phone, and email on file)',
+                ),
                 const Text(
                   "• Your child's profile and learning preferences saved here",
                 ),
-                const Text('• Activity progress and planner choices tied to this account'),
-                const Text('• Your Professional Support conversations with therapists'),
-                const Text('• Feedback and notification preferences stored in the app'),
+                const Text(
+                  '• Activity progress and planner choices tied to this account',
+                ),
+                const Text(
+                  '• Your Professional Support conversations with therapists',
+                ),
+                const Text(
+                  '• Feedback and notification preferences stored in the app',
+                ),
                 const SizedBox(height: 12),
                 const Text(
                   'Your sign-in will stop working for this account. If you use AutiEase again later, you will need to register as a new user.',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, height: 1.35),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    height: 1.35,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Row(
@@ -171,8 +270,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ? 'Your account and associated data were deleted.'
                 : 'Your sign-in was removed. Some stored data may remain until support finishes cleanup.',
           ),
-          backgroundColor:
-              firestoreDeleted ? const Color(0xFF2ECC71) : const Color(0xFFFFA500),
+          backgroundColor: firestoreDeleted
+              ? const Color(0xFF2ECC71)
+              : const Color(0xFFFFA500),
           duration: const Duration(seconds: 3),
         ),
       );
@@ -182,8 +282,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         errorMessage =
             'For your security, sign out and sign back in, then try deleting again.';
       } else if (authError.contains('network-request-failed')) {
-        errorMessage =
-            'Network problem. Check your connection and try again.';
+        errorMessage = 'Network problem. Check your connection and try again.';
       } else if (authError.contains('too-many-requests')) {
         errorMessage = 'Too many attempts. Please wait and try again.';
       } else if (authError.contains('user-not-found')) {
@@ -236,7 +335,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               child: ListView(
-                padding: EdgeInsets.fromLTRB(r.w(14), r.h(26), r.w(14), r.h(24)),
+                padding: EdgeInsets.fromLTRB(
+                  r.w(14),
+                  r.h(26),
+                  r.w(14),
+                  r.h(24),
+                ),
                 children: [
                   _SettingsRow(
                     icon: Icons.person_outline_rounded,
@@ -264,6 +368,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                     },
                   ),
+                  if (_isParent)
+                    _SettingsRow(
+                      icon: Icons.tune_rounded,
+                      title:
+                          'Learning games: ${_playPreferences.difficulty.label}',
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_playPreferences.lowStimulationMode)
+                            const Padding(
+                              padding: EdgeInsets.only(right: 6),
+                              child: Icon(Icons.spa_outlined, size: 20),
+                            ),
+                          const Icon(Icons.chevron_right_rounded, size: 24),
+                        ],
+                      ),
+                      onTap: _showPlayPreferencesDialog,
+                    ),
                   _SettingsRow(
                     icon: Icons.feedback_outlined,
                     title: 'Feedback',
@@ -321,9 +443,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.2),
                   ),
-                  child: const Center(
-                    child: CircularProgressIndicator(),
-                  ),
+                  child: const Center(child: CircularProgressIndicator()),
                 ),
               ),
             ),

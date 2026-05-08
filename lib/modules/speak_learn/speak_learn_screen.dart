@@ -1,11 +1,14 @@
 // Speak & Learn: opened from Learn → Speak & Learn (hub, practice, completion in one route).
 
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/app_models.dart';
+import '../../services/learning_metrics_service.dart';
+import '../../services/play_preferences_service.dart';
 import '../../widgets/figma_module_scaffold.dart';
 import '../../widgets/module_bottom_wave_overlay.dart';
 import '../../widgets/session_guard.dart';
@@ -65,6 +68,11 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
   LearningModuleModel? _module;
 
   final SpeakLearnSpeechService _speech = SpeakLearnSpeechService();
+  final PlayPreferencesService _playPreferencesService =
+      const PlayPreferencesService();
+  final LearningMetricsService _metricsService = const LearningMetricsService();
+  final GameplayMetricsTracker _metricsTracker = GameplayMetricsTracker();
+  PlayPreferences _playPreferences = PlayPreferences.defaults;
 
   List<SpeakLearnItem> _items = [];
   bool _loadingPractice = false;
@@ -76,6 +84,7 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
   String? _banner;
   String? _hintLine;
   String? _liveListenLabel;
+  String? _heardFeedback;
 
   /// Each index must be answered correctly at least once before level completion.
   final Set<int> _masteredItemIndices = {};
@@ -134,6 +143,7 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
       _sessionFailedAttempts = 0;
       _banner = null;
       _hintLine = null;
+      _heardFeedback = null;
       _successTint = false;
       _completionAnalyticsSent = false;
       _liveListenLabel = null;
@@ -143,6 +153,8 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
 
     await _speech.initTts();
     await _speech.ensureSpeechPermission();
+    final playPreferences = await _playPreferencesService.getCurrent();
+    _metricsTracker.reset();
 
     List<SpeakLearnItem> loaded;
     switch (kind) {
@@ -162,6 +174,7 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
     }
     setState(() {
       _items = loaded;
+      _playPreferences = playPreferences;
       _loadingPractice = false;
     });
     _scheduleAutoSpeak();
@@ -173,16 +186,28 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
     }
     for (var j = _index + 1; j < _items.length; j++) {
       if (!_masteredItemIndices.contains(j)) {
-        setState(() => _index = j);
+        _moveToPracticeItem(j);
         return;
       }
     }
     for (var j = 0; j < _index; j++) {
       if (!_masteredItemIndices.contains(j)) {
-        setState(() => _index = j);
+        _moveToPracticeItem(j);
         return;
       }
     }
+  }
+
+  void _moveToPracticeItem(int index) {
+    setState(() {
+      _index = index;
+      _failedAttemptsThisItem = 0;
+      _banner = null;
+      _hintLine = null;
+      _heardFeedback = null;
+      _successTint = false;
+      _liveListenLabel = null;
+    });
   }
 
   bool get _allItemsMastered =>
@@ -193,8 +218,9 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
 
   String _successBannerText(String heard, SpeakLearnItem item) {
     final trimmed = heard.trim();
-    final display =
-        trimmed.length > 48 ? '${trimmed.substring(0, 45)}…' : trimmed;
+    final display = trimmed.length > 48
+        ? '${trimmed.substring(0, 45)}…'
+        : trimmed;
     return "Great job! You said '$display'";
   }
 
@@ -238,13 +264,13 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
     if (item == null || k == null || _listening) {
       return;
     }
-    final listenCue =
-        math.Random().nextBool() ? 'Listening…' : 'Hearing you…';
+    final listenCue = math.Random().nextBool() ? 'Listening…' : 'Hearing you…';
     setState(() {
       _listening = true;
       _liveListenLabel = listenCue;
       _banner = null;
       _hintLine = null;
+      _heardFeedback = null;
     });
 
     await _speech.stopListening();
@@ -261,8 +287,12 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
     });
 
     final trimmed = heard?.trim() ?? '';
+    _heardFeedback = trimmed.isEmpty
+        ? 'I heard: nothing yet'
+        : 'I heard: $trimmed';
     final hadSpeechInput = trimmed.isNotEmpty;
-    final ok = hadSpeechInput &&
+    final ok =
+        hadSpeechInput &&
         SpeakLearnEvaluator.isCorrect(
           kind: k,
           expected: item.speakText,
@@ -270,10 +300,13 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
         );
 
     if (ok) {
+      _metricsTracker.markAttempt();
+      unawaited(_recordSpeechMetric(outcome: 'correct', heard: trimmed));
       _masteredItemIndices.add(_index);
       setState(() {
         _successTint = true;
         _banner = _successBannerText(trimmed, item);
+        _heardFeedback = null;
         _failedAttemptsThisItem = 0;
       });
       await Future<void>.delayed(const Duration(milliseconds: 900));
@@ -289,11 +322,15 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
       } else {
         _failedAttemptsThisItem = 0;
         _advanceToNextUnmastered();
+        _metricsTracker.reset();
         _scheduleAutoSpeak();
       }
     } else {
       _sessionFailedAttempts++;
       _failedAttemptsThisItem++;
+      _metricsTracker.markAttempt(wrong: true);
+      _metricsTracker.markSpeechRetry();
+      unawaited(_recordSpeechMetric(outcome: 'retry', heard: trimmed));
       setState(() {
         if (!hadSpeechInput) {
           _banner = "Sorry, I can't hear you properly";
@@ -308,6 +345,63 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
         }
       });
     }
+  }
+
+  Future<void> _markCurrentCorrect() async {
+    final item = _current;
+    if (item == null) {
+      return;
+    }
+    _masteredItemIndices.add(_index);
+    _metricsTracker.markAttempt();
+    unawaited(_recordSpeechMetric(outcome: 'parent_marked_correct'));
+    setState(() {
+      _successTint = true;
+      _banner = 'Marked correct by parent.';
+      _hintLine = null;
+      _heardFeedback = null;
+      _failedAttemptsThisItem = 0;
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _successTint = false;
+      _banner = null;
+    });
+    if (_allItemsMastered) {
+      await _goCompletion();
+    } else {
+      _advanceToNextUnmastered();
+      _metricsTracker.reset();
+      _scheduleAutoSpeak();
+    }
+  }
+
+  Future<void> _recordSpeechMetric({
+    required String outcome,
+    String heard = '',
+  }) {
+    final k = _kind;
+    final item = _current;
+    return _metricsService.recordGameplayMetric(
+      childId: widget.childId,
+      gameType: 'speak_learn_${k?.name ?? 'unknown'}',
+      moduleId: _module?.id ?? 'speak-learn',
+      roundId: item?.id ?? 'item-$_index',
+      outcome: outcome,
+      attempts: _metricsTracker.attempts,
+      wrongSelections: _metricsTracker.wrongSelections,
+      responseTimeMs: _metricsTracker.responseTimeMs,
+      speechRetries: _metricsTracker.speechRetries,
+      difficulty: _playPreferences.difficulty,
+      lowStimulationMode: _playPreferences.lowStimulationMode,
+      metadata: {
+        if (item != null) 'expected': item.speakText,
+        if (heard.isNotEmpty) 'heard': heard,
+      },
+    );
   }
 
   Future<void> _goCompletion() async {
@@ -332,9 +426,9 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
       return;
     }
     final pick =
-        (_masteredItemIndices.length * 11 + k.index * 3) % _completionTitles.length;
-    final subPick =
-        (_items.length * 5 + k.index) % _completionSubtitles.length;
+        (_masteredItemIndices.length * 11 + k.index * 3) %
+        _completionTitles.length;
+    final subPick = (_items.length * 5 + k.index) % _completionSubtitles.length;
     _completionTitle = _completionTitles[pick];
     _completionSubtitle = _completionSubtitles[subPick];
     _trophyCtrl.forward(from: 0);
@@ -351,6 +445,7 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
       _items = [];
       _banner = null;
       _hintLine = null;
+      _heardFeedback = null;
       _masteredItemIndices.clear();
       _liveListenLabel = null;
     });
@@ -438,23 +533,23 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
   Widget _hubCardForKind(SpeakLearnLevelKind kind) {
     return switch (kind) {
       SpeakLearnLevelKind.alphabets => _HubLevelCard(
-          kind: kind,
-          background: const Color(0xFFFFE4E8),
-          onTap: () => _showLevelIntroThenStart(kind),
-          trailing: _alphabetArt(),
-        ),
+        kind: kind,
+        background: const Color(0xFFFFE4E8),
+        onTap: () => _showLevelIntroThenStart(kind),
+        trailing: _alphabetArt(),
+      ),
       SpeakLearnLevelKind.words => _HubLevelCard(
-          kind: kind,
-          background: const Color(0xFFE4FCCD),
-          onTap: () => _showLevelIntroThenStart(kind),
-          trailing: _wordsArt(),
-        ),
+        kind: kind,
+        background: const Color(0xFFE4FCCD),
+        onTap: () => _showLevelIntroThenStart(kind),
+        trailing: _wordsArt(),
+      ),
       SpeakLearnLevelKind.sentences => _HubLevelCard(
-          kind: kind,
-          background: const Color(0xFFD5F5F5),
-          onTap: () => _showLevelIntroThenStart(kind),
-          trailing: _sentencesArt(),
-        ),
+        kind: kind,
+        background: const Color(0xFFD5F5F5),
+        onTap: () => _showLevelIntroThenStart(kind),
+        trailing: _sentencesArt(),
+      ),
     };
   }
 
@@ -514,7 +609,9 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
             height: 34,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: i.isEven ? const Color(0xFF7BC9FF) : const Color(0xFFFFD447),
+              color: i.isEven
+                  ? const Color(0xFF7BC9FF)
+                  : const Color(0xFFFFD447),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
@@ -688,6 +785,34 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
                                     ),
                                   ),
                                 ),
+                              if (_heardFeedback != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 10),
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        _heardFeedback!,
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          color: Color(0xFF334A6E),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      OutlinedButton.icon(
+                                        onPressed: _markCurrentCorrect,
+                                        icon: const Icon(
+                                          Icons.check_circle_outline,
+                                          size: 18,
+                                        ),
+                                        label: const Text(
+                                          'Parent: Mark Correct',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               if (_hintLine != null)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 8),
@@ -711,12 +836,13 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
                 ],
               ],
             ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: const ModuleBottomWaveLayer(),
-            ),
+            if (!_playPreferences.lowStimulationMode)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: const ModuleBottomWaveLayer(),
+              ),
           ],
         ),
       ),
@@ -725,14 +851,16 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
 
   Widget _compactCard(SpeakLearnLevelKind k) {
     final item = _current!;
-    final textColor =
-        _successTint ? const Color(0xFF2E7D32) : const Color(0xFF1A1A1A);
+    final textColor = _successTint
+        ? const Color(0xFF2E7D32)
+        : const Color(0xFF1A1A1A);
     return Stack(
       clipBehavior: Clip.none,
       children: [
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(28, 36, 72, 36),
+          constraints: const BoxConstraints(minHeight: 178),
+          padding: const EdgeInsets.fromLTRB(28, 28, 92, 28),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(22),
@@ -746,6 +874,7 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               if (k == SpeakLearnLevelKind.words &&
                   (item.iconEmoji != null || item.imageUrl != null)) ...[
@@ -759,11 +888,16 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
                     ),
                   )
                 else
-                  Text(item.iconEmoji ?? '', style: const TextStyle(fontSize: 40)),
+                  Text(
+                    item.iconEmoji ?? '',
+                    style: const TextStyle(fontSize: 40),
+                  ),
                 const SizedBox(height: 10),
               ],
               Text(
-                item.displayText,
+                k == SpeakLearnLevelKind.alphabets
+                    ? item.speakText
+                    : item.displayText,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: k == SpeakLearnLevelKind.alphabets ? 72 : 36,
@@ -771,12 +905,36 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
                   color: textColor,
                 ),
               ),
+              if (k == SpeakLearnLevelKind.alphabets) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '${item.phoneticSound ?? ''}  ${item.exampleWord ?? ''}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF334A6E),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _CaseMatchChip(label: item.speakText),
+                    _CaseMatchChip(
+                      label: item.matchText ?? item.speakText.toLowerCase(),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
         Positioned(
           right: 12,
-          top: 24,
+          top: 22,
           child: Column(
             children: [
               _RoundIconButton(
@@ -792,6 +950,22 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
                 active: _listening,
                 onTap: _listening ? null : _onMic,
               ),
+              const SizedBox(height: 5),
+              if (!_listening)
+                const SizedBox(
+                  width: 72,
+                  child: Text(
+                    'Tap to speak',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF4EA9E3),
+                    ),
+                  ),
+                )
+              else
+                const SizedBox(height: 14),
             ],
           ),
         ),
@@ -801,8 +975,9 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
 
   Widget _sentenceCard() {
     final item = _current!;
-    final textColor =
-        _successTint ? const Color(0xFF2E7D32) : const Color(0xFF1A1A1A);
+    final textColor = _successTint
+        ? const Color(0xFF2E7D32)
+        : const Color(0xFF1A1A1A);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
@@ -909,6 +1084,7 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
                     _failedAttemptsThisItem = 0;
                     _banner = null;
                     _hintLine = null;
+                    _heardFeedback = null;
                   });
                   _scheduleAutoSpeak();
                 }
@@ -928,6 +1104,7 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
                     _sessionFailedAttempts = 0;
                     _banner = null;
                     _hintLine = null;
+                    _heardFeedback = null;
                     _successTint = false;
                     _completionAnalyticsSent = false;
                   });
@@ -943,6 +1120,7 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
                     _failedAttemptsThisItem = 0;
                     _banner = null;
                     _hintLine = null;
+                    _heardFeedback = null;
                   });
                   _scheduleAutoSpeak();
                 }
@@ -981,19 +1159,20 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
               ),
             ),
           ),
-          Positioned.fill(
-            child: AnimatedBuilder(
-              animation: _confettiCtrl,
-              builder: (context, _) {
-                return CustomPaint(
-                  painter: _ConfettiPainter(
-                    t: _confettiCtrl.value,
-                    seed: k.index * 17,
-                  ),
-                );
-              },
+          if (!_playPreferences.lowStimulationMode)
+            Positioned.fill(
+              child: AnimatedBuilder(
+                animation: _confettiCtrl,
+                builder: (context, _) {
+                  return CustomPaint(
+                    painter: _ConfettiPainter(
+                      t: _confettiCtrl.value,
+                      seed: k.index * 17,
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
@@ -1126,8 +1305,8 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
                         k == SpeakLearnLevelKind.alphabets
                             ? 'Replay Alphabets'
                             : k == SpeakLearnLevelKind.words
-                                ? 'Replay Words'
-                                : 'Replay Sentences',
+                            ? 'Replay Words'
+                            : 'Replay Sentences',
                         style: const TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 16,
@@ -1168,6 +1347,34 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
 }
 
 // —— Private widgets (same library, not separate routes) —— //
+
+class _CaseMatchChip extends StatelessWidget {
+  const _CaseMatchChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 52),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF6FF),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFB8E0FF)),
+      ),
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.w900,
+          color: Color(0xFF1A2D4B),
+        ),
+      ),
+    );
+  }
+}
 
 class _HubLevelCard extends StatelessWidget {
   const _HubLevelCard({
@@ -1357,8 +1564,9 @@ class _ProgressBar extends StatelessWidget {
               value: progress,
               minHeight: 8,
               backgroundColor: const Color(0xFFE8EEF5),
-              valueColor:
-                  const AlwaysStoppedAnimation<Color>(Color(0xFF4EA9E3)),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Color(0xFF4EA9E3),
+              ),
             ),
           ),
         ],
@@ -1402,8 +1610,8 @@ class _ItemStarProgressRow extends StatelessWidget {
               color: mastered
                   ? const Color(0xFFFFD447)
                   : here
-                      ? const Color(0xFFFFE082)
-                      : const Color(0xFFE0E6ED),
+                  ? const Color(0xFFFFE082)
+                  : const Color(0xFFE0E6ED),
             );
           }),
         );

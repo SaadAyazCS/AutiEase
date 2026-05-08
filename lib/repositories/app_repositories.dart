@@ -26,6 +26,7 @@ class FirestoreCollections {
   static const appModules = 'app_modules';
   static const settingsEntries = 'settings_entries';
   static const feedback = 'feedback';
+  static const learningMetrics = 'learning_metrics';
 }
 
 abstract class AuthRepository {
@@ -375,7 +376,8 @@ class FirebaseUserRepository implements UserRepository {
       for (final key in _supportedParentNotificationKeys)
         key: preferences[key] ?? false,
     };
-    final existingKeys = profile?.notificationPreferences.keys.toSet() ?? <String>{};
+    final existingKeys =
+        profile?.notificationPreferences.keys.toSet() ?? <String>{};
     final nestedKeysToDelete = existingKeys
         .difference(_supportedParentNotificationKeys)
         .union(_legacyParentNotificationKeys);

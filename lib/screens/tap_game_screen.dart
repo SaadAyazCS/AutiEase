@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'dart:math' as math;
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
+import '../services/learning_metrics_service.dart';
+import '../services/play_preferences_service.dart';
 import '../services/tts_service.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/move_play_celebration.dart';
@@ -175,6 +178,130 @@ class _TapGameScreenState extends State<TapGameScreen> {
         ),
       ],
     ),
+    _TapLevel(
+      prompt: 'Tap all fruits',
+      correctKeys: <String>['apple', 'banana', 'grapes'],
+      hint: 'Look for the fruit emojis.',
+      options: <_TapOption>[
+        _TapOption(
+          key: 'apple',
+          label: 'Apple',
+          kind: _TapOptionKind.emoji,
+          emoji: '🍎',
+          left: 36,
+          top: 40,
+        ),
+        _TapOption(
+          key: 'car',
+          label: 'Car',
+          kind: _TapOptionKind.emoji,
+          emoji: '🚗',
+          left: 186,
+          top: 48,
+        ),
+        _TapOption(
+          key: 'banana',
+          label: 'Banana',
+          kind: _TapOptionKind.emoji,
+          emoji: '🍌',
+          left: 94,
+          top: 140,
+        ),
+        _TapOption(
+          key: 'grapes',
+          label: 'Grapes',
+          kind: _TapOptionKind.emoji,
+          emoji: '🍇',
+          left: 36,
+          top: 244,
+        ),
+        _TapOption(
+          key: 'book',
+          label: 'Book',
+          kind: _TapOptionKind.emoji,
+          emoji: '📘',
+          left: 194,
+          top: 244,
+        ),
+      ],
+    ),
+    _TapLevel(
+      prompt: 'Tap only red things',
+      correctKeys: <String>['red-circle', 'apple'],
+      hint: 'Look for the red objects.',
+      options: <_TapOption>[
+        _TapOption(
+          key: 'red-circle',
+          label: 'Red circle',
+          kind: _TapOptionKind.icon,
+          icon: Icons.circle_rounded,
+          color: Color(0xFFF14D4D),
+          left: 36,
+          top: 40,
+        ),
+        _TapOption(
+          key: 'blue-circle',
+          label: 'Blue circle',
+          kind: _TapOptionKind.icon,
+          icon: Icons.circle_rounded,
+          color: Color(0xFF4EA9E3),
+          left: 190,
+          top: 50,
+        ),
+        _TapOption(
+          key: 'apple',
+          label: 'Apple',
+          kind: _TapOptionKind.emoji,
+          emoji: '🍎',
+          left: 104,
+          top: 150,
+        ),
+        _TapOption(
+          key: 'banana',
+          label: 'Banana',
+          kind: _TapOptionKind.emoji,
+          emoji: '🍌',
+          left: 38,
+          top: 250,
+        ),
+        _TapOption(
+          key: 'green-square',
+          label: 'Green square',
+          kind: _TapOptionKind.icon,
+          icon: Icons.square_rounded,
+          color: Color(0xFF59B086),
+          left: 196,
+          top: 252,
+        ),
+      ],
+    ),
+    _TapLevel(
+      prompt: 'Tap the bigger object',
+      correctKeys: <String>['big-star'],
+      hint: 'Look for the bigger star.',
+      options: <_TapOption>[
+        _TapOption(
+          key: 'small-star',
+          label: 'Small star',
+          kind: _TapOptionKind.icon,
+          icon: Icons.star_rounded,
+          color: Color(0xFFF7C926),
+          scale: 0.72,
+          left: 60,
+          top: 92,
+        ),
+        _TapOption(
+          key: 'big-star',
+          label: 'Big star',
+          kind: _TapOptionKind.icon,
+          icon: Icons.star_rounded,
+          color: Color(0xFFF7C926),
+          scale: 1.22,
+          left: 190,
+          top: 180,
+        ),
+      ],
+    ),
   ];
 
   int _levelIndex = 0;
@@ -182,6 +309,13 @@ class _TapGameScreenState extends State<TapGameScreen> {
   bool _isSavingProgress = false;
   final Set<int> _recordedLevelNumbers = <int>{};
   int _starsEarned = 0;
+  int _wrongAttemptsThisLevel = 0;
+  final Set<String> _completedTargets = <String>{};
+  PlayPreferences _playPreferences = PlayPreferences.defaults;
+  final PlayPreferencesService _playPreferencesService =
+      const PlayPreferencesService();
+  final LearningMetricsService _metricsService = const LearningMetricsService();
+  final GameplayMetricsTracker _metricsTracker = GameplayMetricsTracker();
 
   final TtsService _tts = TtsService();
   bool _showFeedback = false;
@@ -205,7 +339,12 @@ class _TapGameScreenState extends State<TapGameScreen> {
 
   Future<void> _initTtsAndSpeak() async {
     await _tts.init();
+    final playPreferences = await _playPreferencesService.getCurrent();
     if (!mounted) return;
+    setState(() {
+      _playPreferences = playPreferences;
+      _activeOptions = _shuffledOptionsForLevel();
+    });
     _speakInstruction();
   }
 
@@ -217,7 +356,13 @@ class _TapGameScreenState extends State<TapGameScreen> {
 
   String _instructionText() {
     final raw = _currentLevel.prompt.trim();
+    if (_currentLevel.isMultiTarget) {
+      return raw;
+    }
     final lower = raw.toLowerCase();
+    if (lower.startsWith('tap ')) {
+      return raw;
+    }
     if (RegExp(r'^\d+$').hasMatch(raw)) {
       return 'Tap on number $raw';
     }
@@ -251,13 +396,27 @@ class _TapGameScreenState extends State<TapGameScreen> {
       return;
     }
 
-    if (option.key != _currentLevel.prompt.toLowerCase()) {
+    _metricsTracker.markAttempt(
+      wrong: !_currentLevel.targets.contains(option.key),
+    );
+
+    if (!_currentLevel.targets.contains(option.key)) {
+      _wrongAttemptsThisLevel += 1;
+      unawaited(_recordTapMetric(outcome: 'wrong'));
       _pendingAdvance = false;
       setState(() => _activeOptions = _shuffledOptionsForLevel());
       _showOverlay(MovePlayFeedbackKind.mistake);
       return;
     }
 
+    _completedTargets.add(option.key);
+    if (_currentLevel.isMultiTarget &&
+        !_completedTargets.containsAll(_currentLevel.targets)) {
+      setState(() {});
+      return;
+    }
+
+    unawaited(_recordTapMetric(outcome: 'correct'));
     final completedLevel = _levelIndex + 1;
     _starsEarned += 1;
     await _recordLevelCompletion(completedLevel);
@@ -290,10 +449,41 @@ class _TapGameScreenState extends State<TapGameScreen> {
     }
   }
 
+  Future<void> _recordTapMetric({required String outcome}) {
+    return _metricsService.recordGameplayMetric(
+      childId: widget.childId,
+      gameType: 'tap_game',
+      moduleId: widget.module.id,
+      roundId: 'tap-${_levelIndex + 1}',
+      outcome: outcome,
+      attempts: _metricsTracker.attempts,
+      wrongSelections: _metricsTracker.wrongSelections,
+      responseTimeMs: _metricsTracker.responseTimeMs,
+      difficulty: _playPreferences.difficulty,
+      lowStimulationMode: _playPreferences.lowStimulationMode,
+      adaptiveLevel: _adaptiveChoiceDelta,
+      metadata: {
+        'prompt': _currentLevel.prompt,
+        'targets': _currentLevel.targets.toList(),
+      },
+    );
+  }
+
+  int get _adaptiveChoiceDelta => _playPreferences.adaptiveDelta(
+    wrongAttempts: _wrongAttemptsThisLevel,
+    successCount: _starsEarned,
+  );
+
+  String get _wrongHint =>
+      _currentLevel.hint ?? 'Nice try. Look for ${_currentLevel.prompt}.';
+
   void _replayAll() {
     setState(() {
       _levelIndex = 0;
       _starsEarned = 0;
+      _wrongAttemptsThisLevel = 0;
+      _completedTargets.clear();
+      _metricsTracker.reset();
       _showFeedback = false;
       _stage = _TapGameStage.playing;
       _shuffleSeed++;
@@ -319,6 +509,7 @@ class _TapGameScreenState extends State<TapGameScreen> {
           replayLabel: 'Replay Tap Game',
           onReplay: _replayAll,
           onBack: _goBackToMoveAndPlay,
+          lowStimulationMode: _playPreferences.lowStimulationMode,
         ),
       );
     }
@@ -336,12 +527,25 @@ class _TapGameScreenState extends State<TapGameScreen> {
   Widget _buildBody() {
     return Stack(
       children: [
-        _TapLevelBoard(level: _currentLevel, options: _activeOptions, onTapOption: _handleTap),
+        _TapLevelBoard(
+          level: _currentLevel,
+          options: _activeOptions,
+          completedTargets: _completedTargets,
+          pulseTarget:
+              _wrongAttemptsThisLevel >= 2 &&
+              !_playPreferences.lowStimulationMode,
+          onTapOption: _handleTap,
+        ),
         if (_showFeedback)
           MovePlayFeedbackOverlay(
             kind: _feedbackKind,
-            primaryLabel:
-                _feedbackKind == MovePlayFeedbackKind.success ? 'Next' : 'Try again',
+            primaryLabel: _feedbackKind == MovePlayFeedbackKind.success
+                ? 'Next'
+                : 'Try again',
+            message: _feedbackKind == MovePlayFeedbackKind.mistake
+                ? _wrongHint
+                : null,
+            lowStimulationMode: _playPreferences.lowStimulationMode,
             onPrimaryAction: () {
               if (!mounted) return;
               final kind = _feedbackKind;
@@ -355,6 +559,9 @@ class _TapGameScreenState extends State<TapGameScreen> {
               if (_levelIndex < _levels.length - 1) {
                 setState(() {
                   _levelIndex += 1;
+                  _wrongAttemptsThisLevel = 0;
+                  _completedTargets.clear();
+                  _metricsTracker.reset();
                   _shuffleSeed++;
                   _activeOptions = _shuffledOptionsForLevel();
                 });
@@ -370,8 +577,23 @@ class _TapGameScreenState extends State<TapGameScreen> {
 
   List<_TapOption> _shuffledOptionsForLevel() {
     final slots = List<Offset>.from(_slots);
-    final items = List<_TapOption>.from(_currentLevel.options);
+    final targets = _currentLevel.targets;
+    final correct = _currentLevel.options
+        .where((option) => targets.contains(option.key))
+        .toList();
+    final distractors = _currentLevel.options
+        .where((option) => !targets.contains(option.key))
+        .toList();
+    final choiceCount = _playPreferences
+        .choiceCountForRound(_levelIndex, min: correct.length, max: 5)
+        .clamp(correct.length, _currentLevel.options.length)
+        .toInt();
     final r = math.Random((_shuffleSeed * 997) ^ _levelIndex ^ _starsEarned);
+    distractors.shuffle(r);
+    final items = <_TapOption>[
+      ...correct,
+      ...distractors.take(choiceCount - correct.length),
+    ];
     items.shuffle(r);
     for (var i = 0; i < items.length && i < slots.length; i++) {
       items[i] = items[i].copyWith(left: slots[i].dx, top: slots[i].dy);
@@ -384,11 +606,15 @@ class _TapLevelBoard extends StatelessWidget {
   const _TapLevelBoard({
     required this.level,
     required this.options,
+    required this.completedTargets,
+    required this.pulseTarget,
     required this.onTapOption,
   });
 
   final _TapLevel level;
   final List<_TapOption> options;
+  final Set<String> completedTargets;
+  final bool pulseTarget;
   final void Function(_TapOption option) onTapOption;
 
   @override
@@ -406,7 +632,12 @@ class _TapLevelBoard extends StatelessWidget {
                 top: option.top,
                 child: GestureDetector(
                   onTap: () => onTapOption(option),
-                  child: _TapOptionView(option: option),
+                  child: _TapOptionFrame(
+                    highlight:
+                        pulseTarget && level.targets.contains(option.key),
+                    completed: completedTargets.contains(option.key),
+                    child: _TapOptionView(option: option),
+                  ),
                 ),
               ),
           ],
@@ -423,31 +654,116 @@ class _TapOptionView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    switch (option.kind) {
-      case _TapOptionKind.icon:
-        return Icon(option.icon!, size: 86, color: option.color);
-      case _TapOptionKind.emoji:
-        return Text(option.emoji!, style: const TextStyle(fontSize: 58));
-      case _TapOptionKind.number:
-        return Text(
-          option.numberText!,
-          style: TextStyle(
-            fontSize: 82,
-            fontWeight: FontWeight.w700,
-            color: option.color,
+    final child = switch (option.kind) {
+      _TapOptionKind.icon => Icon(option.icon!, size: 86, color: option.color),
+      _TapOptionKind.emoji => Text(
+        option.emoji!,
+        style: const TextStyle(fontSize: 58),
+      ),
+      _TapOptionKind.number => Text(
+        option.numberText!,
+        style: TextStyle(
+          fontSize: 82,
+          fontWeight: FontWeight.w700,
+          color: option.color,
+        ),
+      ),
+    };
+    return Transform.scale(scale: option.scale, child: child);
+  }
+}
+
+class _TapOptionFrame extends StatefulWidget {
+  const _TapOptionFrame({
+    required this.child,
+    required this.highlight,
+    required this.completed,
+  });
+
+  final Widget child;
+  final bool highlight;
+  final bool completed;
+
+  @override
+  State<_TapOptionFrame> createState() => _TapOptionFrameState();
+}
+
+class _TapOptionFrameState extends State<_TapOptionFrame>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulseCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pulseCtrl,
+      builder: (context, child) {
+        final scale = widget.highlight ? 1 + _pulseCtrl.value * 0.07 : 1.0;
+        return Transform.scale(
+          scale: scale,
+          child: Opacity(
+            opacity: widget.completed ? 0.42 : 1,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: widget.highlight
+                    ? Border.all(color: const Color(0xFFFFD447), width: 3)
+                    : null,
+                boxShadow: widget.highlight
+                    ? [
+                        BoxShadow(
+                          color: const Color(
+                            0xFFFFD447,
+                          ).withValues(alpha: 0.28),
+                          blurRadius: 18,
+                          spreadRadius: 3,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Padding(padding: const EdgeInsets.all(4), child: child),
+            ),
           ),
         );
-    }
+      },
+      child: widget.child,
+    );
   }
 }
 
 enum _TapOptionKind { icon, emoji, number }
 
 class _TapLevel {
-  const _TapLevel({required this.prompt, required this.options});
+  const _TapLevel({
+    required this.prompt,
+    required this.options,
+    this.correctKeys,
+    this.hint,
+  });
 
   final String prompt;
   final List<_TapOption> options;
+  final List<String>? correctKeys;
+  final String? hint;
+
+  Set<String> get targets =>
+      (correctKeys ?? <String>[prompt.toLowerCase()]).toSet();
+
+  bool get isMultiTarget => targets.length > 1;
 }
 
 class _TapOption {
@@ -461,6 +777,7 @@ class _TapOption {
     this.emoji,
     this.numberText,
     this.color = Colors.black,
+    this.scale = 1,
   });
 
   final String key;
@@ -472,6 +789,7 @@ class _TapOption {
   final String? emoji;
   final String? numberText;
   final Color color;
+  final double scale;
 
   _TapOption copyWith({double? left, double? top}) {
     return _TapOption(
@@ -484,6 +802,7 @@ class _TapOption {
       emoji: emoji,
       numberText: numberText,
       color: color,
+      scale: scale,
     );
   }
 }

@@ -9,11 +9,15 @@ class MovePlayFeedbackOverlay extends StatelessWidget {
     required this.kind,
     required this.onPrimaryAction,
     this.primaryLabel = 'Try again',
+    this.message,
+    this.lowStimulationMode = false,
   });
 
   final MovePlayFeedbackKind kind;
   final VoidCallback onPrimaryAction;
   final String primaryLabel;
+  final String? message;
+  final bool lowStimulationMode;
 
   String get _title {
     switch (kind) {
@@ -27,11 +31,15 @@ class MovePlayFeedbackOverlay extends StatelessWidget {
   String get _subtitle {
     switch (kind) {
       case MovePlayFeedbackKind.mistake:
-        return _encouragingMistakeLines[
-            math.Random().nextInt(_encouragingMistakeLines.length)];
+        return message ??
+            _encouragingMistakeLines[math.Random().nextInt(
+              _encouragingMistakeLines.length,
+            )];
       case MovePlayFeedbackKind.success:
-        return _encouragingSuccessLines[
-            math.Random().nextInt(_encouragingSuccessLines.length)];
+        return message ??
+            _encouragingSuccessLines[math.Random().nextInt(
+              _encouragingSuccessLines.length,
+            )];
     }
   }
 
@@ -57,7 +65,7 @@ class MovePlayFeedbackOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return Positioned.fill(
       child: ColoredBox(
-        color: Colors.black.withValues(alpha: 0.25),
+        color: Colors.black.withValues(alpha: lowStimulationMode ? 0.16 : 0.25),
         child: Center(
           child: Container(
             width: 330,
@@ -108,7 +116,8 @@ class MovePlayFeedbackOverlay extends StatelessWidget {
                     color: Color(0xFF4B5563),
                   ),
                 ),
-                if (kind == MovePlayFeedbackKind.success) ...[
+                if (kind == MovePlayFeedbackKind.success &&
+                    !lowStimulationMode) ...[
                   const SizedBox(height: 10),
                   const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -177,4 +186,3 @@ const _encouragingSuccessLines = <String>[
   'Fantastic work!',
   'Woohoo! Next round!',
 ];
-

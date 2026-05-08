@@ -16,6 +16,7 @@ class MovePlayCelebration extends StatefulWidget {
     required this.onBack,
     this.replayLabel = 'Replay',
     this.backLabel = 'Back to Move & Play',
+    this.lowStimulationMode = false,
   });
 
   final String title;
@@ -28,6 +29,7 @@ class MovePlayCelebration extends StatefulWidget {
   final VoidCallback onBack;
   final String replayLabel;
   final String backLabel;
+  final bool lowStimulationMode;
 
   @override
   State<MovePlayCelebration> createState() => _MovePlayCelebrationState();
@@ -42,8 +44,11 @@ class _MovePlayCelebrationState extends State<MovePlayCelebration>
     super.initState();
     _confettiCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 4),
-    )..repeat();
+      duration: Duration(seconds: widget.lowStimulationMode ? 8 : 4),
+    );
+    if (!widget.lowStimulationMode) {
+      _confettiCtrl.repeat();
+    }
   }
 
   @override
@@ -69,16 +74,17 @@ class _MovePlayCelebrationState extends State<MovePlayCelebration>
               ),
             ),
           ),
-          Positioned.fill(
-            child: AnimatedBuilder(
-              animation: _confettiCtrl,
-              builder: (context, _) {
-                return CustomPaint(
-                  painter: _ConfettiPainter(t: _confettiCtrl.value, seed: 19),
-                );
-              },
+          if (!widget.lowStimulationMode)
+            Positioned.fill(
+              child: AnimatedBuilder(
+                animation: _confettiCtrl,
+                builder: (context, _) {
+                  return CustomPaint(
+                    painter: _ConfettiPainter(t: _confettiCtrl.value, seed: 19),
+                  );
+                },
+              ),
             ),
-          ),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
@@ -126,8 +132,9 @@ class _MovePlayCelebrationState extends State<MovePlayCelebration>
                                 color: Colors.white,
                                 boxShadow: [
                                   BoxShadow(
-                                    color: widget.trophyColor
-                                        .withValues(alpha: 0.35),
+                                    color: widget.trophyColor.withValues(
+                                      alpha: 0.35,
+                                    ),
                                     blurRadius: 28,
                                     spreadRadius: 2,
                                   ),
@@ -164,8 +171,9 @@ class _MovePlayCelebrationState extends State<MovePlayCelebration>
                               children: List.generate(total, (i) {
                                 final earned = i < widget.starsEarned;
                                 return Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(horizontal: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                  ),
                                   child: Icon(
                                     Icons.star_rounded,
                                     size: 44,
@@ -193,8 +201,9 @@ class _MovePlayCelebrationState extends State<MovePlayCelebration>
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: const Color(0xFF4EA9E3),
                                   foregroundColor: Colors.white,
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 16),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                  ),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(14),
                                   ),
@@ -215,8 +224,9 @@ class _MovePlayCelebrationState extends State<MovePlayCelebration>
                                 onPressed: widget.onBack,
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: const Color(0xFF12213D),
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 16),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                  ),
                                   side: const BorderSide(
                                     color: Color(0xFF12213D),
                                   ),
@@ -288,4 +298,3 @@ class _ConfettiPainter extends CustomPainter {
   bool shouldRepaint(covariant _ConfettiPainter oldDelegate) =>
       oldDelegate.t != t;
 }
-

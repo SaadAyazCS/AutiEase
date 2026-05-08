@@ -86,6 +86,7 @@ class UserProfile {
     required this.subscriptionTier,
     required this.entitlements,
     required this.notificationPreferences,
+    required this.playSettings,
     this.activeChildId,
     this.createdAt,
     this.updatedAt,
@@ -102,6 +103,7 @@ class UserProfile {
   final String subscriptionTier;
   final Map<String, bool> entitlements;
   final Map<String, bool> notificationPreferences;
+  final Map<String, dynamic> playSettings;
   final String? activeChildId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -121,6 +123,7 @@ class UserProfile {
       subscriptionTier: (data['subscriptionTier'] ?? 'free').toString(),
       entitlements: boolMapFrom(data['entitlements']),
       notificationPreferences: boolMapFrom(data['notificationPreferences']),
+      playSettings: mapFrom(data['playSettings']),
       activeChildId: data['activeChildId']?.toString(),
       createdAt: dateTimeFromFirestore(data['createdAt']),
       updatedAt: dateTimeFromFirestore(data['updatedAt']),
@@ -141,6 +144,7 @@ class UserProfile {
       'subscriptionTier': subscriptionTier,
       'entitlements': entitlements,
       'notificationPreferences': notificationPreferences,
+      'playSettings': playSettings,
       'activeChildId': activeChildId,
       'createdAt': createdAt,
       'updatedAt': updatedAt,

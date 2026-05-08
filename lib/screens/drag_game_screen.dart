@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'dart:math' as math;
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
+import '../services/learning_metrics_service.dart';
+import '../services/play_preferences_service.dart';
 import '../services/tts_service.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/move_play_celebration.dart';
@@ -200,6 +203,12 @@ class _DragGameScreenState extends State<DragGameScreen> {
   bool _targetHovering = false;
   int _starsEarned = 0;
   int _shuffleSeed = 0;
+  int _wrongAttemptsThisLevel = 0;
+  PlayPreferences _playPreferences = PlayPreferences.defaults;
+  final PlayPreferencesService _playPreferencesService =
+      const PlayPreferencesService();
+  final LearningMetricsService _metricsService = const LearningMetricsService();
+  final GameplayMetricsTracker _metricsTracker = GameplayMetricsTracker();
   late List<_DragPiece> _activeOptions;
 
   final TtsService _tts = TtsService();
@@ -224,7 +233,12 @@ class _DragGameScreenState extends State<DragGameScreen> {
 
   Future<void> _initTtsAndSpeak() async {
     await _tts.init();
+    final playPreferences = await _playPreferencesService.getCurrent();
     if (!mounted) return;
+    setState(() {
+      _playPreferences = playPreferences;
+      _activeOptions = _shuffledOptionsForLevel();
+    });
     _speakInstruction();
   }
 
@@ -237,10 +251,10 @@ class _DragGameScreenState extends State<DragGameScreen> {
   String _instructionText() {
     if (RegExp(r'^\d+$').hasMatch(_currentLevel.answerKey)) {
       final n = _currentLevel.answerKey;
-      return 'Drag the black and white shape of number $n to the colored shape of number $n';
+      return 'Drag $n into the box with $n';
     }
     final name = _currentLevel.prompt.trim().toLowerCase();
-    return 'Drag the black and white shape of $name to the colored shape of $name';
+    return 'Drag the $name into the box with the $name';
   }
 
   void _speakInstruction() {
@@ -263,6 +277,9 @@ class _DragGameScreenState extends State<DragGameScreen> {
       return;
     }
     if (pieceKey != _currentLevel.answerKey) {
+      _wrongAttemptsThisLevel += 1;
+      _metricsTracker.markAttempt(wrong: true);
+      unawaited(_recordDragMetric(outcome: 'wrong'));
       setState(() {
         _targetHovering = false;
         _activeOptions = _shuffledOptionsForLevel();
@@ -272,6 +289,8 @@ class _DragGameScreenState extends State<DragGameScreen> {
       return;
     }
 
+    _metricsTracker.markAttempt();
+    unawaited(_recordDragMetric(outcome: 'correct'));
     setState(() {
       _targetHovering = false;
       _earnedPoints += 100;
@@ -279,6 +298,39 @@ class _DragGameScreenState extends State<DragGameScreen> {
     _starsEarned += 1;
     _pendingAdvance = true;
     _showOverlay(MovePlayFeedbackKind.success);
+  }
+
+  Future<void> _recordDragMetric({required String outcome}) {
+    return _metricsService.recordGameplayMetric(
+      childId: widget.childId,
+      gameType: 'drag_game',
+      moduleId: widget.module.id,
+      roundId: 'drag-${_levelIndex + 1}',
+      outcome: outcome,
+      attempts: _metricsTracker.attempts,
+      wrongSelections: _metricsTracker.wrongSelections,
+      responseTimeMs: _metricsTracker.responseTimeMs,
+      difficulty: _playPreferences.difficulty,
+      lowStimulationMode: _playPreferences.lowStimulationMode,
+      adaptiveLevel: _adaptiveChoiceDelta,
+      metadata: {
+        'prompt': _currentLevel.prompt,
+        'answerKey': _currentLevel.answerKey,
+      },
+    );
+  }
+
+  int get _adaptiveChoiceDelta => _playPreferences.adaptiveDelta(
+    wrongAttempts: _wrongAttemptsThisLevel,
+    successCount: _starsEarned,
+  );
+
+  String get _wrongHint {
+    if (_currentLevel.answerKey == '2') {
+      return 'Nice try. Put 2 in the box with 2.';
+    }
+    final name = _currentLevel.prompt.toLowerCase();
+    return 'Nice try. Put the $name in the box with the $name.';
   }
 
   Future<void> _saveProgressIfNeeded() async {
@@ -311,6 +363,8 @@ class _DragGameScreenState extends State<DragGameScreen> {
       _levelIndex = 0;
       _earnedPoints = 0;
       _starsEarned = 0;
+      _wrongAttemptsThisLevel = 0;
+      _metricsTracker.reset();
       _targetHovering = false;
       _showFeedback = false;
       _savedCompletion = false;
@@ -338,6 +392,7 @@ class _DragGameScreenState extends State<DragGameScreen> {
           replayLabel: 'Replay Drag Game',
           onReplay: _replayAll,
           onBack: _goBackToMoveAndPlay,
+          lowStimulationMode: _playPreferences.lowStimulationMode,
         ),
       );
     }
@@ -359,6 +414,7 @@ class _DragGameScreenState extends State<DragGameScreen> {
           level: _currentLevel,
           options: _activeOptions,
           targetHovering: _targetHovering,
+          lowStimulationMode: _playPreferences.lowStimulationMode,
           onHoverChanged: (hovering) {
             if (_targetHovering != hovering) {
               setState(() => _targetHovering = hovering);
@@ -369,8 +425,13 @@ class _DragGameScreenState extends State<DragGameScreen> {
         if (_showFeedback)
           MovePlayFeedbackOverlay(
             kind: _feedbackKind,
-            primaryLabel:
-                _feedbackKind == MovePlayFeedbackKind.success ? 'Next' : 'Try again',
+            primaryLabel: _feedbackKind == MovePlayFeedbackKind.success
+                ? 'Next'
+                : 'Try again',
+            message: _feedbackKind == MovePlayFeedbackKind.mistake
+                ? _wrongHint
+                : null,
+            lowStimulationMode: _playPreferences.lowStimulationMode,
             onPrimaryAction: () {
               if (!mounted) return;
               final kind = _feedbackKind;
@@ -384,6 +445,8 @@ class _DragGameScreenState extends State<DragGameScreen> {
               if (_levelIndex < _levels.length - 1) {
                 setState(() {
                   _levelIndex += 1;
+                  _wrongAttemptsThisLevel = 0;
+                  _metricsTracker.reset();
                   _shuffleSeed++;
                   _activeOptions = _shuffledOptionsForLevel();
                 });
@@ -404,10 +467,25 @@ class _DragGameScreenState extends State<DragGameScreen> {
     final slots = level.options
         .map((p) => Offset(p.left, p.top))
         .toList(growable: false);
-    final items = List<_DragPiece>.from(level.options);
+    final correct = level.options
+        .where((piece) => piece.key == level.answerKey)
+        .toList();
+    final distractors = level.options
+        .where((piece) => piece.key != level.answerKey)
+        .toList();
 
-    final seed = (_rnd[levelIndexMod] + _shuffleSeed * 997) ^ (level.answerKey.hashCode);
+    final seed =
+        (_rnd[levelIndexMod] + _shuffleSeed * 997) ^ (level.answerKey.hashCode);
     final r = math.Random(seed);
+    distractors.shuffle(r);
+    final choiceCount = _playPreferences
+        .choiceCountForRound(_levelIndex, min: 2, max: 5)
+        .clamp(correct.length + 1, level.options.length)
+        .toInt();
+    final items = <_DragPiece>[
+      ...correct,
+      ...distractors.take(choiceCount - correct.length),
+    ];
     items.shuffle(r);
     final out = <_DragPiece>[];
     for (var i = 0; i < items.length; i++) {
@@ -425,6 +503,7 @@ class _DragLevelBoard extends StatelessWidget {
     required this.level,
     required this.options,
     required this.targetHovering,
+    required this.lowStimulationMode,
     required this.onHoverChanged,
     required this.onDrop,
   });
@@ -432,6 +511,7 @@ class _DragLevelBoard extends StatelessWidget {
   final _DragLevel level;
   final List<_DragPiece> options;
   final bool targetHovering;
+  final bool lowStimulationMode;
   final void Function(bool hovering) onHoverChanged;
   final void Function(String pieceKey) onDrop;
 
@@ -444,8 +524,8 @@ class _DragLevelBoard extends StatelessWidget {
         child: Stack(
           children: [
             Positioned(
-              left: 108,
-              top: 2,
+              left: 78,
+              top: 0,
               child: DragTarget<String>(
                 onWillAcceptWithDetails: (details) {
                   onHoverChanged(true);
@@ -459,21 +539,35 @@ class _DragLevelBoard extends StatelessWidget {
                 builder: (context, candidateData, rejectedData) {
                   return AnimatedContainer(
                     duration: const Duration(milliseconds: 120),
-                    width: 120,
-                    height: 120,
+                    width: 178,
+                    height: 136,
                     decoration: BoxDecoration(
                       color: targetHovering
                           ? const Color(0x1F4FC3F7)
                           : Colors.transparent,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(22),
                       border: Border.all(
                         color: targetHovering
                             ? const Color(0xFF4EA9E3)
-                            : Colors.transparent,
-                        width: 2,
+                            : const Color(0x334EA9E3),
+                        width: targetHovering ? 3 : 1.5,
                       ),
                     ),
-                    child: Center(child: _DragPieceView(piece: level.target)),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Opacity(
+                          opacity: 0.16,
+                          child: Transform.scale(
+                            scale: 1.18,
+                            child: _DragPieceView(
+                              piece: level.target.copyWithGuideColor(),
+                            ),
+                          ),
+                        ),
+                        _DragPieceView(piece: level.target),
+                      ],
+                    ),
                   );
                 },
               ),
@@ -487,7 +581,7 @@ class _DragLevelBoard extends StatelessWidget {
                   feedback: Material(
                     color: Colors.transparent,
                     child: Transform.scale(
-                      scale: 1.04,
+                      scale: lowStimulationMode ? 1.0 : 1.04,
                       child: _DragPieceView(piece: piece),
                     ),
                   ),
@@ -512,27 +606,51 @@ class _DragPieceView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final displayColor = piece.color == Colors.black
+        ? _outlineColorForKey(piece.key)
+        : piece.color;
     switch (piece.kind) {
       case _DragPieceKind.icon:
-        return Icon(piece.icon!, size: 86, color: piece.color);
+        return Icon(piece.icon!, size: 86, color: displayColor);
       case _DragPieceKind.number:
         return Text(
           piece.numberText!,
           style: TextStyle(
             fontSize: 72,
             fontWeight: FontWeight.w700,
-            color: piece.color,
+            color: displayColor,
           ),
         );
       case _DragPieceKind.numberOutline:
         return _OutlinedText(
           value: piece.numberText!,
           fontSize: 76,
-          strokeColor: Colors.black,
+          strokeColor: displayColor,
           fillColor: Colors.white,
           strokeWidth: 2.3,
         );
     }
+  }
+
+  Color _outlineColorForKey(String key) {
+    return switch (key) {
+      'circle' => const Color(0xFFF14D4D),
+      'triangle' => const Color(0xFF5DAA2A),
+      'rectangle' => const Color(0xFFFF0E8A),
+      'star' => const Color(0xFFE9B126),
+      'heart' => const Color(0xFFE36BA7),
+      'sun' => const Color(0xFFFFB300),
+      'cloud' => const Color(0xFF7BA7C9),
+      'moon' => const Color(0xFF7E8BEA),
+      'rain' => const Color(0xFF4EA9E3),
+      'flower' => const Color(0xFFDD6B9A),
+      '1' => const Color(0xFF59B086),
+      '2' => const Color(0xFFF58436),
+      '3' => const Color(0xFFF7746A),
+      '5' => const Color(0xFFE9B126),
+      '9' => const Color(0xFFEF5755),
+      _ => Colors.black87,
+    };
   }
 }
 
@@ -614,10 +732,7 @@ class _DragPiece {
   final String? numberText;
   final Color color;
 
-  _DragPiece copyWith({
-    double? left,
-    double? top,
-  }) {
+  _DragPiece copyWith({double? left, double? top, Color? color}) {
     return _DragPiece(
       key: key,
       kind: kind,
@@ -625,8 +740,11 @@ class _DragPiece {
       top: top ?? this.top,
       icon: icon,
       numberText: numberText,
-      color: color,
+      color: color ?? this.color,
     );
   }
-}
 
+  _DragPiece copyWithGuideColor() {
+    return copyWith(color: color.withValues(alpha: 0.75));
+  }
+}
