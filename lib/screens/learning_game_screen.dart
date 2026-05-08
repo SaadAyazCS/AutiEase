@@ -1233,6 +1233,7 @@ class _LearningGameScreenState extends State<LearningGameScreen> {
         itemId: widget.module.id,
         moduleId: widget.module.id,
         score: _earnedPoints,
+        metadata: {'source': _isFocusGame ? 'focus_game' : 'learning_game'},
       );
       _savedCompletion = true;
     } finally {

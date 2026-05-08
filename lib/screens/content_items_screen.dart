@@ -355,7 +355,7 @@ class _CommunicationSentenceSheetState
         );
         await AppRepositories.planner.recordActivityCompletion(
           childId: widget.childId,
-          itemId: sentence.id,
+          itemId: widget.item.id,
           moduleId: widget.board.id,
           score: 1,
           metadata: {

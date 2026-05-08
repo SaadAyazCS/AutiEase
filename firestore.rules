@@ -144,5 +144,14 @@ service cloud.firestore {
       allow read: if false;
       allow delete: if signedIn() && resource.data.userId == request.auth.uid;
     }
+
+    match /learning_metrics/{metricId} {
+      // Parents can create gameplay metrics for their own children's sessions.
+      allow create: if isParent();
+      // Therapists can read metrics for analysis.
+      allow read: if isTherapist();
+      allow delete: if isParent() &&
+        get(/databases/$(database)/documents/child_profiles/$(resource.data.childId)).data.parentId == request.auth.uid;
+    }
   }
 }

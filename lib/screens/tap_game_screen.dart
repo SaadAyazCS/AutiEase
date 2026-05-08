@@ -438,6 +438,7 @@ class _TapGameScreenState extends State<TapGameScreen> {
         itemId: '${widget.module.id}-level-$levelNumber',
         moduleId: widget.module.id,
         score: levelNumber * 100,
+        metadata: const {'source': 'tap_game'},
       );
       _recordedLevelNumbers.add(levelNumber);
     } finally {

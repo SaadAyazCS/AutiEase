@@ -804,6 +804,10 @@ class FirebasePlannerRepository implements PlannerRepository {
     final assignedTemplates = await _fetchActivityTemplates(
       assignment?.assignedActivityTemplateIds ?? const <String>[],
     );
+    final customActivities =
+        assignment?.customDailyActivities ?? const <CustomDailyActivity>[];
+    final totalDailyActivitiesAssigned =
+        assignedTemplates.length + customActivities.length;
 
     return _calculator.build(
       childId: childId,
@@ -811,6 +815,8 @@ class FirebasePlannerRepository implements PlannerRepository {
       moodLogs: moodLogs,
       assignedModules: assignedModules,
       assignedTemplates: assignedTemplates,
+      customActivities: customActivities,
+      totalDailyActivitiesAssigned: totalDailyActivitiesAssigned,
     );
   }
 

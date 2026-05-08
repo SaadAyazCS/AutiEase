@@ -347,6 +347,7 @@ class _DragGameScreenState extends State<DragGameScreen> {
         itemId: widget.module.id,
         moduleId: widget.module.id,
         score: _earnedPoints,
+        metadata: const {'source': 'drag_game'},
       );
       _savedCompletion = true;
     } finally {

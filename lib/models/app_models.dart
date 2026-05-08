@@ -651,6 +651,10 @@ class DashboardMetrics {
     required this.weeklyReport,
     required this.monthlyReport,
     required this.generatedAt,
+    this.streakDays = 0,
+    this.dailyActivitiesToday = 0,
+    this.dailyActivitiesTotal = 0,
+    this.communicationTapsThisWeek = 0,
   });
 
   final String childId;
@@ -666,6 +670,18 @@ class DashboardMetrics {
   final DashboardReport weeklyReport;
   final DashboardReport monthlyReport;
   final DateTime generatedAt;
+
+  /// Number of consecutive days (ending today) that had at least one completed activity.
+  final int streakDays;
+
+  /// Number of daily activities completed today.
+  final int dailyActivitiesToday;
+
+  /// Total number of daily activities assigned (template + custom).
+  final int dailyActivitiesTotal;
+
+  /// Number of distinct communication vocabulary items spoken this week.
+  final int communicationTapsThisWeek;
 
   factory DashboardMetrics.empty(String childId) {
     const emptySections = <DashboardReportSection>[
@@ -699,6 +715,10 @@ class DashboardMetrics {
       movePlayProgress: 0,
       talkExpressProgress: 0,
       focusGamesProgress: 0,
+      streakDays: 0,
+      dailyActivitiesToday: 0,
+      dailyActivitiesTotal: 0,
+      communicationTapsThisWeek: 0,
       weeklyReport: const DashboardReport(
         title: 'Weekly Progress Report',
         dateLabel: '',
