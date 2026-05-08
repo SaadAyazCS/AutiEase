@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
@@ -637,6 +639,54 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                               }
                               final isMine =
                                   message.senderRole == widget.senderRole;
+                                  
+                              Widget contentWidget;
+                              if (message.messageType == 'report' && message.attachments.isNotEmpty) {
+                                contentWidget = Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      message.body,
+                                      style: TextStyle(
+                                        color: isMine ? Colors.white : Colors.black87,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        try {
+                                          final bytes = base64Decode(message.attachments.first);
+                                          Printing.sharePdf(bytes: bytes, filename: 'AutiEase_Report.pdf');
+                                        } catch (e) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text('Could not open PDF: $e')),
+                                          );
+                                        }
+                                      },
+                                      icon: const Icon(Icons.picture_as_pdf, color: Colors.white),
+                                      label: const Text('Open PDF Report', style: TextStyle(color: Colors.white)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: isMine ? Colors.white.withValues(alpha: 0.25) : AppColors.primaryBlue,
+                                        elevation: 0,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              } else {
+                                contentWidget = Text(
+                                  message.body,
+                                  style: TextStyle(
+                                    color: isMine ? Colors.white : Colors.black87,
+                                    fontSize: 15,
+                                  ),
+                                );
+                              }
+                                  
                               return Align(
                                 alignment: isMine
                                     ? Alignment.centerRight
@@ -655,14 +705,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                                         : const Color(0xFFF1F5F9),
                                     borderRadius: BorderRadius.circular(18),
                                   ),
-                                  child: Text(
-                                    message.body,
-                                    style: TextStyle(
-                                      color: isMine
-                                          ? Colors.white
-                                          : Colors.black87,
-                                    ),
-                                  ),
+                                  child: contentWidget,
                                 ),
                               );
                             },

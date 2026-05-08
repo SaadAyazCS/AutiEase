@@ -107,6 +107,8 @@ abstract class SupportRepository {
     required String threadId,
     required String senderRole,
     required String body,
+    List<String> attachments = const <String>[],
+    String messageType = 'text',
   });
   Future<void> requestEmergency({
     required String threadId,
@@ -1118,6 +1120,8 @@ class FirebaseSupportRepository implements SupportRepository {
     required String threadId,
     required String senderRole,
     required String body,
+    List<String> attachments = const <String>[],
+    String messageType = 'text',
   }) async {
     final senderId = _auth.currentUser?.uid;
     if (senderId == null) {
@@ -1131,8 +1135,8 @@ class FirebaseSupportRepository implements SupportRepository {
           'senderId': senderId,
           'senderRole': senderRole,
           'body': body,
-          'attachments': const <String>[],
-          'messageType': 'text',
+          'attachments': attachments,
+          'messageType': messageType,
           'deliveryStatus': 'sent',
           'sentAt': FieldValue.serverTimestamp(),
         });
@@ -1142,9 +1146,11 @@ class FirebaseSupportRepository implements SupportRepository {
         .doc(threadId)
         .set({
           'lastMessageAt': FieldValue.serverTimestamp(),
-          'lastMessagePreview': body.length <= 120
-              ? body
-              : '${body.substring(0, 117)}...',
+          'lastMessagePreview': messageType == 'report' 
+              ? '📄 PDF Report Shared'
+              : body.length <= 120
+                  ? body
+                  : '${body.substring(0, 117)}...',
         }, SetOptions(merge: true));
   }
 

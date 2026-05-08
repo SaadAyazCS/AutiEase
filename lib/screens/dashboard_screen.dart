@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -873,10 +874,17 @@ class _ReportDetailScreenState extends State<_ReportDetailScreen> {
           ? subscription.id
           : 'local-bypass',
     );
+    
+    // Generate the PDF bytes
+    final bytes = await _buildPdfBytes(widget.report);
+    final base64Pdf = base64Encode(bytes);
+    
     await AppRepositories.support.sendMessage(
       threadId: thread.id,
       senderRole: 'parent',
       body: _buildShareMessage(widget.report),
+      attachments: [base64Pdf],
+      messageType: 'report',
     );
   }
 
