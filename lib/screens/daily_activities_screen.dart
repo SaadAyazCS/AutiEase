@@ -21,6 +21,7 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
   Set<String> _completedIds = const <String>{};
   final Set<String> _savingIds = <String>{};
   bool _loading = true;
+  bool _allDoneDialogShown = false;
 
   @override
   void initState() {
@@ -100,13 +101,20 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
             )
             .toList();
 
+    final assignedActivities = <_AssignedActivity>[
+      ...customActivities,
+      ...templateActivities,
+    ];
+
     setState(() {
-      _activities = <_AssignedActivity>[
-        ...customActivities,
-        ...templateActivities,
-      ];
+      _activities = assignedActivities;
       _completedIds = completedToday;
       _loading = false;
+      _allDoneDialogShown =
+          assignedActivities.isNotEmpty &&
+          assignedActivities.every(
+            (activity) => completedToday.contains(activity.id),
+          );
     });
   }
 
@@ -115,6 +123,7 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
     if (!nowCompleted || _savingIds.contains(activity.id)) {
       return;
     }
+    final wasAllComplete = _allActivitiesComplete();
 
     setState(() {
       _completedIds = {..._completedIds, activity.id};
@@ -127,6 +136,14 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
         moduleId: activity.id,
         score: 1,
       );
+      if (!wasAllComplete &&
+          _allActivitiesComplete() &&
+          _savingIds.length == 1 &&
+          !_allDoneDialogShown &&
+          mounted) {
+        _allDoneDialogShown = true;
+        await _showAllDoneDialog();
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -134,6 +151,45 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
         });
       }
     }
+  }
+
+  bool _allActivitiesComplete() {
+    return _activities.isNotEmpty &&
+        _activities.every((activity) => _completedIds.contains(activity.id));
+  }
+
+  Future<void> _showAllDoneDialog() {
+    return showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          title: const Row(
+            children: [
+              Icon(
+                Icons.celebration_rounded,
+                color: Color(0xFF18A74E),
+                size: 30,
+              ),
+              SizedBox(width: 10),
+              Expanded(child: Text('Great job!')),
+            ],
+          ),
+          content: const Text(
+            'You completed all your daily activities today. You worked hard, stayed focused, and you should feel very proud!',
+            style: TextStyle(height: 1.35),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Yay!'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
