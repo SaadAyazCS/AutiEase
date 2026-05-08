@@ -1028,13 +1028,24 @@ class FirebaseService {
   /// Deletes parent-owned Firestore data, the user document, then the Firebase Auth user,
   /// using the same recovery steps as the therapist account deletion flow.
   Future<Map<String, dynamic>> deleteParentAccount() async {
-    final uid = _auth.currentUser?.uid;
-    if (uid == null) {
+    final currentUser = _auth.currentUser;
+    final uid = currentUser?.uid;
+    if (uid == null || currentUser == null) {
       return {
         'firestoreDeleted': false,
         'authDeleted': false,
         'authError': '',
         'message': 'No authenticated user found.',
+      };
+    }
+
+    final lastSignIn = currentUser.metadata.lastSignInTime;
+    if (lastSignIn != null && DateTime.now().difference(lastSignIn).inMinutes > 5) {
+      return {
+        'firestoreDeleted': false,
+        'authDeleted': false,
+        'authError': 'requires-recent-login',
+        'message': 'For security, please sign out and sign back in before deleting your account.',
       };
     }
 
@@ -1050,17 +1061,13 @@ class FirebaseService {
     var authError = '';
 
     try {
-      final currentUser = _auth.currentUser;
-      if (currentUser != null) {
-        await currentUser.delete();
-        authDeleted = true;
-      }
+      await currentUser.delete();
+      authDeleted = true;
     } catch (authError1) {
       authError = authError1.toString();
 
       try {
-        final currentUser = _auth.currentUser;
-        if (currentUser != null && currentUser.email != null) {
+        if (currentUser.email != null) {
           throw Exception('Re-auth not possible without password');
         }
       } catch (_) {
@@ -1080,7 +1087,7 @@ class FirebaseService {
             });
             authDeleted = true;
           } catch (disableError) {
-            authError = disableError.toString();
+            // Preserve the original authError
           }
         }
       }

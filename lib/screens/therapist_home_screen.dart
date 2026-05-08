@@ -3430,8 +3430,22 @@ class _TherapistProfileSettingsScreenState
   }
 
   Future<void> _deleteAccount() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+    final uid = currentUser.uid;
+
+    final lastSignIn = currentUser.metadata.lastSignInTime;
+    if (lastSignIn != null && DateTime.now().difference(lastSignIn).inMinutes > 5) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('For security, please sign out and sign back in before deleting your account.'),
+          backgroundColor: Color(0xFFFF4D4D),
+          duration: Duration(seconds: 5),
+        ),
+      );
+      return;
+    }
 
     try {
       // First try to delete Firestore documents while we still have auth context
@@ -3466,14 +3480,17 @@ class _TherapistProfileSettingsScreenState
           // This is not critical for account deletion
         }
         
-        // Mark therapist as inactive in any global listings
+        // Delete any feedback submitted by the therapist
         try {
-          await FirebaseFirestore.instance
-              .collection('activeTherapists')
-              .doc(uid)
-              .delete();
+          final feedbackSnap = await FirebaseFirestore.instance
+              .collection(FirestoreCollections.feedback)
+              .where('userId', isEqualTo: uid)
+              .get();
+          for (final f in feedbackSnap.docs) {
+            await f.reference.delete();
+          }
         } catch (e) {
-          // This collection might not exist, which is fine
+          // Non-critical
         }
         
         firestoreDeleted = true;
@@ -3549,7 +3566,7 @@ class _TherapistProfileSettingsScreenState
               
               authDeleted = true; // Mark as disabled
             } catch (disableError) {
-              authError = disableError.toString();
+              // Preserve the original authError
             }
           }
         }

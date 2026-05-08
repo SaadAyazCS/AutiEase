@@ -48,6 +48,7 @@ service cloud.firestore {
     match /therapist_profiles/{therapistId} {
       allow read: if signedIn();
       allow create, update: if isTherapist() && request.auth.uid == therapistId;
+      allow delete: if signedIn() && request.auth.uid == therapistId;
     }
 
     match /content_categories/{document=**} {
