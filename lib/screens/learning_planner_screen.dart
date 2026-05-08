@@ -8,8 +8,6 @@ import '../utils/duration_utils.dart';
 import '../utils/parent_support_areas.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
-import 'communication_info_screen.dart';
-import 'learning_play_info_screen.dart';
 
 class LearningPlannerScreen extends StatefulWidget {
   const LearningPlannerScreen({super.key});
@@ -700,6 +698,27 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen>
     };
   }
 
+  void _showPlannerInfoDialog({
+    required String title,
+    required String message,
+  }) {
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   VoidCallback get _onBack {
     return () {
       if (_view == _PlannerView.home) {
@@ -718,11 +737,10 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen>
       case _PlannerView.communication:
         return IconButton(
           onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const CommunicationInfoScreen(),
-              ),
+            _showPlannerInfoDialog(
+              title: 'Communication',
+              message:
+                  'Helps with expression, requests, and social interaction.',
             );
           },
           icon: const Icon(Icons.info_outline, color: Color(0xFF0F1E38)),
@@ -730,9 +748,10 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen>
       case _PlannerView.learn:
         return IconButton(
           onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const LearningPlayInfoScreen()),
+            _showPlannerInfoDialog(
+              title: 'Learning & Play',
+              message:
+                  'Includes attention games, tracing, speak & learn, and focus activities.',
             );
           },
           icon: const Icon(Icons.info_outline, color: Color(0xFF0F1E38)),
@@ -1513,9 +1532,7 @@ class _PlannerHomeCard extends StatelessWidget {
                               children: [
                                 DecoratedBox(
                                   decoration: BoxDecoration(
-                                    color: Colors.black.withValues(
-                                      alpha: 0.1,
-                                    ),
+                                    color: Colors.black.withValues(alpha: 0.1),
                                   ),
                                   child: const SizedBox.expand(),
                                 ),
@@ -1532,8 +1549,9 @@ class _PlannerHomeCard extends StatelessWidget {
                                         shape: BoxShape.circle,
                                         boxShadow: [
                                           BoxShadow(
-                                            color:
-                                                Colors.black.withValues(alpha: 0.12),
+                                            color: Colors.black.withValues(
+                                              alpha: 0.12,
+                                            ),
                                             blurRadius: 10,
                                             offset: const Offset(0, 4),
                                           ),

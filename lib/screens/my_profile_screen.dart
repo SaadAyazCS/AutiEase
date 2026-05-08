@@ -4,8 +4,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../services/firebase_service.dart';
+import '../services/play_preferences_service.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
+import 'communication_info_screen.dart';
+import 'learning_play_info_screen.dart';
 
 enum _ProfileTab { parent, child }
 
@@ -22,11 +25,11 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _childNameController = TextEditingController();
-  final _savedPasswordDisplay = TextEditingController(
-    text: '************',
-  );
+  final _savedPasswordDisplay = TextEditingController(text: '************');
   final _newPasswordController = TextEditingController();
   final FirebaseService _firebaseService = FirebaseService();
+  final PlayPreferencesService _playPreferencesService =
+      const PlayPreferencesService();
 
   bool _communicationEnabled = false;
   bool _learningEnabled = false;
@@ -35,6 +38,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   bool _obscureNewPassword = true;
   UserProfile? _profile;
   ChildProfile? _child;
+  PlayPreferences _playPreferences = PlayPreferences.defaults;
   String? _loadError;
   _ProfileTab _activeTab = _ProfileTab.parent;
 
@@ -60,6 +64,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         _lastNameController.text = _profile!.lastName;
         _emailController.text = _profile!.email;
         _phoneController.text = _profile!.phone;
+        _playPreferences = PlayPreferences.fromMap(_profile!.playSettings);
       }
       if (_child != null) {
         _childNameController.text = _child!.name;
@@ -96,9 +101,9 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
             if (!mounted) {
               return;
             }
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(passwordError)),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(passwordError)));
             return;
           }
         }
@@ -129,7 +134,11 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
               return;
             }
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(result['message']?.toString() ?? 'Failed to update password.')),
+              SnackBar(
+                content: Text(
+                  result['message']?.toString() ?? 'Failed to update password.',
+                ),
+              ),
             );
             return;
           }
@@ -184,6 +193,123 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         setState(() => _isSaving = false);
       }
     }
+  }
+
+  Future<void> _showPlayPreferencesDialog() async {
+    var draft = _playPreferences;
+    final saved = await showDialog<PlayPreferences>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text(
+                'Learning game preferences',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+              ),
+              content: SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 360),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Choose how challenging the learning games should be.',
+                        style: TextStyle(fontSize: 14, height: 1.35),
+                      ),
+                      const SizedBox(height: 14),
+                      for (final difficulty in ParentDifficulty.values) ...[
+                        _DifficultyChoiceTile(
+                          difficulty: difficulty,
+                          selected: draft.difficulty == difficulty,
+                          onTap: () {
+                            setDialogState(() {
+                              draft = draft.copyWith(difficulty: difficulty);
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF4F8FB),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFD4DCE5)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Low stimulation mode',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF1F2C45),
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Calmer transitions, fewer moving objects, and lighter celebrations.',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      height: 1.3,
+                                      color: Color(0xFF556070),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Switch(
+                              value: draft.lowStimulationMode,
+                              onChanged: (value) {
+                                setDialogState(() {
+                                  draft = draft.copyWith(
+                                    lowStimulationMode: value,
+                                  );
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, draft),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (saved == null) {
+      return;
+    }
+    await _playPreferencesService.save(saved);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _playPreferences = saved);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Learning game preferences saved.')),
+    );
   }
 
   @override
@@ -363,9 +489,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         trailing: IconButton(
           onPressed: _toggleParentSavedPasswordVisibility,
           icon: Icon(
-            _revealSavedPassword
-                ? Icons.visibility_off
-                : Icons.visibility,
+            _revealSavedPassword ? Icons.visibility_off : Icons.visibility,
             color: const Color(0xFF556070),
           ),
         ),
@@ -405,7 +529,6 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           onToggle: () => setState(() {
             _communicationEnabled = !_communicationEnabled;
           }),
-          message: 'Helps with expression, requests, and social interaction.',
         ),
         const SizedBox(height: 8),
         _supportAreaTile(
@@ -414,10 +537,67 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           onToggle: () => setState(() {
             _learningEnabled = !_learningEnabled;
           }),
-          message:
-              'Includes attention games, tracing, speak & learn, and focus activities.',
         ),
+        const SizedBox(height: 12),
+        _learningGamePreferencesTile(),
       ],
+    );
+  }
+
+  Widget _learningGamePreferencesTile() {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _showPlayPreferencesDialog,
+        borderRadius: BorderRadius.circular(10),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF7FBFE),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFD4DCE5)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.tune_rounded, color: Color(0xFF2A456F)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Learning game preferences',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF2A456F),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${_playPreferences.difficulty.label}'
+                      '${_playPreferences.lowStimulationMode ? ' • Low stimulation' : ''}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF556070),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -425,7 +605,6 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     required String label,
     required bool selected,
     required VoidCallback onToggle,
-    required String message,
   }) {
     return Material(
       color: Colors.transparent,
@@ -465,20 +644,13 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
               InkWell(
                 borderRadius: BorderRadius.circular(999),
                 onTap: () {
-                  showDialog<void>(
-                    context: context,
-                    builder: (context) {
-                      return AlertDialog(
-                        title: Text(label),
-                        content: Text(message),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('Close'),
-                          ),
-                        ],
-                      );
-                    },
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => label == 'Communication'
+                          ? const CommunicationInfoScreen()
+                          : const LearningPlayInfoScreen(),
+                    ),
                   );
                 },
                 child: const Padding(
@@ -559,6 +731,90 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       return 'Password must contain at least one number for strong password';
     }
     return '';
+  }
+}
+
+class _DifficultyChoiceTile extends StatelessWidget {
+  const _DifficultyChoiceTile({
+    required this.difficulty,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final ParentDifficulty difficulty;
+  final bool selected;
+  final VoidCallback onTap;
+
+  String get _description {
+    return switch (difficulty) {
+      ParentDifficulty.easy => 'Fewer choices and shorter hold games.',
+      ParentDifficulty.normal => 'Balanced object count and challenge.',
+      ParentDifficulty.challenge =>
+        'More choices, distractors, and longer hold games.',
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFFEAF6FF) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFF4EA9E3)
+                  : const Color(0xFFD4DCE5),
+              width: selected ? 1.6 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                color: selected
+                    ? const Color(0xFF187C9A)
+                    : const Color(0xFF7A8495),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      difficulty.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1F2C45),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _description,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.25,
+                        color: Color(0xFF556070),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

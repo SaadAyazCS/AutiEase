@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../services/firebase_service.dart';
-import '../services/play_preferences_service.dart';
 import '../utils/responsive.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
@@ -22,10 +21,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final FirebaseService _firebaseService = FirebaseService();
-  final PlayPreferencesService _playPreferencesService =
-      const PlayPreferencesService();
   UserProfile? _profile;
-  PlayPreferences _playPreferences = PlayPreferences.defaults;
   bool _isDeleting = false;
 
   @override
@@ -39,89 +35,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) {
       setState(() {
         _profile = profile;
-        _playPreferences = profile == null
-            ? PlayPreferences.defaults
-            : PlayPreferences.fromMap(profile.playSettings);
       });
     }
-  }
-
-  Future<void> _showPlayPreferencesDialog() async {
-    var draft = _playPreferences;
-    final saved = await showDialog<PlayPreferences>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Learning game preferences'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Difficulty controls object count, clutter, distractors, and hold duration.',
-                  ),
-                  const SizedBox(height: 14),
-                  SegmentedButton<ParentDifficulty>(
-                    segments: ParentDifficulty.values
-                        .map(
-                          (difficulty) => ButtonSegment<ParentDifficulty>(
-                            value: difficulty,
-                            label: Text(difficulty.label),
-                          ),
-                        )
-                        .toList(),
-                    selected: {draft.difficulty},
-                    onSelectionChanged: (selection) {
-                      setDialogState(() {
-                        draft = draft.copyWith(difficulty: selection.first);
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 18),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Low stimulation mode'),
-                    subtitle: const Text(
-                      'Uses calmer transitions, fewer moving objects, and lighter celebration effects.',
-                    ),
-                    value: draft.lowStimulationMode,
-                    onChanged: (value) {
-                      setDialogState(() {
-                        draft = draft.copyWith(lowStimulationMode: value);
-                      });
-                    },
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(context, draft),
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (saved == null) {
-      return;
-    }
-    await _playPreferencesService.save(saved);
-    if (!mounted) {
-      return;
-    }
-    setState(() => _playPreferences = saved);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Learning game preferences saved.')),
-    );
   }
 
   Future<void> _logout() async {
@@ -368,24 +283,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                     },
                   ),
-                  if (_isParent)
-                    _SettingsRow(
-                      icon: Icons.tune_rounded,
-                      title:
-                          'Learning games: ${_playPreferences.difficulty.label}',
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_playPreferences.lowStimulationMode)
-                            const Padding(
-                              padding: EdgeInsets.only(right: 6),
-                              child: Icon(Icons.spa_outlined, size: 20),
-                            ),
-                          const Icon(Icons.chevron_right_rounded, size: 24),
-                        ],
-                      ),
-                      onTap: _showPlayPreferencesDialog,
-                    ),
                   _SettingsRow(
                     icon: Icons.feedback_outlined,
                     title: 'Feedback',

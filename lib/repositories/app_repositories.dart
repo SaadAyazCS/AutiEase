@@ -27,6 +27,8 @@ class FirestoreCollections {
   static const settingsEntries = 'settings_entries';
   static const feedback = 'feedback';
   static const learningMetrics = 'learning_metrics';
+  static const communicationSentenceSettings =
+      'communication_sentence_settings';
 }
 
 abstract class AuthRepository {
