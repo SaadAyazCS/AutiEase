@@ -37,7 +37,7 @@ android {
     defaultConfig {
         applicationId = "com.autiease.fyp2026"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 34
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
