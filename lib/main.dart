@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'firebase_options.dart';
 import 'navigation/app_route_observer.dart';
 import 'screens/splash_screen.dart';
@@ -45,7 +46,7 @@ class MyApp extends StatelessWidget {
           seedColor: AppColors.primaryBlue,
           brightness: Brightness.light,
         ),
-        fontFamily: 'Roboto',
+        textTheme: GoogleFonts.nunitoTextTheme(Theme.of(context).textTheme),
         useMaterial3: true,
         scaffoldBackgroundColor: AppColors.skyBlue,
       ),

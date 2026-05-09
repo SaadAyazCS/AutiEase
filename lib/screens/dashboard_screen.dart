@@ -1151,7 +1151,7 @@ class _ReportDetailScreenState extends State<_ReportDetailScreen> {
                 
                 // Recommendations
                 pw.Text(
-                  'Therapist Recommendations',
+                  'General Recommendations',
                   style: pw.TextStyle(
                     fontSize: 18,
                     fontWeight: pw.FontWeight.bold,
@@ -1583,7 +1583,7 @@ class _RecommendationsCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Therapist Recommendations',
+            'General Recommendations',
             style: TextStyle(
               fontSize: 20 / 1.2,
               fontWeight: FontWeight.w500,

@@ -17,9 +17,11 @@ import '../widgets/session_guard.dart';
 import 'about_application_screen.dart';
 import 'login_screen.dart';
 import '../utils/app_colors.dart';
+import '../widgets/bouncing_button.dart';
 import '../widgets/figma_module_scaffold.dart';
 import 'feedback_screen.dart';
 import 'therapist_chat_screen.dart';
+import 'dart:ui';
 
 class TherapistHomeScreen extends StatefulWidget {
   const TherapistHomeScreen({super.key});
@@ -4077,136 +4079,131 @@ class _TherapistSettingsDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      elevation: 0,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const Spacer(),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close, size: 18),
+                Row(
+                  children: [
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded, size: 24, color: Color(0xFF64748B)),
+                      splashRadius: 20,
+                    ),
+                  ],
+                ),
+                const CircleAvatar(
+                  radius: 32,
+                  backgroundColor: Color(0xFF4EA9E3),
+                  child: Icon(Icons.settings_rounded, color: Colors.white, size: 32),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Settings',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Color(0xFF1E293B)),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: BouncingButton(
+                        onTap: onProfile,
+                        child: _setBtn('Profile', const Color(0xFF4EA9E3), Icons.person_rounded),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: BouncingButton(
+                        onTap: onPackage,
+                        child: _setBtn('Package', const Color(0xFFFB923C), Icons.inventory_2_rounded),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: BouncingButton(
+                        onTap: onAlerts,
+                        child: _setBtn('Alerts', const Color(0xFF10B981), Icons.notifications_rounded),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: BouncingButton(
+                        onTap: onFeedback,
+                        child: _setBtn('Feedback', const Color(0xFF8B5CF6), Icons.rate_review_rounded),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: BouncingButton(
+                        onTap: onAbout,
+                        child: _setBtn('About App', const Color(0xFF3B82F6), Icons.info_rounded),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                BouncingButton(
+                  onTap: onLogout,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEF4444),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.logout_rounded, color: Colors.white, size: 20),
+                        SizedBox(width: 8),
+                        Text('Logout', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
-            const CircleAvatar(
-              radius: 23,
-              backgroundColor: Color(0xFF10B6CF),
-              child: Icon(Icons.settings, color: Colors.white),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Settings',
-              style: TextStyle(fontSize: 36 / 1.5, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _setBtn(
-                    'Profile',
-                    const Color(0xFF10B6CF),
-                    Icons.person_outline,
-                    onProfile,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _setBtn(
-                    'Package',
-                    const Color(0xFFFB923C),
-                    Icons.inventory_2_outlined,
-                    onPackage,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _setBtn(
-                    'Alerts',
-                    const Color(0xFF8CC93B),
-                    Icons.notifications_none,
-                    onAlerts,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _setBtn(
-                    'Feedback',
-                    const Color(0xFF8B5CF6),
-                    Icons.feedback_outlined,
-                    onFeedback,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _setBtn(
-                    'About Application',
-                    const Color(0xFF60A5FA),
-                    Icons.info_outline,
-                    onAbout,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: onLogout,
-                icon: const Icon(Icons.logout),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF3040),
-                  foregroundColor: Colors.white,
-                ),
-                label: const Text('Logout'),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
 
-  Widget _setBtn(String title, Color color, IconData icon, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Ink(
-        height: 58,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: Colors.white, size: 16),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                title,
-                maxLines: 2,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
+  Widget _setBtn(String title, Color color, IconData icon) {
+    return Container(
+      height: 58,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: Colors.white, size: 16),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              title,
+              maxLines: 2,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
