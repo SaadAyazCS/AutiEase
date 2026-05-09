@@ -18,6 +18,7 @@ import 'about_application_screen.dart';
 import 'login_screen.dart';
 import '../utils/app_colors.dart';
 import '../widgets/figma_module_scaffold.dart';
+import 'feedback_screen.dart';
 import 'therapist_chat_screen.dart';
 
 class TherapistHomeScreen extends StatefulWidget {
@@ -747,6 +748,13 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
               await _saveNotificationPreferences(updated);
             }
             // Snackbar is shown inside _saveNotificationPreferences.
+          },
+          onFeedback: () async {
+            Navigator.pop(context);
+            await Navigator.push<void>(
+              this.context,
+              MaterialPageRoute(builder: (_) => const FeedbackScreen()),
+            );
           },
           onAbout: () async {
             Navigator.pop(context);
@@ -4054,6 +4062,7 @@ class _TherapistSettingsDialog extends StatelessWidget {
     required this.onProfile,
     required this.onPackage,
     required this.onAlerts,
+    required this.onFeedback,
     required this.onAbout,
     required this.onLogout,
   });
@@ -4061,6 +4070,7 @@ class _TherapistSettingsDialog extends StatelessWidget {
   final VoidCallback onProfile;
   final VoidCallback onPackage;
   final VoidCallback onAlerts;
+  final VoidCallback onFeedback;
   final VoidCallback onAbout;
   final VoidCallback onLogout;
 
@@ -4126,6 +4136,19 @@ class _TherapistSettingsDialog extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
+                Expanded(
+                  child: _setBtn(
+                    'Feedback',
+                    const Color(0xFF8B5CF6),
+                    Icons.feedback_outlined,
+                    onFeedback,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
                 Expanded(
                   child: _setBtn(
                     'About Application',

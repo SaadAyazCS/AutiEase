@@ -13,10 +13,10 @@ class CommunicationInfoScreen extends StatelessWidget {
       onBack: () => Navigator.pop(context),
       child: ListView(
         padding: const EdgeInsets.fromLTRB(8, 6, 8, 170),
-        children: const [
+        children: [
           _InfoCard(
             children: [
-              Text(
+              const Text(
                 'This section helps children who have difficulty expressing their needs or feelings using speech. The app uses pictures and sounds to support communication.',
                 style: TextStyle(
                   fontSize: 16,
@@ -24,8 +24,8 @@ class CommunicationInfoScreen extends StatelessWidget {
                   height: 1.5,
                 ),
               ),
-              SizedBox(height: 10),
-              Text(
+              const SizedBox(height: 10),
+              const Text(
                 'Children can tap images, and the app speaks for them, helping them communicate with parents and caretakers.',
                 style: TextStyle(
                   fontSize: 16,
@@ -33,8 +33,8 @@ class CommunicationInfoScreen extends StatelessWidget {
                   height: 1.5,
                 ),
               ),
-              SizedBox(height: 20),
-              Text(
+              const SizedBox(height: 20),
+              const Text(
                 'Key benefits:',
                 style: TextStyle(
                   fontSize: 16,
@@ -42,20 +42,20 @@ class CommunicationInfoScreen extends StatelessWidget {
                   color: AppColors.darkBlue,
                 ),
               ),
-              SizedBox(height: 8),
-              Text(
+              const SizedBox(height: 8),
+              const Text(
                 '- Helps non-verbal or minimally verbal children',
                 style: TextStyle(fontSize: 15, color: AppColors.textDark),
               ),
-              Text(
+              const Text(
                 '- Improves understanding of words and meanings',
                 style: TextStyle(fontSize: 15, color: AppColors.textDark),
               ),
-              Text(
+              const Text(
                 '- Builds confidence in expressing needs',
                 style: TextStyle(fontSize: 15, color: AppColors.textDark),
               ),
-              Text(
+              const Text(
                 '- Supports early sentence building',
                 style: TextStyle(fontSize: 15, color: AppColors.textDark),
               ),

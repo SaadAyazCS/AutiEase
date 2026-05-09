@@ -6,6 +6,7 @@ import '../repositories/app_repositories.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
 import 'content_items_screen.dart';
+import 'learning_planner_screen.dart';
 
 class CommunicationScreen extends StatelessWidget {
   const CommunicationScreen({super.key, this.childId});
@@ -67,12 +68,29 @@ class CommunicationScreen extends StatelessWidget {
               categories: access.categories,
             );
             if (boards.isEmpty) {
-              return const Center(
+              return Center(
                 child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'No communication topics are selected in Learning Planner yet.',
-                    textAlign: TextAlign.center,
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'No communication topics are selected in Learning Planner yet.',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const LearningPlannerScreen(),
+                            ),
+                          );
+                        },
+                        child: const Text('Open Learning Planner'),
+                      ),
+                    ],
                   ),
                 ),
               );

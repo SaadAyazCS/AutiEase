@@ -100,53 +100,118 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(14, 24, 14, 170),
             children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 2),
-                child: Text(
-                  'We value your feedback! Please share your thoughts to help us improve.',
-                  style: TextStyle(
-                    fontSize: 18 / 1.2,
-                    color: Color(0xFF1E1E1E),
-                    height: 1.5,
-                  ),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4EA9E3).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF4EA9E3).withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF4EA9E3).withValues(alpha: 0.2),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(Icons.rate_review_outlined, color: Color(0xFF4EA9E3), size: 28),
+                    ),
+                    const SizedBox(width: 16),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'We value your input!',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF1E293B),
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Please share your thoughts to help us improve your experience.',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFF64748B),
+                              height: 1.4,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 24),
               _buildLabel('Your Name'),
               _buildField(_nameController),
-              const SizedBox(height: 10),
-              _buildLabel('Email'),
+              const SizedBox(height: 12),
+              _buildLabel('Email Address'),
               _buildField(_emailController),
-              const SizedBox(height: 10),
-              _buildLabel('Write Your Feedback Here'),
+              const SizedBox(height: 12),
+              _buildLabel('Feedback Message'),
               _buildField(_feedbackController, maxLines: 7),
-              const SizedBox(height: 18),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _submitFeedback,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4EA9E3),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 13),
+              const SizedBox(height: 32),
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF4EA9E3).withValues(alpha: 0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
                 ),
-                child: _isLoading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _submitFeedback,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4EA9E3),
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: const Color(0xFFCBD5E1),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.send_rounded, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              'Submit Feedback',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
                         ),
-                      )
-                    : const Text(
-                        'Submit Feedback',
-                        style: TextStyle(
-                          fontSize: 18 / 1.2,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                ),
               ),
             ],
           ),
@@ -156,12 +221,16 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   }
 
   Widget _buildLabel(String text) {
-    return Text(
-      text,
-      style: const TextStyle(
-        fontSize: 32 / 1.5,
-        fontWeight: FontWeight.w700,
-        color: Color(0xFF1E1E1E),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8, top: 12),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF1E293B),
+          letterSpacing: 0.3,
+        ),
       ),
     );
   }
@@ -170,22 +239,38 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFD8DDE7)),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       child: TextField(
         controller: controller,
         maxLines: maxLines,
-        decoration: const InputDecoration(
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        style: const TextStyle(
+          fontSize: 16,
+          color: Color(0xFF0F172A),
+          fontWeight: FontWeight.w500,
+        ),
+        decoration: InputDecoration(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
+          filled: true,
+          fillColor: Colors.transparent,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF4EA9E3), width: 2),
+          ),
         ),
       ),
     );

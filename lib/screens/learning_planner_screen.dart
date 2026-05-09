@@ -740,7 +740,8 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen>
             _showPlannerInfoDialog(
               title: 'Communication',
               message:
-                  'Helps with expression, requests, and social interaction.',
+                  'Helps with expression, requests, and social interaction.\n\n'
+                  'If you want to customize or edit the sentences shown in the Child Profile Communication tab, you can do so by tapping the pencil/edit icon that appears at the top-right corner when the child opens a sentence card.',
             );
           },
           icon: const Icon(Icons.info_outline, color: Color(0xFF0F1E38)),

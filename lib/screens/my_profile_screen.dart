@@ -667,13 +667,14 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
   Widget _buildLabel(String label) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8, top: 12),
+      padding: const EdgeInsets.only(bottom: 8, top: 16),
       child: Text(
         label,
         style: const TextStyle(
-          fontSize: 34 / 1.5,
+          fontSize: 16,
           fontWeight: FontWeight.w700,
-          color: Color(0xFF2A456F),
+          color: Color(0xFF1E293B),
+          letterSpacing: 0.3,
         ),
       ),
     );
@@ -689,15 +690,15 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     final inert = !enabled || readOnly;
     return Container(
       decoration: BoxDecoration(
-        color: inert ? const Color(0xFFF5F5F7) : Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFD9DEE8)),
+        color: inert ? const Color(0xFFF8FAFC) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
+          if (!inert)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
         ],
       ),
       child: TextField(
@@ -705,12 +706,30 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         enabled: enabled,
         readOnly: readOnly,
         obscureText: obscureText,
+        style: TextStyle(
+          fontSize: 16,
+          color: inert ? const Color(0xFF64748B) : const Color(0xFF0F172A),
+          fontWeight: FontWeight.w500,
+        ),
         decoration: InputDecoration(
           contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 12,
+            horizontal: 16,
+            vertical: 16,
           ),
-          border: InputBorder.none,
+          filled: true,
+          fillColor: Colors.transparent,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF4EA9E3), width: 2),
+          ),
+          disabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0), width: 1),
+          ),
           suffixIcon: trailing,
         ),
       ),

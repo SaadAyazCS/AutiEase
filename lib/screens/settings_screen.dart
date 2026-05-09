@@ -350,7 +350,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-class _SettingsRow extends StatelessWidget {
+class _SettingsRow extends StatefulWidget {
   const _SettingsRow({
     required this.icon,
     required this.title,
@@ -358,6 +358,7 @@ class _SettingsRow extends StatelessWidget {
     required this.onTap,
     this.titleColor,
     this.iconColor,
+    this.iconBackgroundColor,
   });
 
   final IconData icon;
@@ -366,37 +367,80 @@ class _SettingsRow extends StatelessWidget {
   final VoidCallback onTap;
   final Color? titleColor;
   final Color? iconColor;
+  final Color? iconBackgroundColor;
+
+  @override
+  State<_SettingsRow> createState() => _SettingsRowState();
+}
+
+class _SettingsRowState extends State<_SettingsRow> {
+  bool _isPressed = false;
 
   @override
   Widget build(BuildContext context) {
     final r = context.responsive;
-    return Padding(
-      padding: EdgeInsets.only(bottom: r.h(8)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(r.w(10)),
-        onTap: onTap,
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: r.w(6), vertical: r.h(8)),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: r.sp(27, min: 20, max: 30),
-                color: iconColor ?? Colors.black87,
+    final primaryColor = widget.iconColor ?? const Color(0xFF4EA9E3);
+    final bgColor = widget.iconBackgroundColor ?? primaryColor.withValues(alpha: 0.1);
+
+    return AnimatedScale(
+      scale: _isPressed ? 0.98 : 1.0,
+      duration: const Duration(milliseconds: 100),
+      child: Padding(
+        padding: EdgeInsets.only(bottom: r.h(12)),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(r.w(16)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
               ),
-              SizedBox(width: r.w(14)),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: r.sp(39 / 1.5, min: 18, max: 29),
-                    fontWeight: FontWeight.w600,
-                    color: titleColor ?? const Color(0xFF101010),
-                  ),
+            ],
+            border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(r.w(16)),
+              onTapDown: (_) => setState(() => _isPressed = true),
+              onTapUp: (_) => setState(() => _isPressed = false),
+              onTapCancel: () => setState(() => _isPressed = false),
+              onTap: widget.onTap,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: r.w(16), vertical: r.h(16)),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(r.w(10)),
+                      decoration: BoxDecoration(
+                        color: bgColor,
+                        borderRadius: BorderRadius.circular(r.w(12)),
+                      ),
+                      child: Icon(
+                        widget.icon,
+                        size: r.sp(24),
+                        color: primaryColor,
+                      ),
+                    ),
+                    SizedBox(width: r.w(16)),
+                    Expanded(
+                      child: Text(
+                        widget.title,
+                        style: TextStyle(
+                          fontSize: r.sp(18),
+                          fontWeight: FontWeight.w600,
+                          color: widget.titleColor ?? const Color(0xFF1E293B),
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ),
+                    widget.trailing,
+                  ],
                 ),
               ),
-              trailing,
-            ],
+            ),
           ),
         ),
       ),
