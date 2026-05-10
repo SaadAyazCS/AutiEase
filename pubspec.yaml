@@ -24,12 +24,18 @@ dependencies:
   cloud_functions: ^5.1.5
   google_sign_in: ^6.2.2
   url_launcher: ^6.3.1
-  http: ^1.3.0
+  http: ^0.13.5
   speech_to_text: ^7.0.0
+  vosk_flutter: ^0.3.48
+  path_provider: ^2.1.2
   file_picker: ^8.1.7
   image_picker: ^1.1.2
   pdf: ^3.11.3
   printing: ^5.14.2
+
+dependency_overrides:
+  http: ^0.13.5
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:
@@ -43,6 +49,7 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/models/vosk-model.zip
 
 flutter_launcher_icons:
   android: true

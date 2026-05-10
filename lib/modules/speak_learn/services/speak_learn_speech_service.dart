@@ -39,11 +39,15 @@ class SpeakLearnSpeechService {
   }
 
   /// Listens until final result, error, or [timeout].
-  /// Shorter defaults help the mic recover quickly between tries.
+  /// Uses longer defaults so children who pause between words are not cut off.
+  /// [onPartialResult] fires with live words so the UI can update in real-time.
   Future<String?> listenOnce({
-    Duration timeout = const Duration(seconds: 8),
-    Duration pauseFor = const Duration(seconds: 2),
+    Duration timeout = const Duration(seconds: 20),
+    void Function(String partial)? onPartialResult,
   }) {
-    return _stt.listenOnce(timeout: timeout, pauseFor: pauseFor);
+    return _stt.listenOnce(
+      timeout: timeout,
+      onPartialResult: onPartialResult,
+    );
   }
 }

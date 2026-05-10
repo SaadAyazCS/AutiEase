@@ -147,6 +147,7 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
       _successTint = false;
       _completionAnalyticsSent = false;
       _liveListenLabel = null;
+      _listening = false;
       _masteredItemIndices.clear();
       _phase = _Phase.practice;
     });
@@ -259,9 +260,15 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
   }
 
   Future<void> _onMic() async {
+    if (_listening) {
+      // If already listening, stop manually
+      await _speech.stopListening();
+      return;
+    }
+
     final item = _current;
     final k = _kind;
-    if (item == null || k == null || _listening) {
+    if (item == null || k == null) {
       return;
     }
     final listenCue = math.Random().nextBool() ? 'Listening…' : 'Hearing you…';
@@ -273,10 +280,18 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
       _heardFeedback = null;
     });
 
-    await _speech.stopListening();
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    // Wait a tiny bit for the UI to update and audio to clear
+    await Future<void>.delayed(const Duration(milliseconds: 300));
 
-    final heard = await _speech.listenOnce();
+    final heard = await _speech.listenOnce(
+      onPartialResult: (partial) {
+        if (mounted) {
+          setState(() {
+            _liveListenLabel = 'Hearing you: $partial';
+          });
+        }
+      },
+    );
 
     if (!mounted) {
       return;
@@ -438,7 +453,9 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
   void _onHubBack() => Navigator.pop(context);
 
   void _onPracticeBack() {
+    unawaited(_speech.stopListening());
     setState(() {
+      _listening = false;
       _phase = _Phase.hub;
       _kind = null;
       _module = null;
@@ -948,24 +965,21 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
                 filled: false,
                 micStyle: true,
                 active: _listening,
-                onTap: _listening ? null : _onMic,
+                onTap: _onMic,
               ),
               const SizedBox(height: 5),
-              if (!_listening)
-                const SizedBox(
-                  width: 72,
-                  child: Text(
-                    'Tap to speak',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF4EA9E3),
-                    ),
+              SizedBox(
+                width: 72,
+                child: Text(
+                  _listening ? 'Tap to stop' : 'Tap to speak',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: _listening ? Colors.redAccent : const Color(0xFF4EA9E3),
                   ),
-                )
-              else
-                const SizedBox(height: 14),
+                ),
+              ),
             ],
           ),
         ),
@@ -1045,20 +1059,17 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
                     filled: true,
                     large: true,
                     active: _listening,
-                    onTap: _listening ? null : _onMic,
+                    onTap: _onMic,
                   ),
                   const SizedBox(height: 6),
-                  if (!_listening)
-                    const Text(
-                      'Tap to speak',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF4EA9E3),
-                      ),
-                    )
-                  else
-                    const SizedBox(height: 16),
+                  Text(
+                    _listening ? 'Tap to stop' : 'Tap to speak',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: _listening ? Colors.redAccent : const Color(0xFF4EA9E3),
+                    ),
+                  ),
                 ],
               ),
             ],

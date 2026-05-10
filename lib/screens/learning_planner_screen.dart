@@ -1471,124 +1471,83 @@ class _PlannerHomeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cardWidth = constraints.maxWidth.clamp(240.0, 330.0).toDouble();
-        return Align(
-          alignment: Alignment.center,
-          child: SizedBox(
-            width: cardWidth,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () {
-                  if (locked) {
-                    showLockedParentSupportAreaDialog(
-                      context,
-                      areaLabel: lockedAreaLabel,
-                    );
-                  } else {
-                    onTap();
-                  }
-                },
-                borderRadius: BorderRadius.circular(14),
-                child: Ink(
-                  height: 124,
-                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Stack(
-                    clipBehavior: Clip.antiAlias,
-                    alignment: Alignment.center,
+    return Center(
+      child: Container(
+        width: 220,
+        height: 140,
+        margin: const EdgeInsets.only(bottom: 24),
+        child: Material(
+          color: color,
+          borderRadius: BorderRadius.circular(28),
+          child: InkWell(
+            onTap: () {
+              if (locked) {
+                showLockedParentSupportAreaDialog(
+                  context,
+                  areaLabel: lockedAreaLabel,
+                );
+              } else {
+                onTap();
+              }
+            },
+            borderRadius: BorderRadius.circular(28),
+            child: Stack(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            title,
-                            style: const TextStyle(
-                              fontSize: 21,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF121D32),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Image.asset(
-                            imagePath,
-                            width: 36,
-                            height: 36,
-                            fit: BoxFit.contain,
-                          ),
-                        ],
-                      ),
-                      if (locked)
-                        Positioned.fill(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(14),
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.1),
-                                  ),
-                                  child: const SizedBox.expand(),
-                                ),
-                                Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.94,
-                                        ),
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withValues(
-                                              alpha: 0.12,
-                                            ),
-                                            blurRadius: 10,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ],
-                                      ),
-                                      child: Icon(
-                                        Icons.lock_rounded,
-                                        size: 28,
-                                        color: Colors.grey.shade800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'Locked',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.black.withValues(
-                                          alpha: 0.55,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
+                      Text(
+                        title,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.black,
                         ),
+                      ),
+                      const SizedBox(height: 12),
+                      Center(
+                        child: Image.asset(
+                          imagePath,
+                          width: 54,
+                          height: 54,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ),
+                if (locked)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.94),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.lock_rounded,
+                            size: 28,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
