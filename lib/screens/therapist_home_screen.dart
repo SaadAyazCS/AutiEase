@@ -21,7 +21,6 @@ import '../widgets/bouncing_button.dart';
 import '../widgets/figma_module_scaffold.dart';
 import 'feedback_screen.dart';
 import 'therapist_chat_screen.dart';
-import 'dart:ui';
 
 class TherapistHomeScreen extends StatefulWidget {
   const TherapistHomeScreen({super.key});
@@ -2378,10 +2377,7 @@ class _TherapistProfileSettingsScreenState
   bool _obscureNewPassword = true;
   final FirebaseService _firebaseService = FirebaseService();
 
-  static const String _savedPasswordMaskedPlaceholder =
-      '************';
-  static const String _savedPasswordRevealMessage =
-      'Your actual password is not displayed on this screen for security. Tap the eye to hide again. Enter a new password below only when you want to change it.';
+
 
   @override
   void initState() {
@@ -2394,8 +2390,7 @@ class _TherapistProfileSettingsScreenState
     _email = TextEditingController(text: widget.initialEmail);
     _phone = TextEditingController(text: widget.initialPhone);
     _newPassword = TextEditingController();
-    _savedPasswordDisplay =
-        TextEditingController(text: _savedPasswordMaskedPlaceholder);
+    _savedPasswordDisplay = TextEditingController();
     _years = TextEditingController(
       text: widget.initialYears > 0 ? widget.initialYears.toString() : '',
     );
@@ -2606,25 +2601,41 @@ class _TherapistProfileSettingsScreenState
       }).where((s) => s.isNotEmpty).toList(growable: false);
 
       if (newPassword.isNotEmpty) {
-        final passwordResult =
-            await _firebaseService.updateCurrentUserPassword(
+        final currentPassword = _savedPasswordDisplay.text.trim();
+        if (currentPassword.isEmpty) {
+          if (!mounted) return;
+          setState(() => _saving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please enter your current password to set a new one.'),
+              backgroundColor: Color(0xFFE74C3C),
+            ),
+          );
+          return;
+        }
+
+        final passwordResult = await _firebaseService.updateCurrentUserPassword(
           newPassword: newPassword,
+          currentPassword: currentPassword,
         );
         if (passwordResult['success'] != true) {
           if (!mounted) {
             return;
           }
+          setState(() => _saving = false);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
                 passwordResult['message']?.toString() ??
                     'Failed to update password.',
               ),
+              backgroundColor: const Color(0xFFE74C3C),
             ),
           );
           return;
         }
         _newPassword.clear();
+        _savedPasswordDisplay.clear();
       }
 
       final updated = TherapistProfile(
@@ -2837,9 +2848,6 @@ class _TherapistProfileSettingsScreenState
   void _toggleSavedPasswordVisibility() {
     setState(() {
       _revealSavedPassword = !_revealSavedPassword;
-      _savedPasswordDisplay.text = _revealSavedPassword
-          ? _savedPasswordRevealMessage
-          : _savedPasswordMaskedPlaceholder;
     });
   }
 
@@ -2872,24 +2880,24 @@ class _TherapistProfileSettingsScreenState
         const SizedBox(height: 4),
         TextField(
           controller: _savedPasswordDisplay,
-          readOnly: true,
           obscureText: !_revealSavedPassword,
           decoration: InputDecoration(
             filled: true,
             fillColor: const Color(0xFFF8FAFC),
             isDense: true,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
+            hintText: 'Enter current password',
+            hintStyle: const TextStyle(fontSize: 13, color: Colors.grey),
             suffixIcon: IconButton(
               onPressed: _toggleSavedPasswordVisibility,
               icon: Icon(
-                _revealSavedPassword
-                    ? Icons.visibility_off
-                    : Icons.visibility,
+                _revealSavedPassword ? Icons.visibility : Icons.visibility_off,
                 color: const Color(0xFF6B7280),
+                size: 20,
               ),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
             ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
@@ -3020,6 +3028,7 @@ class _TherapistProfileSettingsScreenState
               'Credentials & Certifications',
               _credentials,
               lines: 3,
+              subtext: 'Please provide details such as registration/license number, CNIC, or other professional credentials for verification purposes.',
             ),
             const SizedBox(height: 8),
             _input('About You', _about, lines: 4),
@@ -3250,6 +3259,7 @@ class _TherapistProfileSettingsScreenState
                     'Credentials & Certifications',
                     _credentials,
                     lines: 3,
+                    subtext: 'Please provide details such as registration/license number, CNIC, or other professional credentials for verification purposes.',
                   ),
                   const SizedBox(height: 8),
                   _buildCertificateUploadGuidance(),
@@ -3725,6 +3735,7 @@ class _TherapistProfileSettingsScreenState
     bool readOnly = false,
     bool obscureText = false,
     Widget? suffixIcon,
+    String? subtext,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3767,6 +3778,17 @@ class _TherapistProfileSettingsScreenState
             ),
           ),
         ),
+        if (subtext != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            subtext,
+            style: const TextStyle(
+              fontSize: 11,
+              color: Color(0xFF6B7280),
+              height: 1.3,
+            ),
+          ),
+        ],
       ],
     );
   }

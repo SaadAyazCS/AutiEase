@@ -980,6 +980,7 @@ class FirebaseService {
 
   Future<Map<String, dynamic>> updateCurrentUserPassword({
     required String newPassword,
+    String? currentPassword,
   }) async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -990,6 +991,16 @@ class FirebaseService {
     }
 
     try {
+      if (currentPassword != null &&
+          currentPassword.isNotEmpty &&
+          user.email != null) {
+        final credential = EmailAuthProvider.credential(
+          email: user.email!,
+          password: currentPassword,
+        );
+        await user.reauthenticateWithCredential(credential);
+      }
+
       await user.updatePassword(newPassword);
       await _users.doc(user.uid).set({
         'updatedAt': FieldValue.serverTimestamp(),
@@ -997,6 +1008,11 @@ class FirebaseService {
       return {'success': true, 'message': 'Password updated successfully.'};
     } on FirebaseAuthException catch (error) {
       switch (error.code) {
+        case 'wrong-password':
+          return {
+            'success': false,
+            'message': 'The current password you entered is incorrect.',
+          };
         case 'requires-recent-login':
           return {
             'success': false,
@@ -1018,8 +1034,8 @@ class FirebaseService {
             ),
           };
       }
-    } catch (error) {
-      return {'success': false, 'message': error.toString()};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
     }
   }
 

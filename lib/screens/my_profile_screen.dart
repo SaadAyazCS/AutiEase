@@ -25,7 +25,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _childNameController = TextEditingController();
-  final _savedPasswordDisplay = TextEditingController(text: '************');
+  final _savedPasswordDisplay = TextEditingController();
   final _newPasswordController = TextEditingController();
   final FirebaseService _firebaseService = FirebaseService();
   final PlayPreferencesService _playPreferencesService =
@@ -126,23 +126,40 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         }
 
         if (newPassword.isNotEmpty) {
+          final currentPassword = _savedPasswordDisplay.text.trim();
+          if (currentPassword.isEmpty) {
+            if (!mounted) return;
+            setState(() => _isSaving = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Please enter your current password to set a new one.'),
+                backgroundColor: Color(0xFFEF4444),
+              ),
+            );
+            return;
+          }
+
           final result = await _firebaseService.updateCurrentUserPassword(
             newPassword: newPassword,
+            currentPassword: currentPassword,
           );
           if (result['success'] != true) {
             if (!mounted) {
               return;
             }
+            setState(() => _isSaving = false);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
                   result['message']?.toString() ?? 'Failed to update password.',
                 ),
+                backgroundColor: const Color(0xFFEF4444),
               ),
             );
             return;
           }
           _newPasswordController.clear();
+          _savedPasswordDisplay.clear();
         }
       } else if (_child != null) {
         if (!_communicationEnabled && !_learningEnabled) {
@@ -446,8 +463,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     );
   }
 
-  static const String _savedPasswordRevealMessageParent =
-      'Your actual password is not displayed on this screen for security. Tap the eye to hide again. Use the field below only when you want to set a new password.';
+
 
   bool _parentHasEmailPassword() =>
       FirebaseAuth.instance.currentUser?.providerData.any(
@@ -458,9 +474,6 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   void _toggleParentSavedPasswordVisibility() {
     setState(() {
       _revealSavedPassword = !_revealSavedPassword;
-      _savedPasswordDisplay.text = _revealSavedPassword
-          ? _savedPasswordRevealMessageParent
-          : '************';
     });
   }
 
@@ -484,12 +497,12 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     return [
       _buildField(
         _savedPasswordDisplay,
-        readOnly: true,
+        readOnly: false,
         obscureText: !_revealSavedPassword,
         trailing: IconButton(
           onPressed: _toggleParentSavedPasswordVisibility,
           icon: Icon(
-            _revealSavedPassword ? Icons.visibility_off : Icons.visibility,
+            _revealSavedPassword ? Icons.visibility : Icons.visibility_off,
             color: const Color(0xFF556070),
           ),
         ),
