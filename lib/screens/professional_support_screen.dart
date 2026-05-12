@@ -419,7 +419,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 24),
           child: Text(
-            'No therapists available yet. Add therapist profiles in Firestore to continue.',
+            'No therapists available yet. Please check back soon for updates.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Color(0xFF4B5563)),
           ),
