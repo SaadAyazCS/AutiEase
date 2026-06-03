@@ -935,8 +935,7 @@ class _SupportTherapistDetailsScreenState
       return widget.therapist.formattedExperience;
     }
     if (_monthsFromProfile == 0) return '$_yearsFromProfile Years';
-    final decimal = (_yearsFromProfile + _monthsFromProfile / 12.0).toStringAsFixed(1);
-    return '$decimal Years (approx)';
+    return '$_yearsFromProfile.$_monthsFromProfile Years (approx)';
   }
 
   @override

@@ -800,9 +800,7 @@ class TherapistProfile {
   String get formattedExperience {
     if (yearsOfExperience == 0 && experienceMonths == 0) return 'Not set';
     if (experienceMonths == 0) return '$yearsOfExperience Years';
-    final decimal =
-        (yearsOfExperience + experienceMonths / 12.0).toStringAsFixed(1);
-    return '$decimal Years (approx)';
+    return '$yearsOfExperience.$experienceMonths Years (approx)';
   }
 
   factory TherapistProfile.fromMap(String id, Map<String, dynamic> data) {
