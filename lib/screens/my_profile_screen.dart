@@ -7,6 +7,8 @@ import '../services/firebase_service.dart';
 import '../services/play_preferences_service.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
+import '../widgets/phone_input_field.dart';
+import '../widgets/password_input_field.dart';
 import 'communication_info_screen.dart';
 import 'learning_play_info_screen.dart';
 
@@ -41,6 +43,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   PlayPreferences _playPreferences = PlayPreferences.defaults;
   String? _loadError;
   _ProfileTab _activeTab = _ProfileTab.parent;
+  PhoneCountry _selectedPhoneCountry = kSupportedCountries.first;
 
   @override
   void initState() {
@@ -63,7 +66,9 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         _firstNameController.text = _profile!.firstName;
         _lastNameController.text = _profile!.lastName;
         _emailController.text = _profile!.email;
-        _phoneController.text = _profile!.phone;
+        final (parsedCountry, parsedLocalDigits) = parseStoredPhoneNumber(_profile!.phone);
+        _phoneController.text = parsedLocalDigits;
+        _selectedPhoneCountry = parsedCountry;
         _playPreferences = PlayPreferences.fromMap(_profile!.playSettings);
       }
       if (_child != null) {
@@ -108,11 +113,29 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           }
         }
 
+        final fullPhone = buildFullPhoneNumber(_selectedPhoneCountry, _phoneController.text.trim());
+        if (_phoneController.text.trim().isEmpty) {
+          if (!mounted) return;
+          setState(() => _isSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please enter your phone number.')),
+          );
+          return;
+        }
+        if (!_isValidPhoneNumber(fullPhone)) {
+          if (!mounted) return;
+          setState(() => _isSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please enter a valid phone number.')),
+          );
+          return;
+        }
+
         await AppRepositories.users.updateCurrentUser({
           'firstName': firstName,
           'lastName': lastName,
           'fullName': fullName,
-          'phone': _phoneController.text.trim(),
+          'phone': fullPhone,
         });
         final authUser = FirebaseAuth.instance.currentUser;
         if (authUser != null &&
@@ -442,21 +465,28 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         _buildLabel('Email'),
         _buildField(_emailController, readOnly: true),
         _buildLabel('Phone Number'),
-        _buildField(_phoneController),
+        PhoneInputField(
+          localController: _phoneController,
+          initialCountry: _selectedPhoneCountry,
+          onCountryChanged: (country) {
+            setState(() => _selectedPhoneCountry = country);
+          },
+          fieldDecoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
+          ),
+        ),
         _buildLabel('Current password'),
         ..._savedPasswordWidgets(),
         _buildLabel('New password (optional)'),
-        _buildField(
-          _newPasswordController,
-          obscureText: _obscureNewPassword,
-          trailing: IconButton(
-            onPressed: () {
-              setState(() => _obscureNewPassword = !_obscureNewPassword);
-            },
-            icon: Icon(
-              _obscureNewPassword ? Icons.visibility_off : Icons.visibility,
-              color: const Color(0xFF556070),
-            ),
+        PasswordInputField(
+          controller: _newPasswordController,
+          showStrength: true,
+          fieldDecoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
           ),
         ),
       ],
@@ -495,16 +525,13 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     }
 
     return [
-      _buildField(
-        _savedPasswordDisplay,
-        readOnly: false,
-        obscureText: !_revealSavedPassword,
-        trailing: IconButton(
-          onPressed: _toggleParentSavedPasswordVisibility,
-          icon: Icon(
-            _revealSavedPassword ? Icons.visibility : Icons.visibility_off,
-            color: const Color(0xFF556070),
-          ),
+      PasswordInputField(
+        controller: _savedPasswordDisplay,
+        hintText: 'Enter current password',
+        fieldDecoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
         ),
       ),
       const SizedBox(height: 12),
@@ -763,6 +790,13 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       return 'Password must contain at least one number for strong password';
     }
     return '';
+  }
+
+  bool _isValidPhoneNumber(String phone) {
+    final digitsOnly = phone.replaceAll(RegExp(r'[^\d]'), '');
+    if (digitsOnly.length < 10 || digitsOnly.length > 15) return false;
+    final phoneRegex = RegExp(r'^[+]?[\d\s\-()]+$');
+    return phoneRegex.hasMatch(phone);
   }
 }
 
