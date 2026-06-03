@@ -5,6 +5,7 @@ import '../navigation/child_mode_lock_controller.dart';
 import '../navigation/session_navigation.dart';
 import '../repositories/app_repositories.dart';
 import '../screens/child_profile_home_screen.dart';
+import '../screens/parent_home_screen.dart';
 
 enum SessionGuardRole { parent, therapist, authenticated }
 
@@ -79,12 +80,21 @@ class _SessionGuardState extends State<SessionGuard> {
             if (!mounted) {
               return;
             }
-            final target = ChildModeLockController.isLocked
-                ? const ChildProfileHomeScreen()
-                : destinationForSession(session);
-            Navigator.of(
-              context,
-            ).pushAndRemoveUntil(fadeSessionRoute(target), (route) => false);
+            if (isRestricted) {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              } else {
+                Navigator.of(context).pushAndRemoveUntil(
+                  fadeSessionRoute(const ParentHomeScreen(startInChildMode: true)),
+                  (route) => false,
+                );
+              }
+            } else {
+              final target = destinationForSession(session);
+              Navigator.of(
+                context,
+              ).pushAndRemoveUntil(fadeSessionRoute(target), (route) => false);
+            }
           });
         }
 

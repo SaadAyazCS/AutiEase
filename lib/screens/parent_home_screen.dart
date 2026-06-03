@@ -16,7 +16,9 @@ import 'professional_support_screen.dart';
 import 'settings_screen.dart';
 
 class ParentHomeScreen extends StatefulWidget {
-  const ParentHomeScreen({super.key});
+  const ParentHomeScreen({super.key, this.startInChildMode = false});
+
+  final bool startInChildMode;
 
   @override
   State<ParentHomeScreen> createState() => _ParentHomeScreenState();
@@ -32,7 +34,15 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _evaluateParentCoachmark());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _evaluateParentCoachmark();
+      if (widget.startInChildMode && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ChildProfileHomeScreen()),
+        );
+      }
+    });
   }
 
   Future<void> _evaluateParentCoachmark() async {
