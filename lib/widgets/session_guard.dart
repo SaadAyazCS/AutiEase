@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
+import '../navigation/child_mode_lock_controller.dart';
 import '../navigation/session_navigation.dart';
 import '../repositories/app_repositories.dart';
+import '../screens/child_profile_home_screen.dart';
 
 enum SessionGuardRole { parent, therapist, authenticated }
 
@@ -26,6 +28,29 @@ class _SessionGuardState extends State<SessionGuard> {
     _sessionFuture = AppRepositories.auth.resolveSession();
   }
 
+  bool _isRestrictedByChildMode() {
+    if (!ChildModeLockController.isLocked) return false;
+
+    if (widget.role != SessionGuardRole.parent &&
+        widget.role != SessionGuardRole.authenticated) {
+      return false;
+    }
+
+    final childType = widget.child.runtimeType.toString();
+    final restrictedTypes = {
+      'DashboardScreen',
+      'SettingsScreen',
+      'LearningPlannerScreen',
+      'ProfessionalSupportScreen',
+      'MyProfileScreen',
+      'FeedbackScreen',
+      'NotificationsScreen',
+      'AboutApplicationScreen',
+    };
+
+    return restrictedTypes.contains(childType);
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<AppSession>(
@@ -41,7 +66,10 @@ class _SessionGuardState extends State<SessionGuard> {
             snapshot.data ??
             const AppSession(state: AppSessionState.unauthenticated);
 
-        if (_isAllowed(session)) {
+        final isAllowed = _isAllowed(session);
+        final isRestricted = _isRestrictedByChildMode();
+
+        if (isAllowed && !isRestricted) {
           return widget.child;
         }
 
@@ -51,7 +79,9 @@ class _SessionGuardState extends State<SessionGuard> {
             if (!mounted) {
               return;
             }
-            final target = destinationForSession(session);
+            final target = ChildModeLockController.isLocked
+                ? const ChildProfileHomeScreen()
+                : destinationForSession(session);
             Navigator.of(
               context,
             ).pushAndRemoveUntil(fadeSessionRoute(target), (route) => false);

@@ -90,6 +90,8 @@ class UserProfile {
     this.activeChildId,
     this.createdAt,
     this.updatedAt,
+    this.isChildModeLocked = false,
+    this.childModePin = '',
   });
 
   final String uid;
@@ -107,6 +109,8 @@ class UserProfile {
   final String? activeChildId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final bool isChildModeLocked;
+  final String childModePin;
 
   String get fullName => '$firstName $lastName'.trim();
 
@@ -127,6 +131,8 @@ class UserProfile {
       activeChildId: data['activeChildId']?.toString(),
       createdAt: dateTimeFromFirestore(data['createdAt']),
       updatedAt: dateTimeFromFirestore(data['updatedAt']),
+      isChildModeLocked: data['isChildModeLocked'] == true,
+      childModePin: (data['childModePin'] ?? '').toString(),
     );
   }
 
@@ -148,6 +154,8 @@ class UserProfile {
       'activeChildId': activeChildId,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
+      'isChildModeLocked': isChildModeLocked,
+      'childModePin': childModePin,
     };
   }
 }

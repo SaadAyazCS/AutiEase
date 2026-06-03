@@ -3,8 +3,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
+import '../navigation/child_mode_lock_controller.dart';
 import '../repositories/app_repositories.dart';
 import '../utils/responsive.dart';
+import '../widgets/child_mode_lock_widgets.dart';
 import '../widgets/session_guard.dart';
 import 'child_profile_home_screen.dart';
 import 'dashboard_screen.dart';
@@ -442,28 +444,50 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
                             ),
                           );
                         }
-                        return ListView.separated(
-                          padding: EdgeInsets.fromLTRB(0, r.h(8), 0, r.h(172)),
-                          itemCount: modules.length,
-                          separatorBuilder: (_, __) =>
-                              SizedBox(height: r.h(12)),
-                          itemBuilder: (context, index) {
-                            final module = modules[index];
-                            return Center(
-                              child: _ParentModuleCard(
-                                label: _labelForModule(module),
-                                assetPath: _assetForModule(module),
-                                color: _cardColorForModule(module),
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          _buildScreenForModule(module),
-                                    ),
-                                  );
-                                },
-                              ),
+                        return ValueListenableBuilder<bool>(
+                          valueListenable: ChildModeLockController.isLockedNotifier,
+                          builder: (context, childModeLocked, _) {
+                            return ListView.separated(
+                              padding: EdgeInsets.fromLTRB(0, r.h(8), 0, r.h(172)),
+                              itemCount: modules.length,
+                              separatorBuilder: (_, __) =>
+                                  SizedBox(height: r.h(12)),
+                              itemBuilder: (context, index) {
+                                final module = modules[index];
+                                final isChildProfile = module.routeKey == 'child_profile';
+                                final isLocked = childModeLocked && !isChildProfile;
+
+                                return Center(
+                                  child: _ParentModuleCard(
+                                    label: _labelForModule(module),
+                                    assetPath: _assetForModule(module),
+                                    color: _cardColorForModule(module),
+                                    locked: isLocked,
+                                    onTap: () async {
+                                      if (isLocked) {
+                                        final unlocked = await ChildModeLockWidgets.showUnlockDialog(context);
+                                        if (unlocked && context.mounted) {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  _buildScreenForModule(module),
+                                            ),
+                                          );
+                                        }
+                                      } else {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                _buildScreenForModule(module),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                );
+                              },
                             );
                           },
                         );
@@ -584,12 +608,14 @@ class _ParentModuleCard extends StatelessWidget {
     required this.assetPath,
     required this.color,
     required this.onTap,
+    this.locked = false,
   });
 
   final String label;
   final String assetPath;
   final Color color;
   final VoidCallback onTap;
+  final bool locked;
 
   @override
   Widget build(BuildContext context) {
@@ -603,24 +629,26 @@ class _ParentModuleCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(r.w(16)),
-        child: Ink(
-          width: cardWidth,
-          height: r.h(104),
-          padding: EdgeInsets.fromLTRB(r.w(16), r.h(14), r.w(14), r.h(14)),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(r.w(16)),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: r.sp(25.5, min: 18, max: 28),
-                    fontWeight: FontWeight.w700,
-                    color: Colors.black,
-                    height: 1.15,
+        child: Stack(
+          children: [
+            Ink(
+              width: cardWidth,
+              height: r.h(104),
+              padding: EdgeInsets.fromLTRB(r.w(16), r.h(14), r.w(14), r.h(14)),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(r.w(16)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: r.sp(25.5, min: 18, max: 28),
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black,
+                        height: 1.15,
                   ),
                 ),
               ),
@@ -632,6 +660,31 @@ class _ParentModuleCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+            if (locked)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(r.w(16)),
+                  ),
+                  child: Center(
+                    child: Container(
+                      padding: EdgeInsets.all(r.w(10)),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.lock_rounded,
+                        size: r.sp(24),
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

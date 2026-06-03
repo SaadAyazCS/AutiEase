@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
+import '../navigation/child_mode_lock_controller.dart';
+import '../navigation/session_navigation.dart';
 import '../repositories/app_repositories.dart';
 import '../services/firebase_service.dart';
 import '../utils/responsive.dart';
+import '../widgets/child_mode_lock_widgets.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
 import 'about_application_screen.dart';
+import 'child_profile_home_screen.dart';
 import 'feedback_screen.dart';
 import 'login_screen.dart';
 import 'my_profile_screen.dart';
@@ -28,6 +32,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _loadProfile();
+  }
+
+  Future<void> _toggleChildModeLock(bool targetValue) async {
+    if (targetValue) {
+      if (!ChildModeLockController.hasPin()) {
+        final success = await ChildModeLockWidgets.showSetupDialog(context);
+        if (success && mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            fadeSessionRoute(const ChildProfileHomeScreen()),
+            (route) => false,
+          );
+        }
+      } else {
+        await ChildModeLockController.setLocked(true);
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            fadeSessionRoute(const ChildProfileHomeScreen()),
+            (route) => false,
+          );
+        }
+      }
+    } else {
+      await ChildModeLockWidgets.showUnlockDialog(context);
+    }
   }
 
   Future<void> _loadProfile() async {
@@ -335,6 +363,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           builder: (_) => const MyProfileScreen(),
                         ),
                       );
+                    },
+                  ),
+                  _SettingsRow(
+                    icon: Icons.child_care_rounded,
+                    title: 'Child Mode Lock',
+                    trailing: ValueListenableBuilder<bool>(
+                      valueListenable: ChildModeLockController.isLockedNotifier,
+                      builder: (context, isLocked, _) {
+                        return Switch(
+                          value: isLocked,
+                          onChanged: (value) => _toggleChildModeLock(value),
+                          activeColor: const Color(0xFF4EA9E3),
+                        );
+                      },
+                    ),
+                    onTap: () {
+                      final current = ChildModeLockController.isLocked;
+                      _toggleChildModeLock(!current);
                     },
                   ),
                   _SettingsRow(

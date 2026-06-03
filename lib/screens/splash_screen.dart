@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../navigation/child_mode_lock_controller.dart';
 import '../navigation/session_navigation.dart';
 import '../repositories/app_repositories.dart';
 import '../widgets/custom_widgets.dart';
@@ -39,6 +40,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _bootstrap() async {
     await Future<void>.delayed(const Duration(seconds: 2));
+    await ChildModeLockController.initialize();
     final session = await AppRepositories.auth.resolveSession();
     if (!mounted) {
       return;
