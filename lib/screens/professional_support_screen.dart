@@ -739,9 +739,7 @@ class _TherapistListCard extends StatelessWidget {
                         children: [
                           // Hardcoded rating fallback removed for now.
                           Text(
-                            years > 0
-                                ? '$years years exp'
-                                : 'Experience not set',
+                            therapist.formattedExperience,
                             style: const TextStyle(
                               fontSize: 12.5,
                               color: Color(0xFF6B7280),
@@ -926,10 +924,20 @@ class _SupportTherapistDetailsScreenState
   bool _isSubscribing = false;
   bool _loadingTherapistMeta = true;
   int _yearsFromProfile = 0;
+  int _monthsFromProfile = 0;
   String _credentialsFromProfile = '';
   String? _certificateBase64;
   List<_SupportServicePackage> _packages = const <_SupportServicePackage>[];
   int _activePackageIndex = 0;
+
+  String get _formattedExperience {
+    if (_yearsFromProfile == 0 && _monthsFromProfile == 0) {
+      return widget.therapist.formattedExperience;
+    }
+    if (_monthsFromProfile == 0) return '$_yearsFromProfile Years';
+    final decimal = (_yearsFromProfile + _monthsFromProfile / 12.0).toStringAsFixed(1);
+    return '$decimal Years (approx)';
+  }
 
   @override
   void initState() {
@@ -950,7 +958,8 @@ class _SupportTherapistDetailsScreenState
         return;
       }
       setState(() {
-        _yearsFromProfile = intFrom(data['yearsOfExperience']);
+        _yearsFromProfile = intFrom(data['experience_years'] ?? data['yearsOfExperience']);
+        _monthsFromProfile = intFrom(data['experience_months']);
         _credentialsFromProfile = (data['credentials'] ?? '').toString();
         _certificateBase64 = (data['certificateBase64'] ?? '').toString();
         _packages = parsed;
@@ -1203,9 +1212,7 @@ class _SupportTherapistDetailsScreenState
                         _DetailLine(
                           icon: Icons.access_time_rounded,
                           title: 'Experience',
-                          value: years > 0
-                              ? '$years years of practice'
-                              : 'Experience not set',
+                          value: _formattedExperience,
                         ),
                         const SizedBox(height: 10),
                         _DetailLine(
