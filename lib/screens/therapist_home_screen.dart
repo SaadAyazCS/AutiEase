@@ -394,6 +394,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
             profile: _profile!,
             setupMode: true,
             initialYears: _years,
+            initialMonths: _months,
             initialCredentials: _credentials,
             initialEmail: _contactEmail,
             initialPhone: _contactPhone,
@@ -402,6 +403,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
             onSave: ({
               required profile,
               required years,
+              required months,
               required credentials,
               required contactEmail,
               required contactPhone,
@@ -413,6 +415,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
                 _saveProfileData(
                   profile: profile,
                   years: years,
+                  months: months,
                   credentials: credentials,
                   contactEmail: contactEmail,
                   contactPhone: contactPhone,
@@ -472,6 +475,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
   Future<void> _saveProfileData({
     required TherapistProfile profile,
     required int years,
+    required int months,
     required String credentials,
     required String contactEmail,
     required String contactPhone,
@@ -510,7 +514,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
           : profile.availability,
       photoUrl: profile.photoUrl,
       isActive: profile.isActive,
-      yearsOfExperience: profile.yearsOfExperience,
+      yearsOfExperience: years,
+      experienceMonths: months,
       credentials: profile.credentials,
       photoUrlBase64: profile.photoUrlBase64,
       certificateBase64: profile.certificateBase64,
@@ -553,6 +558,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
             .doc(uid)
             .set({
               'yearsOfExperience': years,
+              'experience_years': years,
+              'experience_months': months,
               'credentials': credentials,
               'contactEmail': contactEmail,
               'contactPhone': contactPhone,
@@ -581,6 +588,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
       setState(() {
         _profile = normalized;
         _years = years;
+        _months = months;
         _credentials = credentials;
         _contactEmail = contactEmail;
         _contactPhone = contactPhone;
@@ -764,6 +772,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
                   profile: _profile!,
                   setupMode: false,
                   initialYears: _years,
+                  initialMonths: _months,
                   initialCredentials: _credentials,
                   initialEmail: _contactEmail,
                   initialPhone: _contactPhone,
@@ -772,6 +781,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
                   onSave: ({
                     required profile,
                     required years,
+                    required months,
                     required credentials,
                     required contactEmail,
                     required contactPhone,
@@ -783,6 +793,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
                       _saveProfileData(
                         profile: profile,
                         years: years,
+                        months: months,
                         credentials: credentials,
                         contactEmail: contactEmail,
                         contactPhone: contactPhone,
@@ -815,6 +826,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
               await _saveProfileData(
                 profile: _profile!,
                 years: _years,
+                months: _months,
                 credentials: _credentials,
                 contactEmail: _contactEmail,
                 contactPhone: _contactPhone,
@@ -957,7 +969,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
     
     // Check if profile is complete for INITIAL SIGNUP before allowing dashboard access
     bool isIncompleteForInitialSignup() {
-      return _years == 0 ||
+      return (_years == 0 && _months == 0 && !_hasCompletedInitialProfile) ||
           _credentials.trim().isEmpty ||
           _contactEmail.trim().isEmpty ||
           _contactPhone.trim().isEmpty ||
@@ -968,7 +980,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
     
     // Check if profile is incomplete for REGULAR SETTINGS (less strict)
     bool isIncompleteForSettings() {
-      return _years == 0 ||
+      return (_years == 0 && _months == 0 && !_hasCompletedInitialProfile) ||
           _credentials.trim().isEmpty ||
           _contactEmail.trim().isEmpty ||
           _contactPhone.trim().isEmpty;
@@ -1224,37 +1236,39 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
               right: 0,
               child: Center(child: _TherapistHomeBadge(size: r.w(124))),
             ),
-            // Info icon in bottom right corner (moved up)
             if (_showInfoIcon)
               Positioned(
                 bottom: r.h(120),
                 right: r.w(20),
-                child: GestureDetector(
-                  onTap: _startInfoFlow,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 500),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFF6B35),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        if (_isGlowing)
+                child: ScaleTransition(
+                  scale: _pulseAnimation,
+                  child: GestureDetector(
+                    onTap: _startInfoFlow,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 500),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF6B35),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          if (_isGlowing)
+                            BoxShadow(
+                              color: const Color(0xFFFF6B35).withValues(alpha: 0.6),
+                              blurRadius: 20,
+                              spreadRadius: 3,
+                            ),
                           BoxShadow(
-                            color: const Color(0xFFFF6B35).withValues(alpha: 0.6),
-                            blurRadius: 20,
-                            spreadRadius: 3,
+                            color: Colors.black.withValues(alpha: 0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
                           ),
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      Icons.info_outline,
-                      color: Colors.white,
-                      size: r.sp(28, min: 24, max: 32),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.info_outline,
+                        color: Colors.white,
+                        size: r.sp(28, min: 24, max: 32),
+                      ),
                     ),
                   ),
                 ),
@@ -1771,11 +1785,13 @@ class TherapistDashboardScreen extends StatefulWidget {
 class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
   late bool _isActive;
   bool _updatingVisibility = false;
+  late TherapistProfile _profile;
 
   @override
   void initState() {
     super.initState();
-    _isActive = widget.profile.isActive;
+    _profile = widget.profile;
+    _isActive = _profile.isActive;
   }
 
   @override
@@ -1783,6 +1799,25 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.profile.isActive != widget.profile.isActive) {
       _isActive = widget.profile.isActive;
+    }
+    if (oldWidget.profile != widget.profile) {
+      _profile = widget.profile;
+    }
+  }
+
+  Future<void> _refreshProfile() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final updatedProfile = await AppRepositories.support.getTherapistById(uid);
+      if (updatedProfile != null && mounted) {
+        setState(() {
+          _profile = updatedProfile;
+          _isActive = updatedProfile.isActive;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error refreshing profile: $e');
     }
   }
 
@@ -1833,7 +1868,7 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final profile = widget.profile;
+    final profile = _profile;
     final specialization = profile.specializations.isEmpty
         ? 'Specialization not set'
         : profile.specializations.first;
@@ -1893,7 +1928,10 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                           ),
                         ),
                         IconButton(
-                          onPressed: widget.onOpenSettings,
+                          onPressed: () async {
+                            await widget.onOpenSettings();
+                            await _refreshProfile();
+                          },
                           icon: const Icon(Icons.menu, color: Color(0xFF1F2937)),
                         ),
                       ],
@@ -1938,9 +1976,9 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                                       ),
                                     ),
                                     Text(
-                                      widget.years > 0
-                                          ? '${widget.years} years exp'
-                                          : 'Experience not set',
+                                      profile.formattedExperience == 'Not set'
+                                          ? 'Experience not set'
+                                          : '${profile.formattedExperience} exp',
                                       style: const TextStyle(
                                         fontSize: 12,
                                         color: Color(0xFF6B7280),
@@ -2346,6 +2384,7 @@ class TherapistProfileSettingsScreen extends StatefulWidget {
     required this.profile,
     required this.setupMode,
     required this.initialYears,
+    required this.initialMonths,
     required this.initialCredentials,
     required this.initialEmail,
     required this.initialPhone,
@@ -2357,6 +2396,7 @@ class TherapistProfileSettingsScreen extends StatefulWidget {
   final TherapistProfile profile;
   final bool setupMode;
   final int initialYears;
+  final int initialMonths;
   final String initialCredentials;
   final String initialEmail;
   final String initialPhone;
@@ -2365,6 +2405,7 @@ class TherapistProfileSettingsScreen extends StatefulWidget {
   final Future<void> Function({
     required TherapistProfile profile,
     required int years,
+    required int months,
     required String credentials,
     required String contactEmail,
     required String contactPhone,
@@ -2389,7 +2430,6 @@ class _TherapistProfileSettingsScreenState
   late final TextEditingController _phone;
   late final TextEditingController _savedPasswordDisplay;
   late final TextEditingController _newPassword;
-  late final TextEditingController _years;
   late final TextEditingController _credentials;
   late final TextEditingController _about;
   late final TextEditingController _otherSpecialization;
@@ -2402,7 +2442,9 @@ class _TherapistProfileSettingsScreenState
   bool _obscureNewPassword = true;
   final FirebaseService _firebaseService = FirebaseService();
 
-
+  late int _selectedYears;
+  late int _selectedMonths;
+  late PhoneCountry _selectedPhoneCountry;
 
   @override
   void initState() {
@@ -2413,12 +2455,17 @@ class _TherapistProfileSettingsScreenState
       text: display.length > 1 ? display.sublist(1).join(' ') : '',
     );
     _email = TextEditingController(text: widget.initialEmail);
-    _phone = TextEditingController(text: widget.initialPhone);
+    
+    final (parsedCountry, parsedLocalDigits) = parseStoredPhoneNumber(widget.initialPhone);
+    _phone = TextEditingController(text: parsedLocalDigits);
+    _selectedPhoneCountry = parsedCountry;
+
     _newPassword = TextEditingController();
     _savedPasswordDisplay = TextEditingController();
-    _years = TextEditingController(
-      text: widget.initialYears > 0 ? widget.initialYears.toString() : '',
-    );
+    
+    _selectedYears = widget.initialYears;
+    _selectedMonths = widget.initialMonths;
+    
     _credentials = TextEditingController(text: widget.initialCredentials);
     _about = TextEditingController(text: widget.profile.bio);
     _certificatePdfName = widget.initialCertificatePdfName;
@@ -2447,7 +2494,6 @@ class _TherapistProfileSettingsScreenState
     _phone.dispose();
     _savedPasswordDisplay.dispose();
     _newPassword.dispose();
-    _years.dispose();
     _credentials.dispose();
     _about.dispose();
     _otherSpecialization.dispose();
@@ -2483,25 +2529,30 @@ class _TherapistProfileSettingsScreenState
       return;
     }
 
-    final phone = _phone.text.trim();
-    if (phone.isEmpty) {
+    final phoneText = _phone.text.trim();
+    if (phoneText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter your phone number before proceeding.')),
       );
       return;
     }
-    if (!_isValidPhoneNumber(phone)) {
+    final fullPhone = buildFullPhoneNumber(_selectedPhoneCountry, phoneText);
+    if (!_isValidPhoneNumber(fullPhone)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid phone number (10-15 digits).')),
       );
       return;
     }
 
-    final yearsStr = _years.text.trim();
-    final years = int.tryParse(yearsStr) ?? 0;
-    if (years < 0 || years > 100) {
+    if (_selectedYears < 0 || _selectedYears > 80) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Years of experience must be between 0 and 100 years.')),
+        const SnackBar(content: Text('Years of experience must be between 0 and 80 years.')),
+      );
+      return;
+    }
+    if (_selectedMonths < 0 || _selectedMonths > 11) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Months of experience must be between 0 and 11 months.')),
       );
       return;
     }
@@ -2582,14 +2633,15 @@ class _TherapistProfileSettingsScreenState
       );
       return;
     }
-    final phone = _phone.text.trim();
-    if (phone.isEmpty) {
+    final phoneText = _phone.text.trim();
+    if (phoneText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter your phone number.')),
       );
       return;
     }
-    if (!_isValidPhoneNumber(phone)) {
+    final fullPhone = buildFullPhoneNumber(_selectedPhoneCountry, phoneText);
+    if (!_isValidPhoneNumber(fullPhone)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please enter a valid phone number (10-15 digits).'),
@@ -2609,11 +2661,15 @@ class _TherapistProfileSettingsScreenState
       }
     }
 
-    final yearsStr = _years.text.trim();
-    final years = int.tryParse(yearsStr) ?? 0;
-    if (years < 0 || years > 100) {
+    if (_selectedYears < 0 || _selectedYears > 80) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Years of experience must be between 0 and 100 years.')),
+        const SnackBar(content: Text('Years of experience must be between 0 and 80 years.')),
+      );
+      return;
+    }
+    if (_selectedMonths < 0 || _selectedMonths > 11) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Months of experience must be between 0 and 11 months.')),
       );
       return;
     }
@@ -2674,7 +2730,8 @@ class _TherapistProfileSettingsScreenState
         availability: widget.profile.availability,
         photoUrl: widget.profile.photoUrl,
         isActive: widget.profile.isActive,
-        yearsOfExperience: years,
+        yearsOfExperience: _selectedYears,
+        experienceMonths: _selectedMonths,
         credentials: _credentials.text.trim(),
         photoUrlBase64: _photoBase64 ?? widget.profile.photoUrlBase64,
         certificateBase64: _certificateTouched
@@ -2684,10 +2741,11 @@ class _TherapistProfileSettingsScreenState
 
       await widget.onSave(
         profile: updated,
-        years: years,
+        years: _selectedYears,
+        months: _selectedMonths,
         credentials: _credentials.text.trim(),
         contactEmail: email,
-        contactPhone: phone,
+        contactPhone: fullPhone,
         packages: packages,
         certificatePdfName: _certificateTouched ? _certificatePdfName : null,
         photoBase64: _photoBase64,
@@ -3043,11 +3101,7 @@ class _TherapistProfileSettingsScreenState
             const SizedBox(height: 8),
             _input('Last Name', _last),
             const SizedBox(height: 8),
-            _input(
-              'Years of Experience',
-              _years,
-              keyboard: TextInputType.number,
-            ),
+            _buildExperiencePicker(),
             const SizedBox(height: 8),
             _input(
               'Credentials & Certifications',
@@ -3230,10 +3284,26 @@ class _TherapistProfileSettingsScreenState
                     readOnly: true,
                   ),
                   const SizedBox(height: 8),
-                  _input(
+                  const Text(
                     'Phone Number',
-                    _phone,
-                    keyboard: TextInputType.phone,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 12,
+                      color: Color(0xFF6B7280),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  PhoneInputField(
+                    localController: _phone,
+                    initialCountry: _selectedPhoneCountry,
+                    onCountryChanged: (country) {
+                      setState(() => _selectedPhoneCountry = country);
+                    },
+                    fieldDecoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
                   ),
                   const SizedBox(height: 8),
                   _buildCurrentPasswordIndicator(),
@@ -3274,11 +3344,7 @@ class _TherapistProfileSettingsScreenState
                     ),
                   ),
                   const SizedBox(height: 10),
-                  _input(
-                    'Years of Experience',
-                    _years,
-                    keyboard: TextInputType.number,
-                  ),
+                  _buildExperiencePicker(),
                   const SizedBox(height: 8),
                   _input(
                     'Credentials & Certifications',
@@ -3869,6 +3935,84 @@ class _TherapistProfileSettingsScreenState
       return 'Password must contain at least one number for strong password';
     }
     return '';
+  }
+
+  Widget _buildExperiencePicker() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Experience',
+          style: TextStyle(
+            fontWeight: FontWeight.w500,
+            fontSize: 12,
+            color: Color(0xFF6B7280),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: _selectedYears,
+                    isExpanded: true,
+                    style: const TextStyle(color: Color(0xFF1F2937), fontSize: 14),
+                    items: List.generate(81, (index) => index)
+                        .map((y) => DropdownMenuItem<int>(
+                              value: y,
+                              child: Text('$y Years'),
+                            ))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() => _selectedYears = val);
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: _selectedMonths,
+                    isExpanded: true,
+                    style: const TextStyle(color: Color(0xFF1F2937), fontSize: 14),
+                    items: List.generate(12, (index) => index)
+                        .map((m) => DropdownMenuItem<int>(
+                              value: m,
+                              child: Text('$m Months'),
+                            ))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() => _selectedMonths = val);
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 }
 
