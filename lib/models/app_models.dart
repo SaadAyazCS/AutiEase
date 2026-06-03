@@ -767,6 +767,7 @@ class TherapistProfile {
     required this.photoUrl,
     required this.isActive,
     this.yearsOfExperience = 0,
+    this.experienceMonths = 0,
     this.credentials = '',
     this.photoUrlBase64 = '',
     this.certificateBase64 = '',
@@ -782,10 +783,27 @@ class TherapistProfile {
   final String availability;
   final String photoUrl;
   final bool isActive;
+  /// Total whole years of experience. Also serves as the legacy field alias.
   final int yearsOfExperience;
+  /// Additional months of experience (0-11).
+  final int experienceMonths;
   final String credentials;
   final String photoUrlBase64;
   final String certificateBase64;
+
+  /// Convenience alias for yearsOfExperience.
+  int get experienceYears => yearsOfExperience;
+
+  /// Human-readable experience string:
+  ///   5 years, 0 months  → "5 Years"
+  ///   5 years, 1 month   → "5.1 Years (approx)"
+  String get formattedExperience {
+    if (yearsOfExperience == 0 && experienceMonths == 0) return 'Not set';
+    if (experienceMonths == 0) return '$yearsOfExperience Years';
+    final decimal =
+        (yearsOfExperience + experienceMonths / 12.0).toStringAsFixed(1);
+    return '$decimal Years (approx)';
+  }
 
   factory TherapistProfile.fromMap(String id, Map<String, dynamic> data) {
     final rawRating = data['rating'];
@@ -800,7 +818,12 @@ class TherapistProfile {
       availability: (data['availability'] ?? '').toString(),
       photoUrl: (data['photoUrl'] ?? '').toString(),
       isActive: data['isActive'] != false,
-      yearsOfExperience: intFrom(data['yearsOfExperience']),
+      // Prefer new separate fields; fall back to the legacy yearsOfExperience
+      // field for backward compatibility with existing Firestore documents.
+      yearsOfExperience: intFrom(
+        data['experience_years'] ?? data['yearsOfExperience'],
+      ),
+      experienceMonths: intFrom(data['experience_months']),
       credentials: (data['credentials'] ?? '').toString(),
       photoUrlBase64: (data['photoUrlBase64'] ?? '').toString(),
       certificateBase64: (data['certificateBase64'] ?? '').toString(),

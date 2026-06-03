@@ -13,6 +13,7 @@ import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../services/firebase_service.dart';
 import '../utils/responsive.dart';
+import '../widgets/phone_input_field.dart';
 import '../widgets/session_guard.dart';
 import 'about_application_screen.dart';
 import 'login_screen.dart';
@@ -29,22 +30,28 @@ class TherapistHomeScreen extends StatefulWidget {
   State<TherapistHomeScreen> createState() => _TherapistHomeScreenState();
 }
 
-class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
+class _TherapistHomeScreenState extends State<TherapistHomeScreen>
+    with SingleTickerProviderStateMixin {
   TherapistProfile? _profile;
   bool _loading = true;
   int _years = 0;
+  int _months = 0;
   String _credentials = '';
   String _contactEmail = '';
   String _contactPhone = '';
   String? _certificatePdfName;
   List<TherapyPackage> _packages = const <TherapyPackage>[];
   Map<String, bool> _notificationPrefs = _defaultTherapistNotificationPrefs;
-  
+
   // Info icon state variables
   bool _showInfoIcon = false;
   bool _isGlowing = false;
   bool _isDialogShowing = false;
-  
+
+  // Pulse animation for the info icon on first visit
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnimation;
+
   // Profile completion control
   bool _shouldCheckProfileCompletion = true;
   bool _hasCompletedInitialProfile = false;
@@ -52,7 +59,23 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
   @override
   void initState() {
     super.initState();
+    // Always show info icon immediately — don't wait for Firestore.
+    _showInfoIcon = true;
+    // Set up pulse animation (scale 1.0 → 1.18 → 1.0).
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.18).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
     _loadState();
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadState() async {
@@ -118,7 +141,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
               photoUrl: '',
               isActive: true,
             );
-        _years = intFrom(data['yearsOfExperience']);
+        _years = intFrom(data['experience_years'] ?? data['yearsOfExperience']);
+        _months = intFrom(data['experience_months']);
         _credentials = (data['credentials'] ?? '').toString();
         _contactEmail = canonicalEmail;
         _contactPhone = canonicalPhone;
@@ -228,39 +252,44 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
 
   Future<void> _checkFirstTimeVisit() async {
     if (!mounted) return;
-    
+
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    
+
     try {
       // Check if user has seen the info dialog before
       final userDoc = await FirebaseFirestore.instance
           .collection(FirestoreCollections.users)
           .doc(uid)
           .get();
-      
+
       final hasSeenInfo = userDoc.data()?['hasSeenTherapistInfo'] ?? false;
-      
+
       if (!hasSeenInfo) {
+        if (!mounted) return;
         setState(() {
           _showInfoIcon = true;
           _isGlowing = true;
         });
-        
-        // Show the tooltip after a short delay
-        Future.delayed(const Duration(seconds: 1), () {
-          if (mounted && _isGlowing) {
-            _showFirstTimeTooltip();
-          }
-        });
+        // Play pulse animation for ~2 seconds (3 forward-reverse cycles),
+        // then show the tooltip cloud automatically.
+        _pulseController.repeat(reverse: true);
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (!mounted) return;
+        _pulseController.stop();
+        _pulseController.animateTo(0);
+        if (_isGlowing) {
+          _showFirstTimeTooltip();
+        }
       } else {
+        if (!mounted) return;
         setState(() {
           _showInfoIcon = true;
           _isGlowing = false;
         });
       }
-    } catch (e) {
-      // If there's an error, default to showing the info icon without glowing
+    } catch (_) {
+      // On error, show icon without animation.
       if (mounted) {
         setState(() {
           _showInfoIcon = true;
@@ -270,13 +299,9 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
     }
   }
 
-  
   void _showFirstTimeTooltip() {
     if (!mounted) return;
-    
-    setState(() {
-      _isDialogShowing = true;
-    });
+    setState(() => _isDialogShowing = true);
   }
 
   Future<void> _markInfoAsSeen() async {
