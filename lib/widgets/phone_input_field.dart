@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -11,6 +12,7 @@ class PhoneCountry {
     required this.dialCode,
     required this.flag,
     required this.digitCount,
+    required this.pattern,
   });
 
   final String name;
@@ -19,6 +21,8 @@ class PhoneCountry {
   final String flag;
   // Expected local digit count (used for soft validation hint)
   final int digitCount;
+  // The layout pattern for formatting (e.g. '### #######')
+  final String pattern;
 }
 
 /// The list of supported countries for the phone picker.
@@ -29,6 +33,7 @@ const List<PhoneCountry> kSupportedCountries = [
     dialCode: '+92',
     flag: '🇵🇰',
     digitCount: 10,
+    pattern: '### #######',
   ),
   PhoneCountry(
     name: 'Malaysia',
@@ -36,13 +41,15 @@ const List<PhoneCountry> kSupportedCountries = [
     dialCode: '+60',
     flag: '🇲🇾',
     digitCount: 9,
+    pattern: '## ### ####',
   ),
   PhoneCountry(
     name: 'Indonesia',
     code: 'ID',
     dialCode: '+62',
     flag: '🇮🇩',
-    digitCount: 10,
+    digitCount: 11,
+    pattern: '### #### ####',
   ),
   PhoneCountry(
     name: 'Singapore',
@@ -50,6 +57,7 @@ const List<PhoneCountry> kSupportedCountries = [
     dialCode: '+65',
     flag: '🇸🇬',
     digitCount: 8,
+    pattern: '#### ####',
   ),
   PhoneCountry(
     name: 'United Arab Emirates',
@@ -57,6 +65,7 @@ const List<PhoneCountry> kSupportedCountries = [
     dialCode: '+971',
     flag: '🇦🇪',
     digitCount: 9,
+    pattern: '## ### ####',
   ),
   PhoneCountry(
     name: 'Saudi Arabia',
@@ -64,6 +73,7 @@ const List<PhoneCountry> kSupportedCountries = [
     dialCode: '+966',
     flag: '🇸🇦',
     digitCount: 9,
+    pattern: '## ### ####',
   ),
   PhoneCountry(
     name: 'United Kingdom',
@@ -71,6 +81,7 @@ const List<PhoneCountry> kSupportedCountries = [
     dialCode: '+44',
     flag: '🇬🇧',
     digitCount: 10,
+    pattern: '#### ######',
   ),
   PhoneCountry(
     name: 'United States',
@@ -78,6 +89,223 @@ const List<PhoneCountry> kSupportedCountries = [
     dialCode: '+1',
     flag: '🇺🇸',
     digitCount: 10,
+    pattern: '(###) ###-####',
+  ),
+  PhoneCountry(
+    name: 'Canada',
+    code: 'CA',
+    dialCode: '+1',
+    flag: '🇨🇦',
+    digitCount: 10,
+    pattern: '(###) ###-####',
+  ),
+  PhoneCountry(
+    name: 'India',
+    code: 'IN',
+    dialCode: '+91',
+    flag: '🇮🇳',
+    digitCount: 10,
+    pattern: '##### #####',
+  ),
+  PhoneCountry(
+    name: 'Bangladesh',
+    code: 'BD',
+    dialCode: '+880',
+    flag: '🇧🇩',
+    digitCount: 10,
+    pattern: '#### ######',
+  ),
+  PhoneCountry(
+    name: 'Australia',
+    code: 'AU',
+    dialCode: '+61',
+    flag: '🇦🇺',
+    digitCount: 9,
+    pattern: '### ### ###',
+  ),
+  PhoneCountry(
+    name: 'New Zealand',
+    code: 'NZ',
+    dialCode: '+64',
+    flag: '🇳🇿',
+    digitCount: 9,
+    pattern: '### ### ###',
+  ),
+  PhoneCountry(
+    name: 'Germany',
+    code: 'DE',
+    dialCode: '+49',
+    flag: '🇩🇪',
+    digitCount: 10,
+    pattern: '#### #######',
+  ),
+  PhoneCountry(
+    name: 'France',
+    code: 'FR',
+    dialCode: '+33',
+    flag: '🇫🇷',
+    digitCount: 9,
+    pattern: '# ## ## ## ##',
+  ),
+  PhoneCountry(
+    name: 'Spain',
+    code: 'ES',
+    dialCode: '+34',
+    flag: '🇪🇸',
+    digitCount: 9,
+    pattern: '### ## ## ##',
+  ),
+  PhoneCountry(
+    name: 'Italy',
+    code: 'IT',
+    dialCode: '+39',
+    flag: '🇮🇹',
+    digitCount: 10,
+    pattern: '### ### ####',
+  ),
+  PhoneCountry(
+    name: 'Brazil',
+    code: 'BR',
+    dialCode: '+55',
+    flag: '🇧🇷',
+    digitCount: 11,
+    pattern: '## #####-####',
+  ),
+  PhoneCountry(
+    name: 'Mexico',
+    code: 'MX',
+    dialCode: '+52',
+    flag: '🇲🇽',
+    digitCount: 10,
+    pattern: '## ## #### ####',
+  ),
+  PhoneCountry(
+    name: 'Egypt',
+    code: 'EG',
+    dialCode: '+20',
+    flag: '🇪🇬',
+    digitCount: 10,
+    pattern: '### ### ####',
+  ),
+  PhoneCountry(
+    name: 'South Africa',
+    code: 'ZA',
+    dialCode: '+27',
+    flag: '🇿🇦',
+    digitCount: 9,
+    pattern: '## ### ####',
+  ),
+  PhoneCountry(
+    name: 'Nigeria',
+    code: 'NG',
+    dialCode: '+234',
+    flag: '🇳🇬',
+    digitCount: 10,
+    pattern: '### ### ####',
+  ),
+  PhoneCountry(
+    name: 'Japan',
+    code: 'JP',
+    dialCode: '+81',
+    flag: '🇯🇵',
+    digitCount: 10,
+    pattern: '## #### ####',
+  ),
+  PhoneCountry(
+    name: 'South Korea',
+    code: 'KR',
+    dialCode: '+82',
+    flag: '🇰🇷',
+    digitCount: 10,
+    pattern: '### #### ####',
+  ),
+  PhoneCountry(
+    name: 'China',
+    code: 'CN',
+    dialCode: '+86',
+    flag: '🇨🇳',
+    digitCount: 11,
+    pattern: '### #### ####',
+  ),
+  PhoneCountry(
+    name: 'Philippines',
+    code: 'PH',
+    dialCode: '+63',
+    flag: '🇵🇭',
+    digitCount: 10,
+    pattern: '### ### ####',
+  ),
+  PhoneCountry(
+    name: 'Thailand',
+    code: 'TH',
+    dialCode: '+66',
+    flag: '🇹🇭',
+    digitCount: 9,
+    pattern: '## #### ####',
+  ),
+  PhoneCountry(
+    name: 'Vietnam',
+    code: 'VN',
+    dialCode: '+84',
+    flag: '🇻🇳',
+    digitCount: 9,
+    pattern: '## #### ####',
+  ),
+  PhoneCountry(
+    name: 'Turkey',
+    code: 'TR',
+    dialCode: '+90',
+    flag: '🇹🇷',
+    digitCount: 10,
+    pattern: '### ### ####',
+  ),
+  PhoneCountry(
+    name: 'Qatar',
+    code: 'QA',
+    dialCode: '+974',
+    flag: '🇶🇦',
+    digitCount: 8,
+    pattern: '#### ####',
+  ),
+  PhoneCountry(
+    name: 'Kuwait',
+    code: 'KW',
+    dialCode: '+965',
+    flag: '🇰🇼',
+    digitCount: 8,
+    pattern: '#### ####',
+  ),
+  PhoneCountry(
+    name: 'Oman',
+    code: 'OM',
+    dialCode: '+968',
+    flag: '🇴🇲',
+    digitCount: 8,
+    pattern: '#### ####',
+  ),
+  PhoneCountry(
+    name: 'Bahrain',
+    code: 'BH',
+    dialCode: '+973',
+    flag: '🇧🇭',
+    digitCount: 8,
+    pattern: '#### ####',
+  ),
+  PhoneCountry(
+    name: 'Jordan',
+    code: 'JO',
+    dialCode: '+962',
+    flag: '🇯🇴',
+    digitCount: 9,
+    pattern: '## ### ####',
+  ),
+  PhoneCountry(
+    name: 'Lebanon',
+    code: 'LB',
+    dialCode: '+961',
+    flag: '🇱🇧',
+    digitCount: 8,
+    pattern: '## ### ###',
   ),
 ];
 
@@ -180,7 +408,21 @@ class PhoneInputFieldState extends State<PhoneInputField> {
               _CountryDropdown(
                 selected: _selectedCountry,
                 onChanged: (country) {
-                  setState(() => _selectedCountry = country);
+                  setState(() {
+                    _selectedCountry = country;
+                  });
+                  // Re-format current text with new country formatter
+                  final text = widget.localController.text;
+                  final formatter = PhoneTextInputFormatter(() => country);
+                  final rawSelection = widget.localController.selection;
+                  final formatted = formatter.formatEditUpdate(
+                    TextEditingValue.empty,
+                    TextEditingValue(
+                      text: text,
+                      selection: rawSelection,
+                    ),
+                  );
+                  widget.localController.value = formatted;
                   widget.onCountryChanged?.call(country);
                 },
               ),
@@ -195,10 +437,9 @@ class PhoneInputFieldState extends State<PhoneInputField> {
                 child: TextField(
                   controller: widget.localController,
                   keyboardType: TextInputType.phone,
-                  // Only allow digits, spaces, hyphens
                   inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[\d\s\-]')),
-                    LengthLimitingTextInputFormatter(15),
+                    FilteringTextInputFormatter.digitsOnly,
+                    PhoneTextInputFormatter(() => _selectedCountry),
                   ],
                   style: TextStyle(
                     fontSize: r.sp(16, min: 14, max: 20),
@@ -315,6 +556,114 @@ class _CountryDropdown extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Automatically formats the phone input field based on country patterns.
+class PhoneTextInputFormatter extends TextInputFormatter {
+  PhoneTextInputFormatter(this.countryProvider);
+
+  final PhoneCountry Function() countryProvider;
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final pattern = countryProvider().pattern;
+    final text = newValue.text;
+    final oldText = oldValue.text;
+    
+    bool isDeleting = text.length < oldText.length;
+    String digits = text.replaceAll(RegExp(r'[^\d]'), '');
+    
+    if (isDeleting && oldValue.selection.end > 0) {
+      final deletedCharIdx = oldValue.selection.end - 1;
+      if (deletedCharIdx < oldText.length) {
+        final deletedChar = oldText[deletedCharIdx];
+        if (!RegExp(r'\d').hasMatch(deletedChar)) {
+          int lastDigitIdx = -1;
+          for (int i = deletedCharIdx - 1; i >= 0; i--) {
+            if (RegExp(r'\d').hasMatch(oldText[i])) {
+              lastDigitIdx = i;
+              break;
+            }
+          }
+          if (lastDigitIdx != -1) {
+            int digitCount = 0;
+            for (int i = 0; i <= lastDigitIdx; i++) {
+              if (RegExp(r'\d').hasMatch(oldText[i])) {
+                digitCount++;
+              }
+            }
+            final oldDigits = oldText.replaceAll(RegExp(r'[^\d]'), '');
+            if (digitCount <= oldDigits.length) {
+              digits = oldDigits.substring(0, digitCount - 1) + oldDigits.substring(digitCount);
+            }
+          }
+        }
+      }
+    }
+    
+    final formatted = StringBuffer();
+    int digitIndex = 0;
+    
+    for (int i = 0; i < pattern.length; i++) {
+      if (digitIndex >= digits.length) break;
+      
+      final char = pattern[i];
+      if (char == '#') {
+        formatted.write(digits[digitIndex]);
+        digitIndex++;
+      } else {
+        formatted.write(char);
+      }
+    }
+    
+    if (digitIndex < digits.length) {
+      final remaining = digits.substring(digitIndex);
+      final spaceLeft = 15 - formatted.length;
+      if (spaceLeft > 0) {
+        formatted.write(remaining.substring(0, math.min(remaining.length, spaceLeft)));
+      }
+    }
+    
+    final formattedText = formatted.toString();
+    int newSelectionIndex = 0;
+    
+    if (newValue.selection.end >= 0) {
+      int rawDigitsBeforeCursor = 0;
+      for (int i = 0; i < newValue.selection.end && i < text.length; i++) {
+        if (RegExp(r'\d').hasMatch(text[i])) {
+          rawDigitsBeforeCursor++;
+        }
+      }
+      
+      if (isDeleting && oldValue.selection.end > 0) {
+        final deletedCharIdx = oldValue.selection.end - 1;
+        if (deletedCharIdx < oldText.length && !RegExp(r'\d').hasMatch(oldText[deletedCharIdx])) {
+          rawDigitsBeforeCursor = math.max(0, rawDigitsBeforeCursor - 1);
+        }
+      }
+      
+      int digitsFound = 0;
+      for (int i = 0; i < formattedText.length; i++) {
+        if (digitsFound >= rawDigitsBeforeCursor) {
+          break;
+        }
+        if (RegExp(r'\d').hasMatch(formattedText[i])) {
+          digitsFound++;
+        }
+        newSelectionIndex = i + 1;
+      }
+    } else {
+      newSelectionIndex = formattedText.length;
+    }
+    
+    return TextEditingValue(
+      text: formattedText,
+      selection: TextSelection.collapsed(offset: newSelectionIndex),
     );
   }
 }
