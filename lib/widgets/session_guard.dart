@@ -4,7 +4,6 @@ import '../models/app_models.dart';
 import '../navigation/child_mode_lock_controller.dart';
 import '../navigation/session_navigation.dart';
 import '../repositories/app_repositories.dart';
-import '../screens/child_profile_home_screen.dart';
 import '../screens/parent_home_screen.dart';
 
 enum SessionGuardRole { parent, therapist, authenticated }
@@ -84,8 +83,10 @@ class _SessionGuardState extends State<SessionGuard> {
               if (Navigator.of(context).canPop()) {
                 Navigator.of(context).pop();
               } else {
+                // Root of stack with a restricted screen — go to home.
+                // ParentHomeScreen shows locked cards via ValueListenableBuilder.
                 Navigator.of(context).pushAndRemoveUntil(
-                  fadeSessionRoute(const ParentHomeScreen(startInChildMode: true)),
+                  fadeSessionRoute(const ParentHomeScreen()),
                   (route) => false,
                 );
               }

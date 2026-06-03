@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
 import '../navigation/app_route_observer.dart';
+import '../navigation/child_mode_lock_controller.dart';
 import '../repositories/app_repositories.dart';
 import '../utils/parent_support_areas.dart';
 import '../widgets/figma_module_scaffold.dart';
@@ -9,6 +10,7 @@ import '../widgets/session_guard.dart';
 import 'communication_screen.dart';
 import 'daily_activities_screen.dart';
 import 'learning_modules_screen.dart';
+import 'parent_home_screen.dart';
 
 class ChildProfileHomeScreen extends StatefulWidget {
   const ChildProfileHomeScreen({super.key});
@@ -67,14 +69,36 @@ class _ChildProfileHomeScreenState extends State<ChildProfileHomeScreen>
     });
   }
 
+  /// Handles back navigation:
+  /// - When child mode is locked: go to ParentHomeScreen (locked tabs shown)
+  ///   regardless of whether we can pop (handles the case where this screen
+  ///   is the root of the nav stack after login).
+  /// - When unlocked: pop normally.
+  void _handleBack(BuildContext context) {
+    if (ChildModeLockController.isLocked) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const ParentHomeScreen()),
+        (route) => false,
+      );
+    } else {
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SessionGuard(
       role: SessionGuardRole.parent,
-      child: FigmaModuleScaffold(
-        title: 'Child Profile',
-        onBack: () => Navigator.pop(context),
-        child: _loading
+      child: PopScope(
+        // Always intercept the back gesture so we control navigation.
+        canPop: false,
+        onPopInvokedWithResult: (_, __) => _handleBack(context),
+        child: FigmaModuleScaffold(
+          title: 'Child Profile',
+          onBack: () => _handleBack(context),
+          child: _loading
             ? const Center(child: CircularProgressIndicator())
             : _child == null
             ? const Center(
@@ -140,6 +164,7 @@ class _ChildProfileHomeScreenState extends State<ChildProfileHomeScreen>
                   ),
                 ],
               ),
+        ),
       ),
     );
   }

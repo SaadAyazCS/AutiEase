@@ -13,9 +13,13 @@ import 'child_mode_lock_controller.dart';
 Widget destinationForSession(AppSession session, {String? emailFallback}) {
   switch (session.state) {
     case AppSessionState.parent:
-      return ParentHomeScreen(
-        startInChildMode: ChildModeLockController.isLocked,
-      );
+      // When child mode is locked, go directly to Child Profile screen.
+      // The ParentHomeScreen sits below it in the stack so pressing back
+      // reveals the home screen with all non-child-profile tabs locked.
+      if (ChildModeLockController.isLocked) {
+        return const ChildProfileHomeScreen();
+      }
+      return const ParentHomeScreen();
     case AppSessionState.therapist:
       return const TherapistHomeScreen();
     case AppSessionState.incompleteProfile:

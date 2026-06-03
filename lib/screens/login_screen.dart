@@ -7,7 +7,6 @@ import '../models/app_models.dart';
 import '../navigation/child_mode_lock_controller.dart';
 import '../navigation/session_navigation.dart';
 import '../repositories/app_repositories.dart';
-import 'parent_home_screen.dart';
 import '../widgets/wave_background.dart';
 import '../widgets/custom_widgets.dart';
 import '../services/firebase_service.dart';
