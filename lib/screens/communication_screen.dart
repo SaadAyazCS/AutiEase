@@ -98,7 +98,7 @@ class CommunicationScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        'Select communication topics from the Learning Planner to start building sentences.',
+                        'Select communication topics from the Learning Planner to start expressing needs and wants through sentences.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 16,
