@@ -400,9 +400,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
         final specialization = therapist.specializations.isNotEmpty
             ? therapist.specializations.first
             : 'Specialization not set';
-        final yearsText = therapist.yearsOfExperience > 0
-            ? '${therapist.yearsOfExperience} years of practice'
-            : 'Experience not set';
+        final yearsText = therapist.formattedExperience;
         return Dialog(
           insetPadding: const EdgeInsets.symmetric(
             horizontal: 16,
