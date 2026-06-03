@@ -6,6 +6,7 @@ import '../utils/duration_utils.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
 import 'learning_planner_screen.dart';
+import '../widgets/bouncing_button.dart';
 
 class DailyActivitiesScreen extends StatefulWidget {
   const DailyActivitiesScreen({super.key, required this.childId});
@@ -316,17 +317,44 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
             : _activities.isEmpty
             ? Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(32),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF4EA9E3).withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.playlist_add_check_rounded,
+                          size: 64,
+                          color: Color(0xFF4EA9E3),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
                       const Text(
-                        'No daily activities are selected in Learning Planner yet.',
-                        textAlign: TextAlign.center,
+                        'No daily activities assigned yet',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1E293B),
+                        ),
                       ),
                       const SizedBox(height: 12),
-                      ElevatedButton(
-                        onPressed: () {
+                      const Text(
+                        'Select daily activities from the Learning Planner to start tracking your daily tasks.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Color(0xFF64748B),
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      BouncingButton(
+                        onTap: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -334,7 +362,37 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
                             ),
                           );
                         },
-                        child: const Text('Open Learning Planner'),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF4EA9E3), Color(0xFF2D7CF6)],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF4EA9E3).withValues(alpha: 0.3),
+                                blurRadius: 12,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.edit_calendar_rounded, color: Colors.white, size: 20),
+                              SizedBox(width: 8),
+                              Text(
+                                'Open Learning Planner',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),

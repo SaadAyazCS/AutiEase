@@ -22,6 +22,7 @@ import '../widgets/bouncing_button.dart';
 import '../widgets/figma_module_scaffold.dart';
 import 'feedback_screen.dart';
 import 'therapist_chat_screen.dart';
+import '../utils/currency_utils.dart';
 
 class TherapistHomeScreen extends StatefulWidget {
   const TherapistHomeScreen({super.key});
@@ -489,7 +490,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
 
     final pricing = packages.isEmpty
         ? profile.pricing
-        : '\$${packages.map((TherapyPackage item) => item.price).reduce(math.min).toDouble().toStringAsFixed(0)}/month';
+        : '${formatPrice(packages.map((TherapyPackage item) => item.price).reduce(math.min).toDouble())}/month';
 
     final normalized = TherapistProfile(
       id: profile.id,
@@ -4515,7 +4516,7 @@ class _PackageTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '\$${package.price.toStringAsFixed(0)} /session',
+                  '${formatPrice(package.price)} /session',
                   style: const TextStyle(
                     color: Color(0xFF0EA5C6),
                     fontWeight: FontWeight.w700,
@@ -4640,7 +4641,7 @@ class _PackageEditorState extends State<_PackageEditor> {
               _field('Package Title', _title),
               const SizedBox(height: 8),
               _field(
-                'Price per Session (\$)',
+                'Price per Session (PKR)',
                 _price,
                 keyboard: TextInputType.number,
               ),

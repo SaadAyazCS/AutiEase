@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/duration_utils.dart';
+import '../utils/currency_utils.dart';
 
 DateTime? dateTimeFromFirestore(dynamic value) {
   if (value is Timestamp) {
@@ -1001,7 +1002,7 @@ class SubscriptionProduct {
       title: (data['title'] ?? '').toString(),
       subtitle: (data['subtitle'] ?? '').toString(),
       featureList: stringListFrom(data['featureList']),
-      priceLabel: (data['priceLabel'] ?? '').toString(),
+      priceLabel: formatPriceString((data['priceLabel'] ?? '').toString()),
       stripePriceId: (data['stripePriceId'] ?? '').toString(),
       isActive: data['isActive'] != false,
     );

@@ -9,6 +9,7 @@ import '../utils/app_colors.dart';
 import '../widgets/session_guard.dart';
 import 'therapist_chat_screen.dart';
 import 'certificate_viewer_screen.dart';
+import '../utils/currency_utils.dart';
 
 class _TherapistPlaceholderAvatar extends StatelessWidget {
   const _TherapistPlaceholderAvatar({
@@ -1588,7 +1589,7 @@ class _SupportServicePackage {
   final String description;
   final bool visible;
 
-  String get priceLabel => '\$${price.toStringAsFixed(price % 1 == 0 ? 0 : 2)}';
+  String get priceLabel => formatPrice(price);
 
   factory _SupportServicePackage.fromMap(Map<String, dynamic> data) {
     final rawPrice = data['price'];
@@ -2129,8 +2130,9 @@ class _SupportCheckoutScreenState extends State<_SupportCheckoutScreen> {
   String _priceOnly(TherapistProfile profile) {
     final raw = profile.pricing.trim();
     final parsed = RegExp(r'(\d+[.,]?\d*)').firstMatch(raw)?.group(1);
-    if (parsed == null) return '\$49.99';
-    return '\$${parsed.replaceAll(',', '')}';
+    if (parsed == null) return formatPrice(49.99);
+    final val = double.tryParse(parsed.replaceAll(',', '')) ?? 0.0;
+    return formatPrice(val);
   }
 
   Future<void> _submit() async {
