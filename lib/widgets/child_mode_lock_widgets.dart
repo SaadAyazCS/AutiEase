@@ -140,7 +140,11 @@ class _UnlockDialogState extends State<_UnlockDialog> {
     } else {
       ChildModeLockWidgets._failedAttempts++;
       if (ChildModeLockWidgets._failedAttempts >= 5) {
-        ChildModeLockWidgets._lockoutEndTime = DateTime.now().add(const Duration(seconds: 60));
+        ChildModeLockWidgets._lockoutEndTime =
+            DateTime.now().add(const Duration(seconds: 60));
+        setState(() {
+          _isLoading = false;
+        });
         _startLockoutTimer();
       } else {
         setState(() {
