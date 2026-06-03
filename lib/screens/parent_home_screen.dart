@@ -25,16 +25,34 @@ class ParentHomeScreen extends StatefulWidget {
 /// Persisted so the welcome coachmark appears only once per parent account.
 const String parentHomeCoachmarkSeenField = 'hasSeenParentHomeInfoCoachmark';
 
-class _ParentHomeScreenState extends State<ParentHomeScreen> {
+class _ParentHomeScreenState extends State<ParentHomeScreen>
+    with SingleTickerProviderStateMixin {
   bool _showCoachmark = false;
   bool _pulseInfoGlow = false;
+
+  // Pulse animation for the info icon on first visit
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.18).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _evaluateParentCoachmark();
     });
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
   }
 
   Future<void> _evaluateParentCoachmark() async {
@@ -64,6 +82,12 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
         _showCoachmark = true;
         _pulseInfoGlow = true;
       });
+      // Play pulse animation for ~2 seconds (3 forward-reverse cycles)
+      _pulseController.repeat(reverse: true);
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+      _pulseController.stop();
+      _pulseController.animateTo(0);
     } catch (_) {
       // Non-blocking: omit coachmark when Firestore is unavailable.
     }
@@ -97,6 +121,8 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
         _showCoachmark = false;
         _pulseInfoGlow = false;
       });
+      _pulseController.stop();
+      _pulseController.animateTo(0);
     }
     if (!mounted) {
       return;
@@ -116,6 +142,8 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
       _showCoachmark = false;
       _pulseInfoGlow = false;
     });
+    _pulseController.stop();
+    _pulseController.animateTo(0);
   }
 
   Widget _buildScreenForModule(AppModule module) {
@@ -508,47 +536,50 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
             Positioned(
               right: r.w(48),
               bottom: r.h(90),
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () async => _startInfoWalkthrough(),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeOutCubic,
-                  width: r.w(30),
-                  height: r.w(30),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: const Color(0xFF101010),
-                      width: r.w(1.8),
-                    ),
-                    boxShadow: [
-                      if (_pulseInfoGlow) ...[
+              child: ScaleTransition(
+                scale: _pulseAnimation,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () async => _startInfoWalkthrough(),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 500),
+                    curve: Curves.easeOutCubic,
+                    width: r.w(30),
+                    height: r.w(30),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: const Color(0xFF101010),
+                        width: r.w(1.8),
+                      ),
+                      boxShadow: [
+                        if (_pulseInfoGlow) ...[
+                          BoxShadow(
+                            color: const Color(0xFF4EA9E3).withValues(alpha: 0.55),
+                            blurRadius: r.h(16),
+                            spreadRadius: r.h(1.5),
+                          ),
+                          BoxShadow(
+                            color: const Color(0xFF56B9F5).withValues(alpha: 0.35),
+                            blurRadius: r.h(24),
+                            spreadRadius: 0,
+                            offset: Offset(0, r.h(6)),
+                          ),
+                        ],
                         BoxShadow(
-                          color: const Color(0xFF4EA9E3).withValues(alpha: 0.55),
-                          blurRadius: r.h(16),
-                          spreadRadius: r.h(1.5),
-                        ),
-                        BoxShadow(
-                          color: const Color(0xFF56B9F5).withValues(alpha: 0.35),
-                          blurRadius: r.h(24),
-                          spreadRadius: 0,
-                          offset: Offset(0, r.h(6)),
+                          color: Colors.black.withValues(alpha: 0.22),
+                          blurRadius: r.h(6),
+                          offset: Offset(0, r.h(3)),
                         ),
                       ],
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.22),
-                        blurRadius: r.h(6),
-                        offset: Offset(0, r.h(3)),
-                      ),
-                    ],
-                  ),
-                  alignment: Alignment.center,
-                  child: Icon(
-                    Icons.info_outline_rounded,
-                    size: r.sp(20, min: 14, max: 22),
-                    color: const Color(0xFF101010),
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      Icons.info_outline_rounded,
+                      size: r.sp(20, min: 14, max: 22),
+                      color: const Color(0xFF101010),
+                    ),
                   ),
                 ),
               ),

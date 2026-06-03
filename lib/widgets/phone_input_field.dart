@@ -544,7 +544,7 @@ const List<PhoneCountry> kSupportedCountries = [
     code: 'DE',
     dialCode: '+49',
     flag: '🇩🇪',
-    digitCount: 10,
+    digitCount: 11,
     pattern: '#### #######',
   ),
   PhoneCountry(
@@ -752,7 +752,7 @@ const List<PhoneCountry> kSupportedCountries = [
     code: 'KR',
     dialCode: '+82',
     flag: '🇰🇷',
-    digitCount: 10,
+    digitCount: 11,
     pattern: '### #### ####',
   ),
   PhoneCountry(
@@ -929,7 +929,7 @@ const List<PhoneCountry> kSupportedCountries = [
     dialCode: '+52',
     flag: '🇲🇽',
     digitCount: 10,
-    pattern: '## ## #### ####',
+    pattern: '## #### ####',
   ),
   PhoneCountry(
     name: 'Micronesia, Federated States of Micronesia',
@@ -1408,7 +1408,7 @@ const List<PhoneCountry> kSupportedCountries = [
     code: 'TH',
     dialCode: '+66',
     flag: '🇹🇭',
-    digitCount: 9,
+    digitCount: 10,
     pattern: '## #### ####',
   ),
   PhoneCountry(
@@ -1552,7 +1552,7 @@ const List<PhoneCountry> kSupportedCountries = [
     code: 'VN',
     dialCode: '+84',
     flag: '🇻🇳',
-    digitCount: 9,
+    digitCount: 10,
     pattern: '## #### ####',
   ),
   PhoneCountry(
@@ -1893,13 +1893,7 @@ class PhoneTextInputFormatter extends TextInputFormatter {
       }
     }
     
-    if (digitIndex < digits.length) {
-      final remaining = digits.substring(digitIndex);
-      final spaceLeft = 15 - formatted.length;
-      if (spaceLeft > 0) {
-        formatted.write(remaining.substring(0, math.min(remaining.length, spaceLeft)));
-      }
-    }
+    // Strictly enforce pattern length - do not append any remaining digits beyond pattern limit
     
     final formattedText = formatted.toString();
     int newSelectionIndex = 0;

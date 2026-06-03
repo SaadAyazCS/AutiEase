@@ -9,7 +9,6 @@ import '../navigation/session_navigation.dart';
 import '../repositories/app_repositories.dart';
 import '../widgets/wave_background.dart';
 import '../widgets/custom_widgets.dart';
-import '../widgets/password_input_field.dart';
 import '../services/firebase_service.dart';
 import 'forgot_password_screen.dart';
 import 'role_selection_screen.dart';
@@ -375,20 +374,23 @@ class _LoginScreenState extends State<LoginScreen>
                               ),
                               const SizedBox(height: 16),
 
-                              PasswordInputField(
-                                controller: _passwordController,
+                              CustomTextField(
                                 hintText: 'Password',
-                                fieldDecoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(r.w(30)),
-                                  border: Border.all(color: AppColors.textGrey.withValues(alpha: 0.3)),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.05),
-                                      blurRadius: r.w(10),
-                                      offset: Offset(0, r.h(2)),
-                                    ),
-                                  ],
+                                prefixIcon: Icons.lock_outline,
+                                obscureText: _obscurePassword,
+                                controller: _passwordController,
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
+                                    color: AppColors.textGrey,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _obscurePassword = !_obscurePassword;
+                                    });
+                                  },
                                 ),
                               ),
 

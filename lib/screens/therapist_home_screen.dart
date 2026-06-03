@@ -270,17 +270,14 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
         setState(() {
           _showInfoIcon = true;
           _isGlowing = true;
+          _isDialogShowing = true; // Show tooltip instantly
         });
-        // Play pulse animation for ~2 seconds (3 forward-reverse cycles),
-        // then show the tooltip cloud automatically.
+        // Play pulse animation for ~2 seconds (3 forward-reverse cycles)
         _pulseController.repeat(reverse: true);
         await Future<void>.delayed(const Duration(seconds: 2));
         if (!mounted) return;
         _pulseController.stop();
         _pulseController.animateTo(0);
-        if (_isGlowing) {
-          _showFirstTimeTooltip();
-        }
       } else {
         if (!mounted) return;
         setState(() {
@@ -299,10 +296,6 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
     }
   }
 
-  void _showFirstTimeTooltip() {
-    if (!mounted) return;
-    setState(() => _isDialogShowing = true);
-  }
 
   Future<void> _markInfoAsSeen() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;

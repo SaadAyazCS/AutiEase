@@ -101,7 +101,7 @@ class FirebaseService {
   }) {
     switch (error.code) {
       case 'too-many-requests':
-        return 'Too many attempts from this device. Wait 30-60 minutes, then try once.';
+        return 'Please wait 30-60 seconds, then try once.';
       case 'network-request-failed':
         return 'Network error. Check your internet connection and try again.';
       case 'email-already-in-use':
