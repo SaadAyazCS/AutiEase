@@ -867,7 +867,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           }
           return;
         } else if (parent.role == 'therapist') {
-          final therapistDoc = await FirebaseFirestore.instance.collection('therapistProfiles').doc(targetId).get();
+          final therapistDoc = await FirebaseFirestore.instance.collection('therapist_profiles').doc(targetId).get();
           if (therapistDoc.exists && therapistDoc.data() != null) {
             final therapist = TherapistProfile.fromMap(therapistDoc.id, therapistDoc.data()!);
             if (mounted) {
