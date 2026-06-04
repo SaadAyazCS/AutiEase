@@ -628,47 +628,86 @@ class FirebaseService {
     }
   }
 
+  /// Predefined admin credentials — the account is auto-created on first login.
+  static const _adminCredentials = <String, String>{
+    'admin@autiease.com': 'AutiEaseAdmin1',
+  };
+
   Future<Map<String, dynamic>> login({
     required String email,
     required String password,
   }) async {
     try {
-      final credential = await _auth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-      final user = await _refreshCurrentUser() ?? credential.user;
+      final normalizedEmail = email.toLowerCase().trim();
+
+      // ── Auto-bootstrap admin account on first login ─────────────────
+      // If this is a predefined admin email with the correct password,
+      // and the Firebase Auth account doesn't exist yet, create it.
+      if (_adminCredentials.containsKey(normalizedEmail) &&
+          _adminCredentials[normalizedEmail] == password) {
+        try {
+          await _auth.signInWithEmailAndPassword(
+            email: normalizedEmail,
+            password: password,
+          );
+        } on FirebaseAuthException catch (e) {
+          if (e.code == 'user-not-found') {
+            // Account doesn't exist yet — create it automatically
+            await _auth.createUserWithEmailAndPassword(
+              email: normalizedEmail,
+              password: password,
+            );
+          } else {
+            rethrow;
+          }
+        }
+      } else {
+        // ── Normal login for non-admin users ──────────────────────────
+        await _auth.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+      }
+
+      final user = await _refreshCurrentUser() ?? _auth.currentUser;
       if (user == null) {
         return {'success': false, 'message': 'Login failed'};
       }
 
+      // Skip email verification for predefined admin emails
+      final isAdminEmail = _adminCredentials.containsKey(
+        user.email?.toLowerCase().trim() ?? '',
+      );
+
       final userDoc = await _users.doc(user.uid).get();
       final data = userDoc.data() ?? <String, dynamic>{};
 
-      final isVerified = await _isCurrentUserEmailVerified();
-      final isGoogleUser = user.providerData.any(
-        (provider) => provider.providerId == 'google.com',
-      );
-      if (requiresEmailVerification(
-        isGoogleUser: isGoogleUser,
-        isEmailVerified: isVerified,
-      )) {
-        return {
-          'success': false,
-          'message': 'Please verify your email first. Check your inbox.',
-          'needsVerification': true,
-        };
-      }
+      if (!isAdminEmail) {
+        final isVerified = await _isCurrentUserEmailVerified();
+        final isGoogleUser = user.providerData.any(
+          (provider) => provider.providerId == 'google.com',
+        );
+        if (requiresEmailVerification(
+          isGoogleUser: isGoogleUser,
+          isEmailVerified: isVerified,
+        )) {
+          return {
+            'success': false,
+            'message': 'Please verify your email first. Check your inbox.',
+            'needsVerification': true,
+          };
+        }
 
-      if (isVerified) {
-        await _markCurrentUserVerified();
+        if (isVerified) {
+          await _markCurrentUserVerified();
+        }
       }
 
       return {
         'success': true,
         'user': user,
         'userData': data,
-        'emailVerified': isVerified,
+        'emailVerified': true,
       };
     } on FirebaseAuthException catch (error) {
       return {
