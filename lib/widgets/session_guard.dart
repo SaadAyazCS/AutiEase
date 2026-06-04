@@ -6,7 +6,7 @@ import '../navigation/session_navigation.dart';
 import '../repositories/app_repositories.dart';
 import '../screens/parent_home_screen.dart';
 
-enum SessionGuardRole { parent, therapist, authenticated }
+enum SessionGuardRole { parent, therapist, authenticated, admin }
 
 class SessionGuard extends StatefulWidget {
   const SessionGuard({super.key, required this.role, required this.child});
@@ -110,9 +110,12 @@ class _SessionGuardState extends State<SessionGuard> {
         return session.state == AppSessionState.parent;
       case SessionGuardRole.therapist:
         return session.state == AppSessionState.therapist;
+      case SessionGuardRole.admin:
+        return session.state == AppSessionState.admin;
       case SessionGuardRole.authenticated:
         return session.state == AppSessionState.parent ||
-            session.state == AppSessionState.therapist;
+            session.state == AppSessionState.therapist ||
+            session.state == AppSessionState.admin;
     }
   }
 }

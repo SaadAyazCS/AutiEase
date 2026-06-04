@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
-
 import '../repositories/app_repositories.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
 
-class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key});
+class NotificationSettingsScreen extends StatefulWidget {
+  const NotificationSettingsScreen({super.key});
 
   @override
-  State<NotificationsScreen> createState() => _NotificationsScreenState();
+  State<NotificationSettingsScreen> createState() => _NotificationSettingsScreenState();
 }
 
-class _NotificationsScreenState extends State<NotificationsScreen> {
+class _NotificationSettingsScreenState extends State<NotificationSettingsScreen> {
   static const Set<String> _supportedKeys = <String>{
     'therapistsUpdate',
     'levelProgressNotification',
@@ -73,7 +72,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Notifications saved successfully.')),
+        const SnackBar(content: Text('Notifications preferences saved successfully.')),
       );
     } catch (_) {
       if (!mounted) {
@@ -96,7 +95,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     return SessionGuard(
       role: SessionGuardRole.authenticated,
       child: FigmaModuleScaffold(
-        title: 'Notifications',
+        title: 'Notification Settings',
         onBack: () => Navigator.pop(context),
         child: Container(
           decoration: const BoxDecoration(
@@ -107,31 +106,30 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             padding: const EdgeInsets.fromLTRB(18, 24, 18, 170),
             children: [
               _NotificationRow(
-                title: 'Therapists Update',
-                subtitle:
-                    'Ensure smooth communication between parents and therapists',
+                title: 'Therapist Messages & Updates',
+                subtitle: 'Ensure smooth communication between parents and therapists',
                 value: _preferences['therapistsUpdate'] ?? false,
                 onToggle: () => _toggle('therapistsUpdate'),
               ),
               _NotificationRow(
-                title: 'Level Progess Notification',
-                subtitle: 'Motivates the child by celebrating achievements.',
+                title: 'Level Progress Celebrations',
+                subtitle: 'Motivate your child by celebrating achievements and milestone progress',
                 value: _preferences['levelProgressNotification'] ?? false,
                 onToggle: () => _toggle('levelProgressNotification'),
               ),
               _NotificationRow(
-                title: 'Subscription',
-                subtitle: 'Notifies users about payments',
+                title: 'Subscription Payments',
+                subtitle: 'Notify about payments, renewals, and cancellations',
                 value: _preferences['subscription'] ?? false,
                 onToggle: () => _toggle('subscription'),
               ),
               _NotificationRow(
-                title: 'Routine Reminders',
-                subtitle: 'Helps children follow a structured schedule',
+                title: 'Structured Routine Reminders',
+                subtitle: 'Help children follow schedules with routine timers and logs',
                 value: _preferences['routineReminders'] ?? false,
                 onToggle: () => _toggle('routineReminders'),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -139,7 +137,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF4EA9E3),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -155,7 +153,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         )
                       : const Text(
                           'Save Changes',
-                          style: TextStyle(fontWeight: FontWeight.w700),
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                 ),
               ),
@@ -214,17 +212,16 @@ class _NotificationRow extends StatelessWidget {
                         Text(
                           title,
                           style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
                             color: Color(0xFF1E293B),
-                            letterSpacing: 0.2,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           subtitle,
                           style: const TextStyle(
-                            fontSize: 14,
+                            fontSize: 13,
                             color: Color(0xFF64748B),
                             height: 1.4,
                             fontWeight: FontWeight.w500,

@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:printing/printing.dart';
 
 import '../models/app_models.dart';
@@ -12,22 +15,44 @@ import '../utils/app_colors.dart';
 import '../widgets/session_guard.dart';
 
 class _TherapistPlaceholderAvatar extends StatelessWidget {
-  const _TherapistPlaceholderAvatar({required this.size});
+  const _TherapistPlaceholderAvatar({
+    required this.size,
+    this.photoUrlBase64,
+  });
 
   final double size;
+  final String? photoUrlBase64;
 
   @override
   Widget build(BuildContext context) {
+    Widget imageWidget;
+    if (photoUrlBase64 != null && photoUrlBase64!.isNotEmpty) {
+      try {
+        final imageBytes = base64Decode(photoUrlBase64!);
+        imageWidget = Image.memory(
+          imageBytes,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
+          },
+        );
+      } catch (e) {
+        imageWidget = Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
+      }
+    } else {
+      imageWidget = Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
+    }
+
     return Container(
       width: size,
       height: size,
       decoration: const BoxDecoration(
-        color: Color(0xFF3ACB6D),
+        color: Color(0xFFDDF7E5),
         shape: BoxShape.circle,
       ),
-      padding: const EdgeInsets.all(5),
+      padding: const EdgeInsets.all(2),
       child: ClipOval(
-        child: Image.asset('assets/images/autiease.png', fit: BoxFit.contain),
+        child: imageWidget,
       ),
     );
   }
@@ -57,11 +82,80 @@ enum _MessageSendState { idle, sending, sent, error }
 
 class _TherapistChatScreenState extends State<TherapistChatScreen> {
   final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   _MessageSendState _sendState = _MessageSendState.idle;
   String? _sendError;
   Timer? _resolvedBannerTimer;
   DateTime? _lastResolvedAtSeen;
   bool _showResolvedBanner = false;
+
+  // Rate Limiting (max 5 messages per 10 seconds)
+  final List<DateTime> _messageTimestamps = [];
+
+  // Blocking status
+  bool _isBlocked = false;
+
+  // Emojis panel state
+  bool _showEmojiPicker = false;
+  static const List<String> _commonEmojis = [
+    '😀', '😂', '😍', '👍', '🙏', '❤️', '🎉', '🌟', '👏', '😭', '😡', '😱', '🤔', '🔥', '👀', '✨'
+  ];
+
+  // Attachment state
+  String? _attachmentBase64;
+  String? _attachmentFileName;
+  String? _attachmentType; // 'image', 'file'
+
+  // Loaded peer profiles for visual headers
+  UserProfile? _peerUserProfile;
+  TherapistProfile? _peerTherapistProfile;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBlockedStatus();
+    _loadPeerProfile();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scrollController.dispose();
+    _resolvedBannerTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkBlockedStatus() async {
+    final peerId = widget.senderRole == 'parent' ? widget.thread.therapistId : widget.thread.parentId;
+    final blocked = await AppRepositories.support.isUserBlocked(peerId);
+    if (mounted) {
+      setState(() {
+        _isBlocked = blocked;
+      });
+    }
+  }
+
+  Future<void> _loadPeerProfile() async {
+    final peerId = widget.senderRole == 'parent' ? widget.thread.therapistId : widget.thread.parentId;
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection(FirestoreCollections.users).doc(peerId).get();
+      if (userDoc.exists && userDoc.data() != null) {
+        if (mounted) {
+          setState(() {
+            _peerUserProfile = UserProfile.fromMap(userDoc.id, userDoc.data()!);
+          });
+        }
+      }
+      if (widget.senderRole == 'parent') {
+        final tProfile = await AppRepositories.support.getTherapistById(peerId);
+        if (tProfile != null && mounted) {
+          setState(() {
+            _peerTherapistProfile = tProfile;
+          });
+        }
+      }
+    } catch (_) {}
+  }
 
   void _syncResolvedBanner(TherapistThread thread) {
     final respondedAt = thread.emergencyRespondedAt;
@@ -80,7 +174,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
     }
 
     final isSameEvent = _lastResolvedAtSeen == respondedAt;
-    // Do not retrigger banner for the same resolved event on rebuilds.
     if (isSameEvent) {
       return;
     }
@@ -104,7 +197,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
   }
 
   bool _canSendMessage(TherapistThread thread) {
-    if (widget.readOnly) {
+    if (widget.readOnly || _isBlocked) {
       return false;
     }
     if (widget.senderRole == 'parent') {
@@ -113,44 +206,100 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
     return true;
   }
 
+  bool _checkRateLimit() {
+    final now = DateTime.now();
+    _messageTimestamps.removeWhere((t) => now.difference(t).inSeconds > 10);
+    if (_messageTimestamps.length >= 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Rate limit reached. Please wait a few seconds.'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+      return false;
+    }
+    _messageTimestamps.add(now);
+    return true;
+  }
+
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
-    if (text.isEmpty || _sendState == _MessageSendState.sending) {
+    if (text.isEmpty && _attachmentBase64 == null) {
       return;
     }
+    if (_sendState == _MessageSendState.sending) {
+      return;
+    }
+    if (!_checkRateLimit()) {
+      return;
+    }
+
     setState(() {
       _sendState = _MessageSendState.sending;
       _sendError = null;
     });
+
     try {
+      final bodyToSend = text.isNotEmpty 
+          ? text 
+          : (_attachmentType == 'image' ? 'Sent an image' : 'Sent a file');
+      final attachmentPayload = _attachmentBase64 != null ? [_attachmentBase64!] : const <String>[];
+      final messageType = _attachmentType ?? 'text';
+
       _controller.clear();
+      final tempAttachmentType = _attachmentType;
+
+      setState(() {
+        _attachmentBase64 = null;
+        _attachmentFileName = null;
+        _attachmentType = null;
+        _showEmojiPicker = false;
+      });
+
       await AppRepositories.support.sendMessage(
         threadId: widget.thread.id,
         senderRole: widget.senderRole,
-        body: text,
+        body: bodyToSend,
+        attachments: attachmentPayload,
+        messageType: messageType,
       );
-      if (!mounted) {
-        return;
-      }
+
+      // Trigger standard push mirror logic
+      final peerId = widget.senderRole == 'parent' ? widget.thread.therapistId : widget.thread.parentId;
+      final senderName = widget.senderRole == 'parent' 
+          ? (_peerUserProfile?.fullName ?? 'Parent') 
+          : (widget.therapistProfile?.displayName ?? 'Therapist');
+      
+      await AppRepositories.support.sendNotification(
+        userId: peerId,
+        title: 'New message from $senderName',
+        message: tempAttachmentType != null ? 'Attachment shared' : bodyToSend,
+        category: 'messages',
+        navigationTarget: {
+          'route': 'chat',
+          'threadId': widget.thread.id,
+        },
+      );
+
+      if (!mounted) return;
       setState(() => _sendState = _MessageSendState.sent);
+      _scrollToBottom();
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       setState(() {
         _sendState = _MessageSendState.error;
         _sendError = error.toString();
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Unable to send message: $error'),
+          content: Text('Failed to send message: $error'),
           backgroundColor: AppColors.errorRed,
         ),
       );
     } finally {
       if (mounted) {
         if (_sendState == _MessageSendState.sent) {
-          Future<void>.delayed(const Duration(seconds: 2), () {
+          Future.delayed(const Duration(seconds: 2), () {
             if (mounted) {
               setState(() => _sendState = _MessageSendState.idle);
             }
@@ -160,15 +309,307 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
     }
   }
 
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent + 80,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  Future<void> _pickImage() async {
+    try {
+      final picker = ImagePicker();
+      final image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+      if (image != null) {
+        final bytes = await image.readAsBytes();
+        setState(() {
+          _attachmentBase64 = base64Encode(bytes);
+          _attachmentFileName = image.name;
+          _attachmentType = 'image';
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to pick image: $e')),
+      );
+    }
+  }
+
+  Future<void> _pickFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx', 'txt'],
+        withData: true,
+      );
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        if (file.bytes != null) {
+          setState(() {
+            _attachmentBase64 = base64Encode(file.bytes!);
+            _attachmentFileName = file.name;
+            _attachmentType = 'file';
+          });
+        }
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to pick file: $e')),
+      );
+    }
+  }
+
+  void _insertEmoji(String emoji) {
+    final text = _controller.text;
+    final selection = _controller.selection;
+    if (selection.start >= 0) {
+      final newText = text.replaceRange(selection.start, selection.end, emoji);
+      _controller.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: selection.start + emoji.length),
+      );
+    } else {
+      _controller.text = text + emoji;
+    }
+  }
+
+  Future<void> _toggleBlockStatus() async {
+    final peerId = widget.senderRole == 'parent' ? widget.thread.therapistId : widget.thread.parentId;
+    try {
+      if (_isBlocked) {
+        await AppRepositories.support.unblockUser(blockedId: peerId);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('User unblocked.')),
+        );
+      } else {
+        await AppRepositories.support.blockUser(blockedId: peerId);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('User blocked.')),
+        );
+      }
+      await _checkBlockedStatus();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Action failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _openReportFlow() async {
+    final reasons = ['Harassment', 'Inappropriate Behavior', 'Spam', 'Fake Information', 'Other'];
+    String selectedReason = reasons.first;
+    final commentsController = TextEditingController();
+    bool showExplanation = false;
+
+    final shouldReport = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Report User', style: TextStyle(fontWeight: FontWeight.bold)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Help us understand what happened. Select a reason below:', style: TextStyle(fontSize: 14)),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedReason,
+                  items: reasons.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() {
+                        selectedReason = value;
+                        showExplanation = value == 'Other';
+                      });
+                    }
+                  },
+                  decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10)),
+                ),
+                if (showExplanation) ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: commentsController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Explanation',
+                      hintText: 'Please detail the violation...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.errorRed, foregroundColor: Colors.white),
+              child: const Text('Report'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (shouldReport == true) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Confirm Report'),
+          content: const Text('Are you sure you want to submit this report? Admin team will review the conversation logs.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Confirm')),
+          ],
+        ),
+      );
+
+      if (confirm == true) {
+        try {
+          final peerId = widget.senderRole == 'parent' ? widget.thread.therapistId : widget.thread.parentId;
+          final messagesSnapshot = await FirebaseFirestore.instance
+              .collection(FirestoreCollections.therapistThreads)
+              .doc(widget.thread.id)
+              .collection('messages')
+              .orderBy('sentAt', descending: true)
+              .limit(15)
+              .get();
+          
+          final contextList = messagesSnapshot.docs
+              .map((d) => {
+                    'senderId': d.data()['senderId'] ?? '',
+                    'senderRole': d.data()['senderRole'] ?? '',
+                    'body': d.data()['body'] ?? '',
+                    'sentAt': d.data()['sentAt']?.toString() ?? '',
+                  })
+              .toList();
+
+          await AppRepositories.support.submitReport(
+            reportedId: peerId,
+            reason: selectedReason,
+            comments: selectedReason == 'Other' ? commentsController.text : 'Selected reason: $selectedReason',
+            chatContext: contextList,
+          );
+
+          if (!mounted) return;
+          showDialog<void>(
+            context: this.context,
+            builder: (context) => AlertDialog(
+              title: const Text('Report Submitted'),
+              content: const Text('Thank you. We have received your report and will take action if any violations are found.'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+              ],
+            ),
+          );
+        } catch (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to submit report: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  void _openPeerProfileDetails() {
+    final isTherapist = widget.senderRole == 'parent';
+    final photoUrlBase64 = isTherapist
+        ? _peerTherapistProfile?.photoUrlBase64
+        : _peerUserProfile?.photoUrl;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 34),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 44,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              const SizedBox(height: 20),
+              _TherapistPlaceholderAvatar(size: 88, photoUrlBase64: photoUrlBase64),
+              const SizedBox(height: 14),
+              Text(
+                widget.participantName,
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+              ),
+              Text(
+                isTherapist ? 'Therapist Specialist' : 'Verified Parent Member',
+                style: const TextStyle(fontSize: 14, color: Color(0xFF00A63E), fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 10),
+              if (isTherapist && _peerTherapistProfile != null) ...[
+                _buildProfileDetailRow('Experience', _peerTherapistProfile!.formattedExperience),
+                _buildProfileDetailRow('Bio', _peerTherapistProfile!.bio.isNotEmpty ? _peerTherapistProfile!.bio : 'No bio available yet.'),
+                _buildProfileDetailRow('Availability', _peerTherapistProfile!.availability),
+                _buildProfileDetailRow('Pricing', _peerTherapistProfile!.pricing),
+              ] else ...[
+                _buildProfileDetailRow('Role', 'Parent'),
+                _buildProfileDetailRow('Verification Status', 'Verified account'),
+              ],
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryBlue,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 44),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Close Profile'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildProfileDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF64748B))),
+          ),
+          Expanded(
+            child: Text(value, style: const TextStyle(color: Color(0xFF1E293B))),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _requestEmergency() async {
     try {
       await AppRepositories.support.requestEmergency(
         threadId: widget.thread.id,
         requestedByRole: widget.senderRole,
       );
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Emergency request sent to therapist.'),
@@ -176,9 +617,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
         ),
       );
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Unable to request emergency support: $error'),
@@ -194,9 +633,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
         threadId: widget.thread.id,
         resolvedByRole: widget.senderRole,
       );
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Emergency response sent.'),
@@ -204,9 +641,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
         ),
       );
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Unable to respond to emergency: $error'),
@@ -359,14 +794,11 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
           if (!backendNotConfigured) {
             rethrow;
           }
-          // In local/demo mode, proceed with in-app cancellation state.
         }
       }
 
       await _persistHiddenTherapist(widget.thread.therapistId);
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Subscription canceled.'),
@@ -376,9 +808,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
       Navigator.pop(context); // close therapist detail dialog
       Navigator.pop(context); // back to messages home
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Unable to cancel subscription: $error'),
@@ -465,7 +895,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Hardcoded rating/reviews removed for now.
                     const SizedBox(height: 12),
                     const Divider(height: 1),
                     const SizedBox(height: 10),
@@ -522,29 +951,107 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    _resolvedBannerTimer?.cancel();
-    super.dispose();
+  String _formatTime(DateTime? value) {
+    if (value == null) {
+      return '';
+    }
+    final local = value.toLocal();
+    final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final minute = local.minute.toString().padLeft(2, '0');
+    final suffix = local.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $suffix';
   }
 
   @override
   Widget build(BuildContext context) {
+    final peerRole = widget.senderRole == 'parent' ? 'Therapist' : 'Parent';
+    final photoUrlBase64 = widget.senderRole == 'parent' 
+        ? _peerTherapistProfile?.photoUrlBase64 
+        : _peerUserProfile?.photoUrl;
+
     return SessionGuard(
       role: SessionGuardRole.authenticated,
       child: Scaffold(
         resizeToAvoidBottomInset: true,
         appBar: AppBar(
-          title: Text(widget.participantName),
           backgroundColor: AppColors.primaryBlue,
           foregroundColor: Colors.white,
+          leadingWidth: 40,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.pop(context),
+          ),
+          titleSpacing: 0,
+          title: InkWell(
+            onTap: _openPeerProfileDetails,
+            child: Row(
+              children: [
+                _TherapistPlaceholderAvatar(size: 38, photoUrlBase64: photoUrlBase64),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.participantName,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        peerRole,
+                        style: const TextStyle(fontSize: 11, color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
           actions: [
-            if (widget.therapistProfile != null)
-              IconButton(
-                onPressed: _openTherapistDetails,
-                icon: const Icon(Icons.info_outline),
-              ),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert, color: Colors.white),
+              onSelected: (value) {
+                if (value == 'profile') {
+                  _openPeerProfileDetails();
+                } else if (value == 'report') {
+                  _openReportFlow();
+                } else if (value == 'block') {
+                  _toggleBlockStatus();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'profile',
+                  child: Row(
+                    children: [
+                      Icon(Icons.person_outline, size: 20, color: Colors.black87),
+                      SizedBox(width: 8),
+                      Text('View Profile'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'report',
+                  child: Row(
+                    children: [
+                      Icon(Icons.report_outlined, size: 20, color: AppColors.errorRed),
+                      SizedBox(width: 8),
+                      Text('Report User', style: TextStyle(color: AppColors.errorRed)),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'block',
+                  child: Row(
+                    children: [
+                      Icon(_isBlocked ? Icons.lock_open : Icons.block, size: 20, color: Colors.black87),
+                      SizedBox(width: 8),
+                      Text(_isBlocked ? 'Unblock User' : 'Block User'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
         body: StreamBuilder<TherapistThread?>(
@@ -562,8 +1069,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                   children: [
                     if (widget.readOnly)
                       const _ChatStateBanner(
-                        text:
-                            'Read-only mode: this conversation remains visible, but new parent messages require an active subscription.',
+                        text: 'Read-only mode: this conversation remains visible, but new parent messages require an active subscription.',
                         color: Color(0xFFF2E8C6),
                       ),
                     if (thread.hasOpenEmergency)
@@ -577,6 +1083,11 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                       const _ChatStateBanner(
                         text: 'Emergency response has been recorded.',
                         color: Color(0xFFD8F4DD),
+                      ),
+                    if (_isBlocked)
+                      const _ChatStateBanner(
+                        text: 'This conversation is disabled because a user is blocked.',
+                        color: Color(0xFFFEE2E2),
                       ),
                     Expanded(
                       child: StreamBuilder<List<TherapistMessage>>(
@@ -603,7 +1114,12 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                               ),
                             );
                           }
+
+                          // Trigger scroll to bottom on new messages
+                          WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
                           return ListView.builder(
+                            controller: _scrollController,
                             keyboardDismissBehavior:
                                 ScrollViewKeyboardDismissBehavior.onDrag,
                             padding: const EdgeInsets.all(16),
@@ -639,7 +1155,64 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                                   message.senderRole == widget.senderRole;
                                   
                               Widget contentWidget;
-                              if (message.messageType == 'report' && message.attachments.isNotEmpty) {
+                              if (message.messageType == 'image' && message.attachments.isNotEmpty) {
+                                Widget img;
+                                try {
+                                  final bytes = base64Decode(message.attachments.first);
+                                  img = Image.memory(
+                                    bytes,
+                                    fit: BoxFit.cover,
+                                    width: 200,
+                                    height: 200,
+                                    errorBuilder: (context, e, s) => const Icon(Icons.broken_image, size: 50),
+                                  );
+                                } catch (_) {
+                                  img = const Icon(Icons.broken_image, size: 50);
+                                }
+                                contentWidget = Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: img,
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      message.body,
+                                      style: TextStyle(
+                                        color: isMine ? Colors.white : Colors.black87,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              } else if (message.messageType == 'file' && message.attachments.isNotEmpty) {
+                                contentWidget = InkWell(
+                                  onTap: () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Opening file...')),
+                                    );
+                                  },
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.insert_drive_file, color: isMine ? Colors.white : AppColors.primaryBlue),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          message.body,
+                                          style: TextStyle(
+                                            color: isMine ? Colors.white : Colors.black87,
+                                            fontWeight: FontWeight.w600,
+                                            decoration: TextDecoration.underline,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              } else if (message.messageType == 'report' && message.attachments.isNotEmpty) {
                                 contentWidget = Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -689,21 +1262,47 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                                 alignment: isMine
                                     ? Alignment.centerRight
                                     : Alignment.centerLeft,
-                                child: Container(
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  padding: const EdgeInsets.all(14),
-                                  constraints: BoxConstraints(
-                                    maxWidth:
-                                        MediaQuery.of(context).size.width *
-                                        0.75,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isMine
-                                        ? AppColors.primaryBlue
-                                        : const Color(0xFFF1F5F9),
-                                    borderRadius: BorderRadius.circular(18),
-                                  ),
-                                  child: contentWidget,
+                                child: Column(
+                                  crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      margin: const EdgeInsets.only(bottom: 2),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                      constraints: BoxConstraints(
+                                        maxWidth:
+                                            MediaQuery.of(context).size.width *
+                                            0.75,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isMine
+                                            ? AppColors.primaryBlue
+                                            : const Color(0xFFF1F5F9),
+                                        borderRadius: BorderRadius.only(
+                                          topLeft: const Radius.circular(16),
+                                          topRight: const Radius.circular(16),
+                                          bottomLeft: Radius.circular(isMine ? 16 : 0),
+                                          bottomRight: Radius.circular(isMine ? 0 : 16),
+                                        ),
+                                      ),
+                                      child: contentWidget,
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            _formatTime(message.sentAt),
+                                            style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                                          ),
+                                          if (isMine) ...[
+                                            const SizedBox(width: 4),
+                                            const Icon(Icons.done_all, size: 12, color: Colors.blueAccent),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               );
                             },
@@ -711,6 +1310,53 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                         },
                       ),
                     ),
+                    if (_attachmentFileName != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        color: const Color(0xFFF8FAFC),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _attachmentType == 'image' ? Icons.image : Icons.insert_drive_file,
+                              color: AppColors.primaryBlue,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _attachmentFileName!,
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.cancel, color: Colors.red),
+                              onPressed: () {
+                                setState(() {
+                                  _attachmentBase64 = null;
+                                  _attachmentFileName = null;
+                                  _attachmentType = null;
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (_showEmojiPicker)
+                      Container(
+                        height: 50,
+                        color: const Color(0xFFF1F5F9),
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          itemCount: _commonEmojis.length,
+                          itemBuilder: (context, index) {
+                            return IconButton(
+                              icon: Text(_commonEmojis[index], style: const TextStyle(fontSize: 20)),
+                              onPressed: () => _insertEmoji(_commonEmojis[index]),
+                            );
+                          },
+                        ),
+                      ),
                     SafeArea(
                       top: false,
                       child: ConstrainedBox(
@@ -718,7 +1364,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                           maxHeight: composerMaxHeight,
                         ),
                         child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -760,14 +1406,61 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                                     color: const Color(0xFFF7F7F7),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  child: const Text(
-                                    'Messaging is currently disabled for this conversation state.',
-                                    style: TextStyle(color: Colors.black54),
+                                  child: Text(
+                                    _isBlocked 
+                                        ? 'This conversation is disabled because a user is blocked.'
+                                        : 'Messaging is currently disabled for this conversation state.',
+                                    style: const TextStyle(color: Colors.black54),
+                                    textAlign: TextAlign.center,
                                   ),
                                 )
                               else
                                 Row(
                                   children: [
+                                    IconButton(
+                                      icon: Icon(
+                                        Icons.sentiment_satisfied_alt_outlined,
+                                        color: _showEmojiPicker ? AppColors.primaryBlue : Colors.grey[600],
+                                      ),
+                                      onPressed: () {
+                                        setState(() {
+                                          _showEmojiPicker = !_showEmojiPicker;
+                                        });
+                                      },
+                                    ),
+                                    IconButton(
+                                      icon: Icon(Icons.attach_file, color: Colors.grey[600]),
+                                      onPressed: () {
+                                        showModalBottomSheet<void>(
+                                          context: context,
+                                          builder: (context) {
+                                            return SafeArea(
+                                              child: Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  ListTile(
+                                                    leading: const Icon(Icons.image, color: Colors.green),
+                                                    title: const Text('Send Image'),
+                                                    onTap: () {
+                                                      Navigator.pop(context);
+                                                      _pickImage();
+                                                    },
+                                                  ),
+                                                  ListTile(
+                                                    leading: const Icon(Icons.insert_drive_file, color: Colors.blue),
+                                                    title: const Text('Send PDF / Document'),
+                                                    onTap: () {
+                                                      Navigator.pop(context);
+                                                      _pickFile();
+                                                    },
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          },
+                                        );
+                                      },
+                                    ),
                                     Expanded(
                                       child: TextField(
                                         controller: _controller,
@@ -778,25 +1471,24 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                                           filled: true,
                                           fillColor: const Color(0xFFF1F5F9),
                                           border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              18,
-                                            ),
+                                            borderRadius: BorderRadius.circular(18),
                                             borderSide: BorderSide.none,
                                           ),
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                                         ),
                                       ),
                                     ),
-                                    const SizedBox(width: 12),
+                                    const SizedBox(width: 8),
                                     FloatingActionButton(
                                       onPressed:
                                           _sendState ==
-                                              _MessageSendState.sending
-                                          ? null
-                                          : _sendMessage,
+                                                  _MessageSendState.sending
+                                              ? null
+                                              : _sendMessage,
                                       backgroundColor: AppColors.primaryBlue,
                                       foregroundColor: Colors.white,
-                                      child:
-                                          _sendState ==
+                                      mini: true,
+                                      child: _sendState ==
                                               _MessageSendState.sending
                                           ? const SizedBox(
                                               width: 18,
@@ -806,42 +1498,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                                                 color: Colors.white,
                                               ),
                                             )
-                                          : const Icon(Icons.send),
+                                          : const Icon(Icons.send, size: 20),
                                     ),
                                   ],
-                                ),
-                              if (_sendState == _MessageSendState.sending)
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 8),
-                                  child: Text(
-                                    'Sending message...',
-                                    style: TextStyle(
-                                      color: AppColors.primaryBlue,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              if (_sendState == _MessageSendState.sent)
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 8),
-                                  child: Text(
-                                    'Message sent',
-                                    style: TextStyle(
-                                      color: Colors.green,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              if (_sendState == _MessageSendState.error)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: Text(
-                                    _sendError ?? 'Message failed',
-                                    style: const TextStyle(
-                                      color: AppColors.errorRed,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
                                 ),
                             ],
                           ),
@@ -877,6 +1536,7 @@ class _ChatStateBanner extends StatelessWidget {
           fontWeight: FontWeight.w600,
           color: Color(0xFF223651),
         ),
+        textAlign: TextAlign.center,
       ),
     );
   }

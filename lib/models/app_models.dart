@@ -58,6 +58,7 @@ enum AppSessionState {
   emailVerificationPending,
   parent,
   therapist,
+  admin,
 }
 
 class AppSession {
@@ -772,6 +773,15 @@ class TherapistProfile {
     this.credentials = '',
     this.photoUrlBase64 = '',
     this.certificateBase64 = '',
+    this.verificationStatus = 'pending',
+    this.adminFeedback = '',
+    this.verifiedBadge = false,
+    this.licenseNumber = '',
+    this.registrationNumber = '',
+    this.cnic = '',
+    this.experienceDetails = '',
+    this.ratingBreakdown = const <String, int>{'1': 0, '2': 0, '3': 0, '4': 0, '5': 0},
+    this.totalReviews = 0,
   });
 
   final String id;
@@ -791,6 +801,15 @@ class TherapistProfile {
   final String credentials;
   final String photoUrlBase64;
   final String certificateBase64;
+  final String verificationStatus;
+  final String adminFeedback;
+  final bool verifiedBadge;
+  final String licenseNumber;
+  final String registrationNumber;
+  final String cnic;
+  final String experienceDetails;
+  final Map<String, int> ratingBreakdown;
+  final int totalReviews;
 
   /// Convenience alias for yearsOfExperience.
   int get experienceYears => yearsOfExperience;
@@ -806,6 +825,11 @@ class TherapistProfile {
 
   factory TherapistProfile.fromMap(String id, Map<String, dynamic> data) {
     final rawRating = data['rating'];
+    final rawBreakdown = data['ratingBreakdown'];
+    Map<String, int> resolvedBreakdown = const <String, int>{'1': 0, '2': 0, '3': 0, '4': 0, '5': 0};
+    if (rawBreakdown is Map) {
+      resolvedBreakdown = rawBreakdown.map((key, value) => MapEntry(key.toString(), intFrom(value)));
+    }
     return TherapistProfile(
       id: id,
       displayName: (data['displayName'] ?? '').toString(),
@@ -817,8 +841,6 @@ class TherapistProfile {
       availability: (data['availability'] ?? '').toString(),
       photoUrl: (data['photoUrl'] ?? '').toString(),
       isActive: data['isActive'] != false,
-      // Prefer new separate fields; fall back to the legacy yearsOfExperience
-      // field for backward compatibility with existing Firestore documents.
       yearsOfExperience: intFrom(
         data['experience_years'] ?? data['yearsOfExperience'],
       ),
@@ -826,7 +848,205 @@ class TherapistProfile {
       credentials: (data['credentials'] ?? '').toString(),
       photoUrlBase64: (data['photoUrlBase64'] ?? '').toString(),
       certificateBase64: (data['certificateBase64'] ?? '').toString(),
+      verificationStatus: (data['verificationStatus'] ?? 'pending').toString(),
+      adminFeedback: (data['adminFeedback'] ?? '').toString(),
+      verifiedBadge: data['verifiedBadge'] == true,
+      licenseNumber: (data['licenseNumber'] ?? '').toString(),
+      registrationNumber: (data['registrationNumber'] ?? '').toString(),
+      cnic: (data['cnic'] ?? '').toString(),
+      experienceDetails: (data['experienceDetails'] ?? '').toString(),
+      ratingBreakdown: resolvedBreakdown,
+      totalReviews: intFrom(data['totalReviews'], 0),
     );
+  }
+}
+
+class TherapistReview {
+  const TherapistReview({
+    required this.id,
+    required this.parentId,
+    required this.parentName,
+    required this.therapistId,
+    required this.rating,
+    required this.feedback,
+    required this.createdAt,
+    this.privateFeedback = '',
+  });
+
+  final String id;
+  final String parentId;
+  final String parentName;
+  final String therapistId;
+  final int rating;
+  final String feedback;
+  final DateTime createdAt;
+  final String privateFeedback;
+
+  factory TherapistReview.fromMap(String id, Map<String, dynamic> data) {
+    return TherapistReview(
+      id: id,
+      parentId: (data['parentId'] ?? '').toString(),
+      parentName: (data['parentName'] ?? '').toString(),
+      therapistId: (data['therapistId'] ?? '').toString(),
+      rating: intFrom(data['rating'], 5),
+      feedback: (data['feedback'] ?? '').toString(),
+      createdAt: dateTimeFromFirestore(data['createdAt']) ?? DateTime.now(),
+      privateFeedback: (data['privateFeedback'] ?? '').toString(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'parentId': parentId,
+      'parentName': parentName,
+      'therapistId': therapistId,
+      'rating': rating,
+      'feedback': feedback,
+      'createdAt': createdAt,
+      'privateFeedback': privateFeedback,
+    };
+  }
+}
+
+class UserReport {
+  const UserReport({
+    required this.id,
+    required this.reporterId,
+    required this.reporterRole,
+    required this.reportedId,
+    required this.reason,
+    required this.comments,
+    required this.chatContext,
+    required this.timestamp,
+    required this.status,
+  });
+
+  final String id;
+  final String reporterId;
+  final String reporterRole;
+  final String reportedId;
+  final String reason;
+  final String comments;
+  final List<Map<String, dynamic>> chatContext;
+  final DateTime timestamp;
+  final String status; // 'pending', 'dismissed', 'warned', 'suspended', 'banned'
+
+  factory UserReport.fromMap(String id, Map<String, dynamic> data) {
+    final rawContext = data['chatContext'] as List?;
+    final context = rawContext != null
+        ? rawContext.map((item) => Map<String, dynamic>.from(item as Map)).toList()
+        : const <Map<String, dynamic>>[];
+
+    return UserReport(
+      id: id,
+      reporterId: (data['reporterId'] ?? '').toString(),
+      reporterRole: (data['reporterRole'] ?? '').toString(),
+      reportedId: (data['reportedId'] ?? '').toString(),
+      reason: (data['reason'] ?? '').toString(),
+      comments: (data['comments'] ?? '').toString(),
+      chatContext: context,
+      timestamp: dateTimeFromFirestore(data['timestamp']) ?? DateTime.now(),
+      status: (data['status'] ?? 'pending').toString(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'reporterId': reporterId,
+      'reporterRole': reporterRole,
+      'reportedId': reportedId,
+      'reason': reason,
+      'comments': comments,
+      'chatContext': chatContext,
+      'timestamp': timestamp,
+      'status': status,
+    };
+  }
+}
+
+class NotificationInboxItem {
+  const NotificationInboxItem({
+    required this.id,
+    required this.userId,
+    required this.title,
+    required this.message,
+    required this.category,
+    required this.timestamp,
+    required this.isRead,
+    this.navigationTarget = const <String, dynamic>{},
+  });
+
+  final String id;
+  final String userId;
+  final String title;
+  final String message;
+  final String category; // 'messages', 'subscription', 'reviews', 'activities', 'verification', 'system'
+  final DateTime timestamp;
+  final bool isRead;
+  final Map<String, dynamic> navigationTarget;
+
+  factory NotificationInboxItem.fromMap(String id, Map<String, dynamic> data) {
+    return NotificationInboxItem(
+      id: id,
+      userId: (data['userId'] ?? '').toString(),
+      title: (data['title'] ?? '').toString(),
+      message: (data['message'] ?? '').toString(),
+      category: (data['category'] ?? 'system').toString(),
+      timestamp: dateTimeFromFirestore(data['timestamp']) ?? DateTime.now(),
+      isRead: data['isRead'] == true,
+      navigationTarget: mapFrom(data['navigationTarget']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'userId': userId,
+      'title': title,
+      'message': message,
+      'category': category,
+      'timestamp': timestamp,
+      'isRead': isRead,
+      'navigationTarget': navigationTarget,
+    };
+  }
+}
+
+class AdminAuditLog {
+  const AdminAuditLog({
+    required this.id,
+    required this.adminUid,
+    required this.targetUid,
+    required this.actionType,
+    required this.details,
+    required this.timestamp,
+  });
+
+  final String id;
+  final String adminUid;
+  final String targetUid;
+  final String actionType;
+  final String details;
+  final DateTime timestamp;
+
+  factory AdminAuditLog.fromMap(String id, Map<String, dynamic> data) {
+    return AdminAuditLog(
+      id: id,
+      adminUid: (data['adminUid'] ?? '').toString(),
+      targetUid: (data['targetUid'] ?? '').toString(),
+      actionType: (data['actionType'] ?? '').toString(),
+      details: (data['details'] ?? '').toString(),
+      timestamp: dateTimeFromFirestore(data['timestamp']) ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'adminUid': adminUid,
+      'targetUid': targetUid,
+      'actionType': actionType,
+      'details': details,
+      'timestamp': timestamp,
+    };
   }
 }
 

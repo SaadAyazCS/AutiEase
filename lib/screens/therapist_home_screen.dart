@@ -1937,6 +1937,84 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
                   children: [
+                    if (profile.verificationStatus == 'pending') ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFBEB),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFDE68A)),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.hourglass_empty, color: Colors.amber),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Verification status: Pending. Your credentials are under review. You will be listed once approved.',
+                                style: TextStyle(color: Color(0xFF92400E), fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ] else if (profile.verificationStatus == 'rejected') ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFCA5A5)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.error_outline, color: Colors.red),
+                                SizedBox(width: 10),
+                                Text(
+                                  'Profile Update Required',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF991B1B),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Rejection comments: ${profile.adminFeedback.isEmpty ? "Please double-check your uploaded documents and details." : profile.adminFeedback}',
+                              style: const TextStyle(color: Color(0xFF991B1B), fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ] else if (profile.verificationStatus == 'suspended') ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFCA5A5)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.gavel, color: Colors.red),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Account Suspended: ${profile.adminFeedback.isEmpty ? "Please contact support." : profile.adminFeedback}',
+                                style: const TextStyle(color: Color(0xFF991B1B), fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: _cardDeco,
@@ -1946,7 +2024,7 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                             children: [
                               _LogoCircleAvatar(
                                 radius: 26,
-                                backgroundColor: Color(0xFFD8F6DF),
+                                backgroundColor: const Color(0xFFD8F6DF),
                                 padding: 4,
                                 photoBase64: profile.photoUrlBase64,
                               ),
@@ -1985,6 +2063,224 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                           ),
                         ],
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                    StreamBuilder<List<TherapistReview>>(
+                      stream: AppRepositories.support.watchReviewsForTherapist(profile.id),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: _cardDeco,
+                            child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                          );
+                        }
+                        final reviews = snapshot.data ?? const [];
+                        final totalReviews = reviews.length;
+                        double sumRating = 0.0;
+                        final breakdown = {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0};
+                        for (final r in reviews) {
+                          sumRating += r.rating;
+                          final key = r.rating.clamp(1, 5).toString();
+                          breakdown[key] = (breakdown[key] ?? 0) + 1;
+                        }
+                        final averageRating = totalReviews > 0 ? (sumRating / totalReviews) : 0.0;
+
+                        Widget buildBreakdownRow(int star, int count) {
+                          final percentage = totalReviews > 0 ? count / totalReviews : 0.0;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 1.5),
+                            child: Row(
+                              children: [
+                                Text(
+                                  '$star ★',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF4B5563),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: LinearProgressIndicator(
+                                      value: percentage,
+                                      backgroundColor: const Color(0xFFE5E7EB),
+                                      color: Colors.amber,
+                                      minHeight: 6,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '$count',
+                                  style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: _cardDeco,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.star_rounded, color: Colors.amber, size: 20),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Reviews & Feedback',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                      color: Color(0xFF1F2937),
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              if (totalReviews == 0)
+                                const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 12),
+                                    child: Text(
+                                      'No reviews submitted yet.',
+                                      style: TextStyle(color: Color(0xFF6B7280), fontStyle: FontStyle.italic),
+                                    ),
+                                  ),
+                                )
+                              else ...[
+                                Row(
+                                  children: [
+                                    Column(
+                                      children: [
+                                        Text(
+                                          averageRating.toStringAsFixed(1),
+                                          style: const TextStyle(
+                                            fontSize: 32,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF1F2937),
+                                          ),
+                                        ),
+                                        Row(
+                                          children: List.generate(5, (index) {
+                                            return Icon(
+                                              index < averageRating.round()
+                                                  ? Icons.star
+                                                  : Icons.star_border,
+                                              color: Colors.amber,
+                                              size: 14,
+                                            );
+                                          }),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '$totalReviews reviews',
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            color: Color(0xFF6B7280),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        children: [
+                                          for (int i = 5; i >= 1; i--)
+                                            buildBreakdownRow(i, breakdown[i.toString()] ?? 0),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                const Divider(),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Recent Written Feedback',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                    color: Color(0xFF4B5563),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ListView.separated(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  itemCount: math.min(3, reviews.length),
+                                  separatorBuilder: (context, index) => const Divider(height: 12),
+                                  itemBuilder: (context, index) {
+                                    final review = reviews[index];
+                                    return Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Text(
+                                              review.parentName.isEmpty ? 'Parent' : review.parentName,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 11,
+                                                color: Color(0xFF374151),
+                                              ),
+                                            ),
+                                            const Spacer(),
+                                            Row(
+                                              children: List.generate(5, (sIndex) {
+                                                return Icon(
+                                                  sIndex < review.rating
+                                                      ? Icons.star
+                                                      : Icons.star_border,
+                                                  color: Colors.amber,
+                                                  size: 11,
+                                                );
+                                              }),
+                                            ),
+                                          ],
+                                        ),
+                                        if (review.feedback.trim().isNotEmpty) ...[
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            review.feedback,
+                                            style: const TextStyle(
+                                              fontSize: 11.5,
+                                              color: Color(0xFF4B5563),
+                                            ),
+                                          ),
+                                        ],
+                                        if (review.privateFeedback.trim().isNotEmpty) ...[
+                                          const SizedBox(height: 4),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF3F4F6),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'Private Note: ${review.privateFeedback}',
+                                              style: const TextStyle(
+                                                fontSize: 10.5,
+                                                color: Color(0xFF6B7280),
+                                                fontStyle: FontStyle.italic,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ],
+                            ],
+                          ),
+                        );
+                      },
                     ),
                     const SizedBox(height: 10),
                     Container(

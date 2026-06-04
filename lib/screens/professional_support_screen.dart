@@ -209,6 +209,141 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
         backgroundColor: AppColors.errorRed,
       ),
     );
+    _showReviewDialog(context, therapist);
+  }
+
+  void _showReviewDialog(BuildContext context, TherapistProfile therapist) {
+    int selectedRating = 5;
+    final publicController = TextEditingController();
+    final privateController = TextEditingController();
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: Text(
+                'Rate & Review\n${therapist.displayName}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1F2937),
+                ),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'How was your experience with this therapist?',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, color: Color(0xFF4B5563)),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(5, (index) {
+                        final starValue = index + 1;
+                        return IconButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              selectedRating = starValue;
+                            });
+                          },
+                          icon: Icon(
+                            starValue <= selectedRating
+                                ? Icons.star
+                                : Icons.star_border,
+                            color: Colors.amber,
+                            size: 32,
+                          ),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: publicController,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: 'Written Feedback (Optional)',
+                        hintText: 'Share your experience with other parents...',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: privateController,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: 'Private Notes (Optional)',
+                        hintText: 'Feedback visible only to admin/platform...',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Maybe Later', style: TextStyle(color: Color(0xFF6B7280))),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    try {
+                      await AppRepositories.support.submitReview(
+                        therapistId: therapist.id,
+                        rating: selectedRating,
+                        feedback: publicController.text.trim(),
+                        privateFeedback: privateController.text.trim(),
+                      );
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(
+                            content: Text('Thank you! Your review has been submitted.'),
+                            backgroundColor: Color(0xFF00C853),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(
+                            content: Text('Failed to submit review: $e'),
+                            backgroundColor: AppColors.errorRed,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00C853),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text('Submit'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   void _openExistingThread(
@@ -718,13 +853,21 @@ class _TherapistListCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        therapist.displayName,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF1F2937),
-                        ),
+                      Row(
+                        children: [
+                          Text(
+                            therapist.displayName,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF1F2937),
+                            ),
+                          ),
+                          if (therapist.verifiedBadge || therapist.verificationStatus == 'approved') ...[
+                            const SizedBox(width: 4),
+                            const Icon(Icons.verified, color: Colors.blue, size: 16),
+                          ],
+                        ],
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -738,7 +881,21 @@ class _TherapistListCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          // Hardcoded rating fallback removed for now.
+                          if (therapist.totalReviews > 0) ...[
+                            const Icon(Icons.star, color: Colors.amber, size: 14),
+                            const SizedBox(width: 2),
+                            Text(
+                              '${therapist.rating.toStringAsFixed(1)} (${therapist.totalReviews})',
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                color: Color(0xFF1F2937),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text('|', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                            const SizedBox(width: 8),
+                          ],
                           Text(
                             therapist.formattedExperience,
                             style: const TextStyle(
@@ -1112,14 +1269,22 @@ class _SupportTherapistDetailsScreenState
                           photoBase64: therapist.photoUrlBase64,
                         ),
                         const SizedBox(height: 12),
-                        Text(
-                          therapist.displayName,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 16.9,
-                            color: Color(0xFF1F2937),
-                            fontWeight: FontWeight.w500,
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              therapist.displayName,
+                              style: const TextStyle(
+                                fontSize: 16.9,
+                                color: Color(0xFF1F2937),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            if (therapist.verifiedBadge || therapist.verificationStatus == 'approved') ...[
+                              const SizedBox(width: 4),
+                              const Icon(Icons.verified, color: Colors.blue, size: 18),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -1265,6 +1430,8 @@ class _SupportTherapistDetailsScreenState
                       ],
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  _SupportTherapistReviewsSection(therapistId: therapist.id),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
@@ -2497,5 +2664,219 @@ class _FeatureLine extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _SupportTherapistReviewsSection extends StatelessWidget {
+  const _SupportTherapistReviewsSection({required this.therapistId});
+
+  final String therapistId;
+
+  Widget _buildBreakdownRow(int star, int count, int total) {
+    final percentage = total > 0 ? count / total : 0.0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      child: Row(
+        children: [
+          Text(
+            '$star ★',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF4B5563),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: percentage,
+                backgroundColor: const Color(0xFFE5E7EB),
+                color: Colors.amber,
+                minHeight: 8,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 24,
+            child: Text(
+              '$count',
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<TherapistReview>>(
+      stream: AppRepositories.support.watchReviewsForTherapist(therapistId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const _SupportDetailCard(
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        }
+
+        final reviews = snapshot.data ?? const [];
+        final totalReviews = reviews.length;
+
+        double sumRating = 0.0;
+        final breakdown = {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0};
+        for (final r in reviews) {
+          sumRating += r.rating;
+          final key = r.rating.clamp(1, 5).toString();
+          breakdown[key] = (breakdown[key] ?? 0) + 1;
+        }
+        final averageRating = totalReviews > 0 ? (sumRating / totalReviews) : 0.0;
+
+        return _SupportDetailCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Ratings & Reviews',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Color(0xFF1F2937),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (totalReviews == 0)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Text(
+                      'No reviews yet. Be the first to leave a review!',
+                      style: TextStyle(color: Color(0xFF6B7280), fontStyle: FontStyle.italic),
+                    ),
+                  ),
+                )
+              else ...[
+                Row(
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          averageRating.toStringAsFixed(1),
+                          style: const TextStyle(
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1F2937),
+                          ),
+                        ),
+                        Row(
+                          children: List.generate(5, (index) {
+                            return Icon(
+                              index < averageRating.round()
+                                  ? Icons.star
+                                  : Icons.star_border,
+                              color: Colors.amber,
+                              size: 16,
+                            );
+                          }),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '$totalReviews ${totalReviews == 1 ? "Review" : "Reviews"}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 24),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          for (int i = 5; i >= 1; i--)
+                            _buildBreakdownRow(
+                              i,
+                              breakdown[i.toString()] ?? 0,
+                              totalReviews,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 8),
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: reviews.length,
+                  separatorBuilder: (context, index) => const Divider(height: 16),
+                  itemBuilder: (context, index) {
+                    final review = reviews[index];
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              review.parentName.isEmpty ? 'Parent' : review.parentName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: Color(0xFF374151),
+                              ),
+                            ),
+                            const Spacer(),
+                            Row(
+                              children: List.generate(5, (sIndex) {
+                                return Icon(
+                                  sIndex < review.rating
+                                      ? Icons.star
+                                      : Icons.star_border,
+                                  color: Colors.amber,
+                                  size: 14,
+                                );
+                              }),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          review.feedback.trim().isEmpty
+                              ? 'No written feedback provided.'
+                              : review.feedback,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF4B5563),
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _formatDate(review.createdAt),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF9CA3AF),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  String _formatDate(DateTime dt) {
+    return '${dt.day}/${dt.month}/${dt.year}';
   }
 }

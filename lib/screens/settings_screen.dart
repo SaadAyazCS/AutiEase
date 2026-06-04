@@ -14,7 +14,7 @@ import 'child_profile_home_screen.dart';
 import 'feedback_screen.dart';
 import 'login_screen.dart';
 import 'my_profile_screen.dart';
-import 'notifications_screen.dart';
+import 'notification_inbox_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -374,7 +374,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         return Switch(
                           value: isLocked,
                           onChanged: (value) => _toggleChildModeLock(value),
-                          activeColor: const Color(0xFF4EA9E3),
+                          activeThumbColor: const Color(0xFF4EA9E3),
                         );
                       },
                     ),
@@ -391,7 +391,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => const NotificationsScreen(),
+                          builder: (_) => const NotificationInboxScreen(),
                         ),
                       );
                     },

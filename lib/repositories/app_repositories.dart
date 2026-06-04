@@ -118,6 +118,63 @@ abstract class SupportRepository {
     required String threadId,
     required String resolvedByRole,
   });
+
+  // Reviews & Feedback
+  Future<void> submitReview({
+    required String therapistId,
+    required int rating,
+    required String feedback,
+    String privateFeedback = '',
+  });
+  Stream<List<TherapistReview>> watchReviewsForTherapist(String therapistId);
+
+  // User Reporting & Blocking
+  Future<void> submitReport({
+    required String reportedId,
+    required String reason,
+    required String comments,
+    required List<Map<String, dynamic>> chatContext,
+  });
+  Future<void> blockUser({required String blockedId});
+  Future<void> unblockUser({required String blockedId});
+  Future<bool> isUserBlocked(String userId);
+
+  // In-app Notifications
+  Stream<List<NotificationInboxItem>> watchNotifications();
+  Future<void> markNotificationAsRead(String notificationId);
+  Future<void> markAllNotificationsAsRead();
+  Future<int> getUnreadNotificationCount();
+  Future<void> sendNotification({
+    required String userId,
+    required String title,
+    required String message,
+    required String category,
+    Map<String, dynamic> navigationTarget = const <String, dynamic>{},
+  });
+
+  // FCM Device Tokens
+  Future<void> saveFcmToken(String token);
+}
+
+abstract class AdminRepository {
+  Future<Map<String, dynamic>> getAnalyticsStats();
+  Future<List<UserProfile>> listParents();
+  Future<List<TherapistProfile>> listTherapistsByStatus(String status);
+  Future<void> verifyTherapist({
+    required String therapistId,
+    required String status, // 'approved', 'rejected', 'pending', 'suspended'
+    String adminFeedback = '',
+    DateTime? licenseExpiryDate,
+  });
+  Stream<List<UserReport>> watchReports();
+  Future<void> updateReportStatus(String reportId, String status);
+  Future<void> executeModerationAction({
+    required String reportedUserId,
+    required String action, // 'warn', 'suspend', 'ban', 'dismiss'
+    String reason = '',
+  });
+  Future<List<Map<String, dynamic>>> listAllFeedbackAndReviews();
+  Future<List<AdminAuditLog>> listAuditLogs();
 }
 
 abstract class BillingRepository {
@@ -152,6 +209,10 @@ class AppRepositories {
   static final ContentRepository content = FirebaseContentRepository(firestore);
   static final PlannerRepository planner = FirebasePlannerRepository(firestore);
   static final SupportRepository support = FirebaseSupportRepository(
+    authClient,
+    firestore,
+  );
+  static final AdminRepository admin = FirebaseAdminRepository(
     authClient,
     firestore,
   );
@@ -249,6 +310,14 @@ class FirebaseAuthRepository implements AuthRepository {
     if (profile.role == 'therapist') {
       return AppSession(
         state: AppSessionState.therapist,
+        uid: profile.uid,
+        role: profile.role,
+      );
+    }
+
+    if (profile.role == 'admin') {
+      return AppSession(
+        state: AppSessionState.admin,
         uid: profile.uid,
         role: profile.role,
       );
@@ -981,8 +1050,20 @@ class FirebaseSupportRepository implements SupportRepository {
         .get();
     final therapists = snapshot.docs
         .map((doc) => TherapistProfile.fromMap(doc.id, doc.data()))
+        .where((t) => t.verificationStatus == 'approved') // Only approved visible in Professional Support listings!
         .toList();
-    therapists.sort((a, b) => b.rating.compareTo(a.rating));
+    therapists.sort((a, b) {
+      final aHasReviews = a.totalReviews > 0;
+      final bHasReviews = b.totalReviews > 0;
+      if (aHasReviews && !bHasReviews) return -1;
+      if (!aHasReviews && bHasReviews) return 1;
+      if (aHasReviews && bHasReviews) {
+        final ratingCompare = b.rating.compareTo(a.rating);
+        if (ratingCompare != 0) return ratingCompare;
+        return b.totalReviews.compareTo(a.totalReviews);
+      }
+      return 0;
+    });
     return therapists;
   }
 
@@ -1218,6 +1299,263 @@ class FirebaseSupportRepository implements SupportRepository {
       'lastMessagePreview': 'Emergency support responded.',
     }, SetOptions(merge: true));
   }
+
+  // Reviews & Feedback
+  @override
+  Future<void> submitReview({
+    required String therapistId,
+    required int rating,
+    required String feedback,
+    String privateFeedback = '',
+  }) async {
+    final parentId = _auth.currentUser?.uid;
+    if (parentId == null) throw StateError('No logged in user');
+    final parentDoc = await _firestore.collection(FirestoreCollections.users).doc(parentId).get();
+    final parentName = _resolveParentDisplayName(parentDoc.data());
+
+    final reviewId = '${parentId}_$therapistId';
+    final reviewRef = _firestore.collection('therapist_reviews').doc(reviewId);
+
+    final review = TherapistReview(
+      id: reviewId,
+      parentId: parentId,
+      parentName: parentName,
+      therapistId: therapistId,
+      rating: rating,
+      feedback: feedback,
+      createdAt: DateTime.now(),
+      privateFeedback: privateFeedback,
+    );
+    await reviewRef.set({
+      ...review.toMap(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    // Recalculate average rating & breakdown
+    final reviewsSnapshot = await _firestore
+        .collection('therapist_reviews')
+        .where('therapistId', isEqualTo: therapistId)
+        .get();
+
+    int totalReviewsCount = reviewsSnapshot.docs.length;
+    double sumRating = 0.0;
+    Map<String, int> breakdown = {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0};
+
+    for (final doc in reviewsSnapshot.docs) {
+      final r = intFrom(doc.data()['rating'], 5);
+      sumRating += r;
+      final key = r.clamp(1, 5).toString();
+      breakdown[key] = (breakdown[key] ?? 0) + 1;
+    }
+
+    double averageRating = totalReviewsCount > 0 ? (sumRating / totalReviewsCount) : 0.0;
+
+    final batch = _firestore.batch();
+    final profileRef = _firestore.collection(FirestoreCollections.therapistProfiles).doc(therapistId);
+    batch.update(profileRef, {
+      'rating': averageRating,
+      'totalReviews': totalReviewsCount,
+      'ratingBreakdown': breakdown,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    await sendNotification(
+      userId: therapistId,
+      title: 'New Review Received',
+      message: 'A parent submitted a $rating-star review for you.',
+      category: 'reviews',
+      navigationTarget: {
+        'route': 'Reviews',
+      },
+    );
+
+    await batch.commit();
+  }
+
+  @override
+  Stream<List<TherapistReview>> watchReviewsForTherapist(String therapistId) {
+    return _firestore
+        .collection('therapist_reviews')
+        .where('therapistId', isEqualTo: therapistId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => TherapistReview.fromMap(doc.id, doc.data()))
+            .toList());
+  }
+
+  // User Reporting & Blocking
+  @override
+  Future<void> submitReport({
+    required String reportedId,
+    required String reason,
+    required String comments,
+    required List<Map<String, dynamic>> chatContext,
+  }) async {
+    final reporterId = _auth.currentUser?.uid;
+    if (reporterId == null) throw StateError('No logged in user');
+
+    final reporterDoc = await _firestore.collection(FirestoreCollections.users).doc(reporterId).get();
+    final reporterRole = (reporterDoc.data()?['role'] ?? 'parent').toString();
+
+    final reportRef = _firestore.collection('reports').doc();
+    final report = UserReport(
+      id: reportRef.id,
+      reporterId: reporterId,
+      reporterRole: reporterRole,
+      reportedId: reportedId,
+      reason: reason,
+      comments: comments,
+      chatContext: chatContext,
+      timestamp: DateTime.now(),
+      status: 'pending',
+    );
+
+    await reportRef.set({
+      ...report.toMap(),
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
+  Future<void> blockUser({required String blockedId}) async {
+    final myId = _auth.currentUser?.uid;
+    if (myId == null) throw StateError('No logged in user');
+
+    await _firestore.collection(FirestoreCollections.users).doc(myId).update({
+      'blockedUserIds': FieldValue.arrayUnion([blockedId]),
+    });
+  }
+
+  @override
+  Future<void> unblockUser({required String blockedId}) async {
+    final myId = _auth.currentUser?.uid;
+    if (myId == null) throw StateError('No logged in user');
+
+    await _firestore.collection(FirestoreCollections.users).doc(myId).update({
+      'blockedUserIds': FieldValue.arrayRemove([blockedId]),
+    });
+  }
+
+  @override
+  Future<bool> isUserBlocked(String userId) async {
+    final myId = _auth.currentUser?.uid;
+    if (myId == null) return false;
+
+    final myDoc = await _firestore.collection(FirestoreCollections.users).doc(myId).get();
+    final myBlocked = stringListFrom(myDoc.data()?['blockedUserIds']);
+    if (myBlocked.contains(userId)) return true;
+
+    final peerDoc = await _firestore.collection(FirestoreCollections.users).doc(userId).get();
+    final peerBlocked = stringListFrom(peerDoc.data()?['blockedUserIds']);
+    if (peerBlocked.contains(myId)) return true;
+
+    return false;
+  }
+
+  // In-app Notifications
+  @override
+  Stream<List<NotificationInboxItem>> watchNotifications() {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return const Stream.empty();
+    return _firestore
+        .collection('notifications')
+        .where('userId', isEqualTo: userId)
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => NotificationInboxItem.fromMap(doc.id, doc.data()))
+            .toList());
+  }
+
+  @override
+  Future<void> markNotificationAsRead(String notificationId) async {
+    await _firestore.collection('notifications').doc(notificationId).update({
+      'isRead': true,
+    });
+  }
+
+  @override
+  Future<void> markAllNotificationsAsRead() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    final unread = await _firestore
+        .collection('notifications')
+        .where('userId', isEqualTo: userId)
+        .where('isRead', isEqualTo: false)
+        .get();
+
+    final batch = _firestore.batch();
+    for (final doc in unread.docs) {
+      batch.update(doc.reference, {'isRead': true});
+    }
+    await batch.commit();
+  }
+
+  @override
+  Future<int> getUnreadNotificationCount() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return 0;
+
+    final unread = await _firestore
+        .collection('notifications')
+        .where('userId', isEqualTo: userId)
+        .where('isRead', isEqualTo: false)
+        .get();
+
+    return unread.docs.length;
+  }
+
+  @override
+  Future<void> sendNotification({
+    required String userId,
+    required String title,
+    required String message,
+    required String category,
+    Map<String, dynamic> navigationTarget = const <String, dynamic>{},
+  }) async {
+    final userDoc = await _firestore.collection(FirestoreCollections.users).doc(userId).get();
+    final data = userDoc.data();
+    if (data != null) {
+      final prefs = boolMapFrom(data['notificationPreferences'] ?? data['therapistNotificationPreferences']);
+      bool enabled = true;
+      if (category == 'messages') {
+        enabled = prefs['therapistsUpdate'] != false || prefs['pushNotifications'] != false;
+      } else if (category == 'activities') {
+        enabled = prefs['routineReminders'] != false || prefs['dailyReminders'] != false;
+      } else if (category == 'subscription') {
+        enabled = prefs['subscription'] != false || prefs['emailNotifications'] != false;
+      } else if (category == 'reviews') {
+        enabled = prefs['activityAlerts'] != false;
+      }
+
+      if (!enabled) {
+        return;
+      }
+    }
+
+    await _firestore.collection('notifications').add({
+      'userId': userId,
+      'title': title,
+      'message': message,
+      'category': category,
+      'timestamp': FieldValue.serverTimestamp(),
+      'isRead': false,
+      'navigationTarget': navigationTarget,
+    });
+  }
+
+  // FCM Device Tokens
+  @override
+  Future<void> saveFcmToken(String token) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+    await _firestore.collection(FirestoreCollections.users).doc(userId).set({
+      'fcmTokens': FieldValue.arrayUnion([token]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
 }
 
 class FirebaseBillingRepository implements BillingRepository {
@@ -1329,5 +1667,289 @@ class FirebaseBillingRepository implements BillingRepository {
           'cancelAtPeriodEnd': false,
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
+  }
+}
+
+class FirebaseAdminRepository implements AdminRepository {
+  FirebaseAdminRepository(this._auth, this._firestore);
+
+  final FirebaseAuth _auth;
+  final FirebaseFirestore _firestore;
+
+
+  @override
+  Future<Map<String, dynamic>> getAnalyticsStats() async {
+    final parentsSnap = await _firestore
+        .collection(FirestoreCollections.users)
+        .where('role', isEqualTo: 'parent')
+        .get();
+    
+    final therapistsSnap = await _firestore
+        .collection(FirestoreCollections.therapistProfiles)
+        .get();
+
+    int pending = 0;
+    int approved = 0;
+    int rejected = 0;
+    int suspended = 0;
+    double totalRating = 0.0;
+    int ratedCount = 0;
+
+    for (final doc in therapistsSnap.docs) {
+      final status = (doc.data()['verificationStatus'] ?? 'pending').toString();
+      if (status == 'approved') approved++;
+      else if (status == 'rejected') rejected++;
+      else if (status == 'suspended') suspended++;
+      else pending++;
+
+      final rating = doc.data()['rating'];
+      if (rating is num && rating > 0) {
+        totalRating += rating.toDouble();
+        ratedCount++;
+      }
+    }
+
+    final subsSnap = await _firestore
+        .collection(FirestoreCollections.subscriptions)
+        .where('status', whereIn: ['active', 'trialing'])
+        .get();
+
+    final reportsSnap = await _firestore.collection('reports').get();
+    final feedbackSnap = await _firestore.collection(FirestoreCollections.feedback).get();
+    final reviewsSnap = await _firestore.collection('therapist_reviews').get();
+
+    return {
+      'totalParents': parentsSnap.docs.length,
+      'totalTherapists': therapistsSnap.docs.length,
+      'pendingTherapists': pending,
+      'approvedTherapists': approved,
+      'rejectedTherapists': rejected,
+      'suspendedTherapists': suspended,
+      'activeSubscriptions': subsSnap.docs.length,
+      'averageTherapistRating': ratedCount > 0 ? (totalRating / ratedCount) : 0.0,
+      'totalReports': reportsSnap.docs.length,
+      'totalFeedback': feedbackSnap.docs.length + reviewsSnap.docs.length,
+    };
+  }
+
+  @override
+  Future<List<UserProfile>> listParents() async {
+    final snap = await _firestore
+        .collection(FirestoreCollections.users)
+        .where('role', isEqualTo: 'parent')
+        .get();
+    return snap.docs.map((doc) => UserProfile.fromMap(doc.id, doc.data())).toList();
+  }
+
+  @override
+  Future<List<TherapistProfile>> listTherapistsByStatus(String status) async {
+    Query<Map<String, dynamic>> query = _firestore.collection(FirestoreCollections.therapistProfiles);
+    if (status.isNotEmpty) {
+      query = query.where('verificationStatus', isEqualTo: status);
+    }
+    final snap = await query.get();
+    return snap.docs.map((doc) => TherapistProfile.fromMap(doc.id, doc.data())).toList();
+  }
+
+  @override
+  Future<void> verifyTherapist({
+    required String therapistId,
+    required String status,
+    String adminFeedback = '',
+    DateTime? licenseExpiryDate,
+  }) async {
+    final adminId = _auth.currentUser?.uid;
+    if (adminId == null) throw StateError('No logged in admin');
+
+    final batch = _firestore.batch();
+    final profileRef = _firestore.collection(FirestoreCollections.therapistProfiles).doc(therapistId);
+    
+    final updateData = <String, dynamic>{
+      'verificationStatus': status,
+      'adminFeedback': adminFeedback,
+      'verifiedBadge': status == 'approved',
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (licenseExpiryDate != null) {
+      updateData['licenseExpiryDate'] = Timestamp.fromDate(licenseExpiryDate);
+    }
+    batch.update(profileRef, updateData);
+
+    final logRef = _firestore.collection('admin_audit_logs').doc();
+    final log = AdminAuditLog(
+      id: logRef.id,
+      adminUid: adminId,
+      targetUid: therapistId,
+      actionType: 'verify_therapist',
+      details: 'Status changed to $status. Feedback: $adminFeedback',
+      timestamp: DateTime.now(),
+    );
+    batch.set(logRef, {
+      ...log.toMap(),
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    final notificationRef = _firestore.collection('notifications').doc();
+    final isApproved = status == 'approved';
+    final title = isApproved ? 'Profile Approved!' : 'Profile Update Required';
+    final message = isApproved
+        ? 'Your therapist profile has been approved. You are now visible to parents!'
+        : 'Your profile status: $status. Corrections: $adminFeedback';
+
+    batch.set(notificationRef, {
+      'userId': therapistId,
+      'title': title,
+      'message': message,
+      'category': 'verification',
+      'timestamp': FieldValue.serverTimestamp(),
+      'isRead': false,
+      'navigationTarget': const <String, dynamic>{
+        'route': 'ProfileStatus',
+      },
+    });
+
+    await batch.commit();
+  }
+
+  @override
+  Stream<List<UserReport>> watchReports() {
+    return _firestore
+        .collection('reports')
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => UserReport.fromMap(doc.id, doc.data()))
+            .toList());
+  }
+
+  @override
+  Future<void> updateReportStatus(String reportId, String status) async {
+    final adminId = _auth.currentUser?.uid;
+    if (adminId == null) throw StateError('No logged in admin');
+
+    await _firestore.collection('reports').doc(reportId).update({
+      'status': status,
+    });
+
+    await _firestore.collection('admin_audit_logs').add({
+      'adminUid': adminId,
+      'targetUid': reportId,
+      'actionType': 'update_report_status',
+      'details': 'Report status set to $status',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
+  Future<void> executeModerationAction({
+    required String reportedUserId,
+    required String action,
+    String reason = '',
+  }) async {
+    final adminId = _auth.currentUser?.uid;
+    if (adminId == null) throw StateError('No logged in admin');
+
+    final batch = _firestore.batch();
+    final userRef = _firestore.collection(FirestoreCollections.users).doc(reportedUserId);
+
+    if (action == 'warn') {
+      batch.update(userRef, {
+        'status': 'warned',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      final notificationRef = _firestore.collection('notifications').doc();
+      batch.set(notificationRef, {
+        'userId': reportedUserId,
+        'title': 'Account Warning',
+        'message': 'Your account has received a warning for: $reason. Please adhere to guidelines.',
+        'category': 'system',
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+      });
+    } else if (action == 'suspend') {
+      batch.update(userRef, {
+        'status': 'suspended',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      final profileRef = _firestore.collection(FirestoreCollections.therapistProfiles).doc(reportedUserId);
+      batch.set(profileRef, {
+        'verificationStatus': 'suspended',
+        'isActive': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } else if (action == 'ban') {
+      batch.update(userRef, {
+        'status': 'banned',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      final profileRef = _firestore.collection(FirestoreCollections.therapistProfiles).doc(reportedUserId);
+      batch.set(profileRef, {
+        'verificationStatus': 'suspended',
+        'isActive': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    final logRef = _firestore.collection('admin_audit_logs').doc();
+    final log = AdminAuditLog(
+      id: logRef.id,
+      adminUid: adminId,
+      targetUid: reportedUserId,
+      actionType: 'moderation_${action}',
+      details: 'Moderation action $action executed. Reason: $reason',
+      timestamp: DateTime.now(),
+    );
+    batch.set(logRef, {
+      ...log.toMap(),
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> listAllFeedbackAndReviews() async {
+    final feedbackSnap = await _firestore.collection(FirestoreCollections.feedback).get();
+    final reviewsSnap = await _firestore.collection('therapist_reviews').get();
+
+    final list = <Map<String, dynamic>>[];
+
+    for (final doc in feedbackSnap.docs) {
+      final data = doc.data();
+      list.add({
+        'id': doc.id,
+        'type': 'app_feedback',
+        'title': 'App Feedback',
+        'user': data['userId'] ?? data['email'] ?? 'User',
+        'body': data['body'] ?? data['feedback'] ?? '',
+        'rating': intFrom(data['rating'], 0),
+        'timestamp': dateTimeFromFirestore(data['createdAt']) ?? DateTime.now(),
+      });
+    }
+
+    for (final doc in reviewsSnap.docs) {
+      final data = doc.data();
+      list.add({
+        'id': doc.id,
+        'type': 'therapist_review',
+        'title': 'Therapist Review',
+        'user': data['parentName'] ?? 'Parent',
+        'body': 'For therapist ID ${data['therapistId']}: ${data['feedback']}',
+        'rating': intFrom(data['rating'], 0),
+        'timestamp': dateTimeFromFirestore(data['createdAt']) ?? DateTime.now(),
+      });
+    }
+
+    list.sort((a, b) => (b['timestamp'] as DateTime).compareTo(a['timestamp'] as DateTime));
+    return list;
+  }
+
+  @override
+  Future<List<AdminAuditLog>> listAuditLogs() async {
+    final snap = await _firestore
+        .collection('admin_audit_logs')
+        .orderBy('timestamp', descending: true)
+        .get();
+    return snap.docs.map((doc) => AdminAuditLog.fromMap(doc.id, doc.data())).toList();
   }
 }
