@@ -645,6 +645,10 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
     if (uid == null || profile == null) {
       return;
     }
+    // Only approved therapists can toggle visibility
+    if (profile.verificationStatus != 'approved') {
+      return;
+    }
     final updated = TherapistProfile(
       id: profile.id,
       displayName: profile.displayName,
@@ -2345,82 +2349,162 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                             ),
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                            _isActive
-                                ? 'Your profile is visible to parents in the community'
-                                : 'Your profile is hidden from new parent discovery',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF4B5563),
+                          // ── Only approved therapists can toggle visibility ──
+                          if (profile.verificationStatus == 'approved') ...[
+                            Text(
+                              _isActive
+                                  ? 'Your profile is visible to parents in the community'
+                                  : 'Your profile is hidden from new parent discovery',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF4B5563),
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: visibilityBg,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: visibilityBorder),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _isActive
-                                            ? 'Status: Active'
-                                            : 'Status: Inactive',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          color: statusColor,
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: visibilityBg,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: visibilityBorder),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _isActive
+                                              ? 'Status: Active'
+                                              : 'Status: Inactive',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            color: statusColor,
+                                          ),
                                         ),
-                                      ),
-                                      Text(
-                                        _isActive
-                                            ? 'Parents can discover and contact you'
-                                            : 'Only subscribed parents can continue seeing you',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: detailColor,
+                                        Text(
+                                          _isActive
+                                              ? 'Parents can discover and contact you'
+                                              : 'Only subscribed parents can continue seeing you',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: detailColor,
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                OutlinedButton(
-                                  onPressed: _updatingVisibility
-                                      ? null
-                                      : _handleToggleVisibility,
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: actionColor,
-                                    side: BorderSide(color: actionColor),
-                                    minimumSize: const Size(86, 40),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
+                                      ],
                                     ),
                                   ),
-                                  child: _updatingVisibility
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
+                                  OutlinedButton(
+                                    onPressed: _updatingVisibility
+                                        ? null
+                                        : _handleToggleVisibility,
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: actionColor,
+                                      side: BorderSide(color: actionColor),
+                                      minimumSize: const Size(86, 40),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                      ),
+                                    ),
+                                    child: _updatingVisibility
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : Text(
+                                            _isActive ? 'Hide' : 'Show',
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                           ),
-                                        )
-                                      : Text(
-                                          _isActive ? 'Hide' : 'Show',
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ] else ...[
+                            // ── Locked state for pending / rejected / suspended ──
+                            const Text(
+                              'This feature is locked until your profile is verified by the admin.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF6B7280),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF3F4F6),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFFD1D5DB)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.lock_outline, color: Color(0xFF9CA3AF), size: 20),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          profile.verificationStatus == 'pending'
+                                              ? 'Status: Pending Verification'
+                                              : profile.verificationStatus == 'rejected'
+                                                  ? 'Status: Rejected'
+                                                  : 'Status: Suspended',
                                           style: const TextStyle(
-                                            fontSize: 15,
                                             fontWeight: FontWeight.w600,
+                                            color: Color(0xFF9CA3AF),
                                           ),
                                         ),
-                                ),
-                              ],
+                                        Text(
+                                          profile.verificationStatus == 'pending'
+                                              ? 'Your profile is under review. Visibility control will unlock once approved.'
+                                              : profile.verificationStatus == 'rejected'
+                                                  ? 'Please update your profile and resubmit for verification.'
+                                                  : 'Your account is suspended. Please contact support.',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Color(0xFFB0B7C0),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  OutlinedButton(
+                                    onPressed: null, // Disabled
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: const Color(0xFFD1D5DB),
+                                      side: const BorderSide(color: Color(0xFFD1D5DB)),
+                                      minimumSize: const Size(86, 40),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.lock, size: 14, color: Color(0xFFD1D5DB)),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'Locked',
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFFD1D5DB),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),
