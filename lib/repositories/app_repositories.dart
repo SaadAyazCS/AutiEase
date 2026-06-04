@@ -1423,11 +1423,14 @@ class FirebaseSupportRepository implements SupportRepository {
     return _firestore
         .collection('therapist_reviews')
         .where('therapistId', isEqualTo: therapistId)
-        .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => TherapistReview.fromMap(doc.id, doc.data()))
-            .toList());
+        .map((snapshot) {
+          final list = snapshot.docs
+              .map((doc) => TherapistReview.fromMap(doc.id, doc.data()))
+              .toList();
+          list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return list;
+        });
   }
 
   // User Reporting & Blocking
@@ -1507,11 +1510,14 @@ class FirebaseSupportRepository implements SupportRepository {
     return _firestore
         .collection('notifications')
         .where('userId', isEqualTo: userId)
-        .orderBy('timestamp', descending: true)
         .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => NotificationInboxItem.fromMap(doc.id, doc.data()))
-            .toList());
+        .map((snapshot) {
+          final list = snapshot.docs
+              .map((doc) => NotificationInboxItem.fromMap(doc.id, doc.data()))
+              .toList();
+          list.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+          return list;
+        });
   }
 
   @override
@@ -1564,16 +1570,33 @@ class FirebaseSupportRepository implements SupportRepository {
     final userDoc = await _firestore.collection(FirestoreCollections.users).doc(userId).get();
     final data = userDoc.data();
     if (data != null) {
+      final role = (data['role'] ?? '').toString();
+      final isTherapist = role == 'therapist' || data['therapistNotificationPreferences'] != null;
       final prefs = boolMapFrom(data['notificationPreferences'] ?? data['therapistNotificationPreferences']);
       bool enabled = true;
-      if (category == 'messages') {
-        enabled = prefs['therapistsUpdate'] != false || prefs['pushNotifications'] != false;
-      } else if (category == 'activities') {
-        enabled = prefs['routineReminders'] != false || prefs['dailyReminders'] != false;
-      } else if (category == 'subscription') {
-        enabled = prefs['subscription'] != false || prefs['emailNotifications'] != false;
-      } else if (category == 'reviews') {
-        enabled = prefs['activityAlerts'] != false;
+
+      if (isTherapist) {
+        if (category == 'messages') {
+          enabled = prefs['newMessages'] != false;
+        } else if (category == 'activities') {
+          enabled = prefs['reminders'] != false;
+        } else if (category == 'subscription') {
+          enabled = prefs['payments'] != false;
+        } else if (category == 'reviews') {
+          enabled = prefs['bookings'] != false;
+        } else if (category == 'emergency') {
+          enabled = prefs['emergency'] != false;
+        }
+      } else {
+        if (category == 'messages') {
+          enabled = prefs['therapistsUpdate'] != false || prefs['pushNotifications'] != false;
+        } else if (category == 'activities') {
+          enabled = prefs['routineReminders'] != false || prefs['dailyReminders'] != false;
+        } else if (category == 'subscription') {
+          enabled = prefs['subscription'] != false || prefs['emailNotifications'] != false;
+        } else if (category == 'reviews') {
+          enabled = prefs['activityAlerts'] != false;
+        }
       }
 
       if (!enabled) {
