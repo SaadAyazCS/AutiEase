@@ -1766,6 +1766,12 @@ class FirebaseAdminRepository implements AdminRepository {
         .get();
 
     final reportsSnap = await _firestore.collection('reports').get();
+    int pendingReports = 0;
+    for (final doc in reportsSnap.docs) {
+      if (doc.data()['status'] == 'pending') {
+        pendingReports++;
+      }
+    }
     final feedbackSnap = await _firestore.collection(FirestoreCollections.feedback).get();
     final reviewsSnap = await _firestore.collection('therapist_reviews').get();
 
@@ -1779,6 +1785,7 @@ class FirebaseAdminRepository implements AdminRepository {
       'activeSubscriptions': subsSnap.docs.length,
       'averageTherapistRating': ratedCount > 0 ? (totalRating / ratedCount) : 0.0,
       'totalReports': reportsSnap.docs.length,
+      'pendingReports': pendingReports,
       'totalFeedback': feedbackSnap.docs.length + reviewsSnap.docs.length,
     };
   }

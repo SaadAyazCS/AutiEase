@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
+import 'dart:async';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../widgets/session_guard.dart';
@@ -21,6 +22,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   bool _loading = false;
   Map<String, dynamic> _stats = {};
   
+  // Stream subscription for reports badge count
+  StreamSubscription<List<UserReport>>? _reportsSubscription;
+  int _pendingReportsCount = 0;
+
   // Audit Logs search/filter state
   Future<List<AdminAuditLog>>? _auditLogsFuture;
   final TextEditingController _auditSearchController = TextEditingController();
@@ -32,6 +37,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     super.initState();
     _tabController = TabController(length: _tabs.length, vsync: this);
     _loadStats();
+
+    // Subscribe to reports stream to dynamically update badge count in real-time
+    _reportsSubscription = AppRepositories.admin.watchReports().listen((reports) {
+      final pendingCount = reports.where((r) => r.status == 'pending').length;
+      if (mounted && pendingCount != _pendingReportsCount) {
+        setState(() {
+          _pendingReportsCount = pendingCount;
+        });
+      }
+    });
+
     _auditSearchController.addListener(() {
       setState(() {
         _auditSearchQuery = _auditSearchController.text;
@@ -43,6 +59,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   void dispose() {
     _tabController.dispose();
     _auditSearchController.dispose();
+    _reportsSubscription?.cancel();
     super.dispose();
   }
 
@@ -596,7 +613,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       count = int.tryParse(_stats['pendingTherapists']?.toString() ?? '0') ?? 0;
       badgeColor = const Color(0xFFF59E0B); // Amber
     } else if (name == 'Reports') {
-      count = int.tryParse(_stats['totalReports']?.toString() ?? '0') ?? 0;
+      count = _pendingReportsCount;
       badgeColor = const Color(0xFFEF4444); // Red
     }
 
@@ -1217,6 +1234,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
 
   Future<void> _updateReport(String reportId, String status) async {
     await AppRepositories.admin.updateReportStatus(reportId, status);
+    await _loadStats();
     setState(() {});
   }
 
@@ -1274,6 +1292,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         reason: reason,
                       );
                       await AppRepositories.admin.updateReportStatus(reportId, 'resolved');
+                      await _loadStats();
                       if (ctx.mounted) Navigator.pop(ctx);
                       messenger.showSnackBar(
                         SnackBar(content: Text('Action "$selectedAction" executed successfully.')),
@@ -1807,6 +1826,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
 
                         final dateStr = '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
                         final relativeTime = _getRelativeTime(date);
+                        final displayTime = (relativeTime.contains('ago') || relativeTime == 'just now')
+                            ? relativeTime
+                            : dateStr;
 
                         return Container(
                           margin: const EdgeInsets.only(bottom: 12),
@@ -1843,25 +1865,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                             children: [
                                               Icon(logIcon, size: 16, color: sideColor),
                                               const SizedBox(width: 6),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                decoration: BoxDecoration(
-                                                  color: badgeBg,
-                                                  borderRadius: BorderRadius.circular(6),
-                                                ),
-                                                child: Text(
-                                                  log.actionType.toUpperCase(),
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: badgeText,
+                                              Flexible(
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                                  decoration: BoxDecoration(
+                                                    color: badgeBg,
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    log.actionType.toUpperCase(),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: TextStyle(
+                                                      fontSize: 9,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: badgeText,
+                                                    ),
                                                   ),
                                                 ),
                                               ),
-                                              const Spacer(),
-                                              Text(
-                                                '$dateStr ($relativeTime)',
-                                                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Text(
+                                                  displayTime,
+                                                  style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+                                                  textAlign: TextAlign.end,
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
                                               ),
                                             ],
                                           ),
