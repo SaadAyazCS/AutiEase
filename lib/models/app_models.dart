@@ -1019,6 +1019,7 @@ class AdminAuditLog {
     required this.actionType,
     required this.details,
     required this.timestamp,
+    this.adminEmail = '',
   });
 
   final String id;
@@ -1027,6 +1028,7 @@ class AdminAuditLog {
   final String actionType;
   final String details;
   final DateTime timestamp;
+  final String adminEmail;
 
   factory AdminAuditLog.fromMap(String id, Map<String, dynamic> data) {
     return AdminAuditLog(
@@ -1036,6 +1038,7 @@ class AdminAuditLog {
       actionType: (data['actionType'] ?? '').toString(),
       details: (data['details'] ?? '').toString(),
       timestamp: dateTimeFromFirestore(data['timestamp']) ?? DateTime.now(),
+      adminEmail: (data['adminEmail'] ?? '').toString(),
     );
   }
 
@@ -1046,6 +1049,7 @@ class AdminAuditLog {
       'actionType': actionType,
       'details': details,
       'timestamp': timestamp,
+      'adminEmail': adminEmail,
     };
   }
 }

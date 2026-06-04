@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/app_models.dart';
@@ -41,6 +43,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   ChildProfile? _child;
   PlayPreferences _playPreferences = PlayPreferences.defaults;
   String? _loadError;
+  String? _photoBase64;
   _ProfileTab _activeTab = _ProfileTab.parent;
   PhoneCountry _selectedPhoneCountry = kSupportedCountries.first;
 
@@ -65,6 +68,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         _firstNameController.text = _profile!.firstName;
         _lastNameController.text = _profile!.lastName;
         _emailController.text = _profile!.email;
+        _photoBase64 = _profile!.photoUrl;
         final (parsedCountry, parsedLocalDigits) = parseStoredPhoneNumber(_profile!.phone);
         _phoneController.text = parsedLocalDigits;
         _selectedPhoneCountry = parsedCountry;
@@ -84,6 +88,62 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  Future<void> _pickProfilePicture() async {
+    final picker = ImagePicker();
+    final XFile? image = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 800,
+      maxHeight: 800,
+      imageQuality: 85,
+    );
+    
+    if (image == null) return;
+    
+    // Validate file type
+    final extension = image.path.toLowerCase().split('.').last;
+    if (extension != 'jpg' && extension != 'jpeg' && extension != 'png') {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Only JPG and PNG images are allowed.')),
+      );
+      return;
+    }
+    
+    // Read and encode image
+    final bytes = await image.readAsBytes();
+    final sizeKB = bytes.length / 1024;
+    
+    if (sizeKB > 500) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Image size must be under 500 KB.')),
+      );
+      return;
+    }
+    
+    final base64 = base64Encode(bytes);
+    setState(() => _photoBase64 = base64);
+    
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Profile picture selected successfully.')),
+    );
+  }
+
+  ImageProvider? _getParentImageProvider(String? photo) {
+    if (photo == null || photo.isEmpty) return null;
+    if (photo.startsWith('http://') || photo.startsWith('https://')) {
+      return NetworkImage(photo);
+    }
+    try {
+      final bytes = base64Decode(photo.trim());
+      return MemoryImage(bytes);
+    } catch (e) {
+      debugPrint('Error decoding parent base64 photo: $e');
+      return null;
     }
   }
 
@@ -135,6 +195,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           'lastName': lastName,
           'fullName': fullName,
           'phone': fullPhone,
+          'photoUrl': _photoBase64 ?? '',
         });
         final authUser = FirebaseAuth.instance.currentUser;
         if (authUser != null &&
@@ -456,6 +517,59 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         ),
         const SizedBox(height: 6),
         Container(height: 1, color: const Color(0xFFD8DEE8)),
+        const SizedBox(height: 16),
+        Center(
+          child: Stack(
+            children: [
+              Builder(
+                builder: (context) {
+                  final provider = _getParentImageProvider(_photoBase64);
+                  if (provider != null) {
+                    return CircleAvatar(
+                      radius: 50,
+                      backgroundColor: const Color(0xFFE2E8F0),
+                      backgroundImage: provider,
+                    );
+                  }
+                  return CircleAvatar(
+                    radius: 50,
+                    backgroundColor: const Color(0xFFE0F2FE),
+                    child: Text(
+                      _firstNameController.text.isNotEmpty
+                          ? _firstNameController.text[0].toUpperCase()
+                          : 'P',
+                      style: const TextStyle(
+                        color: Color(0xFF0284C7),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 40,
+                      ),
+                    ),
+                  );
+                }
+              ),
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: InkWell(
+                  onTap: _pickProfilePicture,
+                  borderRadius: BorderRadius.circular(999),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF4EA9E3),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.camera_alt,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 10),
         _buildLabel('First Name'),
         _buildField(_firstNameController),

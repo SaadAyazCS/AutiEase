@@ -318,7 +318,9 @@ class FirebaseAuthRepository implements AuthRepository {
       );
     }
 
-    if (requiresEmailVerification(
+    final isAdminEmail = _adminEmails.contains(email);
+
+    if (!isAdminEmail && requiresEmailVerification(
       isGoogleUser: isGoogleUser,
       isEmailVerified: user.emailVerified,
     )) {
@@ -427,11 +429,12 @@ class FirebaseUserRepository implements UserRepository {
   Future<List<ChildProfile>> getChildrenForParent(String parentId) async {
     final snapshot = await _children
         .where('parentId', isEqualTo: parentId)
-        .orderBy('name')
         .get();
-    return snapshot.docs
+    final list = snapshot.docs
         .map((doc) => ChildProfile.fromMap(doc.id, doc.data()))
         .toList();
+    list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return list;
   }
 
   @override
@@ -538,6 +541,7 @@ class FirebaseUserRepository implements UserRepository {
       'availability': profile.availability,
       'photoUrl': profile.photoUrl,
       'isActive': profile.isActive,
+      'verificationStatus': profile.verificationStatus,
       'experience_years': profile.yearsOfExperience,
       'experience_months': profile.experienceMonths,
       'updatedAt': FieldValue.serverTimestamp(),
@@ -1790,12 +1794,10 @@ class FirebaseAdminRepository implements AdminRepository {
 
   @override
   Future<List<TherapistProfile>> listTherapistsByStatus(String status) async {
-    Query<Map<String, dynamic>> query = _firestore.collection(FirestoreCollections.therapistProfiles);
-    if (status.isNotEmpty) {
-      query = query.where('verificationStatus', isEqualTo: status);
-    }
-    final snap = await query.get();
-    return snap.docs.map((doc) => TherapistProfile.fromMap(doc.id, doc.data())).toList();
+    final snap = await _firestore.collection(FirestoreCollections.therapistProfiles).get();
+    final all = snap.docs.map((doc) => TherapistProfile.fromMap(doc.id, doc.data())).toList();
+    if (status.isEmpty) return all;
+    return all.where((t) => t.verificationStatus == status).toList();
   }
 
   @override
@@ -1826,6 +1828,7 @@ class FirebaseAdminRepository implements AdminRepository {
     final log = AdminAuditLog(
       id: logRef.id,
       adminUid: adminId,
+      adminEmail: _auth.currentUser?.email ?? '',
       targetUid: therapistId,
       actionType: 'verify_therapist',
       details: 'Status changed to $status. Feedback: $adminFeedback',
@@ -1878,11 +1881,18 @@ class FirebaseAdminRepository implements AdminRepository {
       'status': status,
     });
 
-    await _firestore.collection('admin_audit_logs').add({
-      'adminUid': adminId,
-      'targetUid': reportId,
-      'actionType': 'update_report_status',
-      'details': 'Report status set to $status',
+    final logRef = _firestore.collection('admin_audit_logs').doc();
+    final log = AdminAuditLog(
+      id: logRef.id,
+      adminUid: adminId,
+      adminEmail: _auth.currentUser?.email ?? '',
+      targetUid: reportId,
+      actionType: 'update_report_status',
+      details: 'Report status set to $status',
+      timestamp: DateTime.now(),
+    );
+    await logRef.set({
+      ...log.toMap(),
       'timestamp': FieldValue.serverTimestamp(),
     });
   }
@@ -1941,6 +1951,7 @@ class FirebaseAdminRepository implements AdminRepository {
     final log = AdminAuditLog(
       id: logRef.id,
       adminUid: adminId,
+      adminEmail: _auth.currentUser?.email ?? '',
       targetUid: reportedUserId,
       actionType: 'moderation_$action',
       details: 'Moderation action $action executed. Reason: $reason',

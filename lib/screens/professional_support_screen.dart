@@ -28,17 +28,27 @@ class _TherapistPlaceholderAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget imageWidget;
     if (photoBase64 != null && photoBase64!.isNotEmpty) {
-      try {
-        final imageBytes = base64Decode(photoBase64!);
-        imageWidget = Image.memory(
-          imageBytes,
+      if (photoBase64!.startsWith('http://') || photoBase64!.startsWith('https://')) {
+        imageWidget = Image.network(
+          photoBase64!,
           fit: BoxFit.cover,
           errorBuilder: (context, error, stackTrace) {
             return Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
           },
         );
-      } catch (e) {
-        imageWidget = Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
+      } else {
+        try {
+          final imageBytes = base64Decode(photoBase64!);
+          imageWidget = Image.memory(
+            imageBytes,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
+            },
+          );
+        } catch (e) {
+          imageWidget = Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
+        }
       }
     } else {
       imageWidget = Image.asset('assets/images/autiease.png', fit: BoxFit.contain);

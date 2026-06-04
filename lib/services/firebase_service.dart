@@ -651,12 +651,20 @@ class FirebaseService {
             password: password,
           );
         } on FirebaseAuthException catch (e) {
-          if (e.code == 'user-not-found') {
+          if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
             // Account doesn't exist yet — create it automatically
-            await _auth.createUserWithEmailAndPassword(
-              email: normalizedEmail,
-              password: password,
-            );
+            try {
+              await _auth.createUserWithEmailAndPassword(
+                email: normalizedEmail,
+                password: password,
+              );
+            } on FirebaseAuthException catch (createError) {
+              if (createError.code == 'email-already-in-use') {
+                rethrow; // original error (meaning password entered is incorrect for existing user)
+              } else {
+                rethrow;
+              }
+            }
           } else {
             rethrow;
           }

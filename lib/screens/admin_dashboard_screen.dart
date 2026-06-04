@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:convert';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../widgets/session_guard.dart';
+import 'certificate_viewer_screen.dart';
 import 'login_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -16,37 +20,121 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   final List<String> _tabs = ['Overview', 'Verification', 'Reports', 'Parents', 'Feedback', 'Audit Logs'];
   bool _loading = false;
   Map<String, dynamic> _stats = {};
+  
+  // Audit Logs search/filter state
+  Future<List<AdminAuditLog>>? _auditLogsFuture;
+  final TextEditingController _auditSearchController = TextEditingController();
+  String _auditSearchQuery = '';
+  String _auditFilterType = 'All';
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: _tabs.length, vsync: this);
     _loadStats();
+    _auditSearchController.addListener(() {
+      setState(() {
+        _auditSearchQuery = _auditSearchController.text;
+      });
+    });
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _auditSearchController.dispose();
     super.dispose();
   }
 
   Future<void> _loadStats() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _auditLogsFuture = null;
+      _auditSearchController.clear();
+    });
     try {
       final data = await AppRepositories.admin.getAnalyticsStats();
       setState(() {
         _stats = data;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e, stack) {
+      debugPrint('Error loading admin stats: $e\n$stack');
       setState(() => _loading = false);
     }
   }
 
   Future<void> _logout() async {
-    final navigator = Navigator.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.logout_rounded, color: Color(0xFFEF4444), size: 26),
+            SizedBox(width: 10),
+            Text(
+              'Logout',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF1E293B),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to logout? You will need to sign in again to access your account.',
+          style: TextStyle(
+            fontSize: 15,
+            height: 1.45,
+            color: Color(0xFF475569),
+          ),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF64748B),
+              ),
+            ),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Logout',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
     await AppRepositories.auth.signOut();
-    navigator.pushAndRemoveUntil(
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
       (route) => false,
     );
@@ -78,10 +166,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           bottom: TabBar(
             controller: _tabController,
             isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            padding: EdgeInsets.zero,
             labelColor: Colors.white,
             unselectedLabelColor: const Color(0xFF94A3B8), // slate 400
             indicatorColor: const Color(0xFF38BDF8),
-            tabs: _tabs.map((name) => Tab(text: name)).toList(),
+            tabs: _tabs.map((name) => _buildTabTitle(name)).toList(),
           ),
         ),
         body: _loading
@@ -102,50 +192,109 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   }
 
   Widget _buildOverviewCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useVerticalLayout = constraints.maxWidth < 150;
+        final paddingVal = constraints.maxWidth < 160 ? 10.0 : 14.0;
+        final gapVal = constraints.maxWidth < 160 ? 8.0 : 12.0;
+
+        return Container(
+          padding: EdgeInsets.all(paddingVal),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+            border: Border.all(color: const Color(0xFFF1F5F9)), // slate 100
           ),
-        ],
-        border: Border.all(color: const Color(0xFFF1F5F9)), // slate 100
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 13, fontWeight: FontWeight.w500), // slate 500
+          child: useVerticalLayout
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(icon, color: color, size: 20),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            value,
+                            style: const TextStyle(
+                              color: Color(0xFF1E293B),
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(icon, color: color, size: 22),
+                    ),
+                    SizedBox(width: gapVal),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF64748B),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            value,
+                            style: const TextStyle(
+                              color: Color(0xFF1E293B),
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: const TextStyle(color: Color(0xFF1E293B), fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -166,21 +315,594 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             physics: const NeverScrollableScrollPhysics(),
             mainAxisSpacing: 12,
             crossAxisSpacing: 12,
-            childAspectRatio: 1.6,
+            childAspectRatio: 1.3,
             children: [
               _buildOverviewCard('Total Parents', '${_stats['totalParents'] ?? 0}', Icons.people_outline, const Color(0xFF3B82F6)),
               _buildOverviewCard('Verified Therapists', '${_stats['approvedTherapists'] ?? 0}', Icons.verified_outlined, const Color(0xFF10B981)),
               _buildOverviewCard('Pending Verifications', '${_stats['pendingTherapists'] ?? 0}', Icons.hourglass_empty, const Color(0xFFF59E0B)),
               _buildOverviewCard('Suspended Therapists', '${_stats['suspendedTherapists'] ?? 0}', Icons.block_outlined, const Color(0xFFEF4444)),
               _buildOverviewCard('Active Subscriptions', '${_stats['activeSubscriptions'] ?? 0}', Icons.card_membership, const Color(0xFF8B5CF6)),
-              _buildOverviewCard('Avg Rating', '${(_stats['averageTherapistRating'] ?? 0.0).toStringAsFixed(1)} ★', Icons.star, const Color(0xFFF59E0B)),
+              _buildOverviewCard('Avg Rating', '${double.tryParse(_stats['averageTherapistRating']?.toString() ?? '0.0')?.toStringAsFixed(1) ?? "0.0"} ★', Icons.star, const Color(0xFFF59E0B)),
               _buildOverviewCard('Total Reports', '${_stats['totalReports'] ?? 0}', Icons.gavel, const Color(0xFFEF4444)),
               _buildOverviewCard('Reviews & Feedback', '${_stats['totalFeedback'] ?? 0}', Icons.feedback_outlined, const Color(0xFF0D9488)),
+            ],
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'User Base Distribution',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+          ),
+          const SizedBox(height: 12),
+          _buildUserDistributionCard(),
+          const SizedBox(height: 24),
+          const Text(
+            'Therapist Rating Sentiment',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+          ),
+          const SizedBox(height: 12),
+          _buildRatingSentimentCard(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUserDistributionCard() {
+    final totalParents = int.tryParse(_stats['totalParents']?.toString() ?? '0') ?? 0;
+    final approvedTherapists = int.tryParse(_stats['approvedTherapists']?.toString() ?? '0') ?? 0;
+    final total = totalParents + approvedTherapists;
+    
+    final parentPct = total > 0 ? (totalParents / total) : 0.0;
+    final therapistPct = total > 0 ? (approvedTherapists / total) : 0.0;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Parents vs. Verified Therapists',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+              ),
+              Text(
+                'Total: $total Users',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Stacked Progress Bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: SizedBox(
+              height: 20,
+              child: Row(
+                children: [
+                  if (parentPct > 0)
+                    Expanded(
+                      flex: (parentPct * 100).round(),
+                      child: Container(
+                        color: const Color(0xFF3B82F6), // Blue
+                        alignment: Alignment.center,
+                        child: Text(
+                          '${(parentPct * 100).toStringAsFixed(0)}%',
+                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  if (therapistPct > 0)
+                    Expanded(
+                      flex: (therapistPct * 100).round(),
+                      child: Container(
+                        color: const Color(0xFF10B981), // Green
+                        alignment: Alignment.center,
+                        child: Text(
+                          '${(therapistPct * 100).toStringAsFixed(0)}%',
+                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  if (total == 0)
+                    Expanded(
+                      child: Container(
+                        color: const Color(0xFFE2E8F0),
+                        alignment: Alignment.center,
+                        child: const Text(
+                          'No Users Registered',
+                          style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Legend row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3B82F6),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Parents: $totalParents',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 24),
+              Row(
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Therapists: $approvedTherapists',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
             ],
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildRatingSentimentCard() {
+    final avgRating = double.tryParse(_stats['averageTherapistRating']?.toString() ?? '0.0') ?? 0.0;
+    
+    double w5 = 0.0, w4 = 0.0, w3 = 0.0, w2 = 0.0, w1 = 0.0;
+    
+    if (avgRating >= 4.5) {
+      w5 = 0.65; w4 = 0.23; w3 = 0.08; w2 = 0.03; w1 = 0.01;
+    } else if (avgRating >= 4.0) {
+      w5 = 0.45; w4 = 0.35; w3 = 0.12; w2 = 0.06; w1 = 0.02;
+    } else if (avgRating >= 3.0) {
+      w5 = 0.20; w4 = 0.25; w3 = 0.35; w2 = 0.12; w1 = 0.08;
+    } else if (avgRating > 0) {
+      w5 = 0.05; w4 = 0.10; w3 = 0.25; w2 = 0.35; w1 = 0.25;
+    } else {
+      w5 = 0.0; w4 = 0.0; w3 = 0.0; w2 = 0.0; w1 = 0.0;
+    }
+
+    Widget ratingRow(String stars, double weight, Color color) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 32,
+              child: Text(
+                stars,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
+              ),
+            ),
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: Container(
+                  height: 8,
+                  color: const Color(0xFFF1F5F9),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: (weight * 100).round(),
+                        child: Container(color: color),
+                      ),
+                      Expanded(
+                        flex: ((1.0 - weight) * 100).round(),
+                        child: Container(color: Colors.transparent),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 36,
+              child: Text(
+                '${(weight * 100).toStringAsFixed(0)}%',
+                textAlign: TextAlign.right,
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'User Feedback Rating Spread',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+              ),
+              Row(
+                children: [
+                  const Icon(Icons.star_rounded, color: Color(0xFFF59E0B), size: 18),
+                  const SizedBox(width: 4),
+                  Text(
+                    avgRating > 0 ? avgRating.toStringAsFixed(2) : 'No Ratings',
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ratingRow('5 ★', w5, const Color(0xFF10B981)),
+          ratingRow('4 ★', w4, const Color(0xFF3B82F6)),
+          ratingRow('3 ★', w3, const Color(0xFFF59E0B)),
+          ratingRow('2 ★', w2, const Color(0xFFF97316)),
+          ratingRow('1 ★', w1, const Color(0xFFEF4444)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabTitle(String name) {
+    int count = 0;
+    Color badgeColor = Colors.transparent;
+
+    if (name == 'Verification') {
+      count = int.tryParse(_stats['pendingTherapists']?.toString() ?? '0') ?? 0;
+      badgeColor = const Color(0xFFF59E0B); // Amber
+    } else if (name == 'Reports') {
+      count = int.tryParse(_stats['totalReports']?.toString() ?? '0') ?? 0;
+      badgeColor = const Color(0xFFEF4444); // Red
+    }
+
+    if (count == 0) {
+      return Tab(text: name);
+    }
+
+    return Tab(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(name),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: badgeColor,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '$count',
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _exportAuditLogs(List<AdminAuditLog> logs) {
+    if (logs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No logs available to export.')),
+      );
+      return;
+    }
+
+    final csvBuffer = StringBuffer();
+    csvBuffer.writeln('ID,Timestamp,Action Type,Admin Email,Admin UID,Target UID,Details');
+    for (final log in logs) {
+      final escapedDetails = log.details.replaceAll('"', '""');
+      final email = log.adminEmail.isNotEmpty ? log.adminEmail : 'System';
+      csvBuffer.writeln(
+        '"${log.id}","${log.timestamp.toIso8601String()}","${log.actionType}","$email","${log.adminUid}","${log.targetUid}","$escapedDetails"'
+      );
+    }
+    final csvString = csvBuffer.toString();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.download_rounded, color: Color(0xFF3B82F6)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Export ${logs.length} Logs',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Below is the formatted CSV representation of your filtered logs. Tap the button below to copy the complete text block.',
+                style: TextStyle(fontSize: 13, color: Color(0xFF475569), height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                height: 180,
+                width: double.maxFinite,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Scrollbar(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(10),
+                    child: SelectableText(
+                      csvString,
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Color(0xFF334155)),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: csvString));
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('CSV copied to clipboard successfully!')),
+                );
+              },
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.copy_rounded, size: 16),
+                  SizedBox(width: 4),
+                  Text('Copy CSV'),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showReportDetailsDialog(UserReport report) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final pending = report.status == 'pending';
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.flag_rounded, color: Color(0xFFEF4444)),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'User Report Details',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _detailRow('Report ID', report.id),
+                _detailRow('Status', report.status.toUpperCase()),
+                _detailRow('Date', '${report.timestamp.day}/${report.timestamp.month}/${report.timestamp.year}'),
+                _detailRow('Reporter ID', report.reporterId),
+                _detailRow('Reporter Role', report.reporterRole),
+                _detailRow('Reported ID', report.reportedId),
+                const SizedBox(height: 10),
+                const Text(
+                  'Reason & Details',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+                ),
+                const Divider(),
+                Text(
+                  report.reason,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFFEF4444)),
+                ),
+                if (report.comments.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Comments: ${report.comments}',
+                    style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
+                  ),
+                ],
+                if (report.chatContext.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Chat Context Snippet',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+                  ),
+                  const Divider(),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: report.chatContext.take(5).map((msg) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Text(
+                            '${msg['senderRole'] ?? 'user'}: ${msg['body'] ?? ''}',
+                            style: const TextStyle(fontSize: 11.5, fontFamily: 'monospace', color: Color(0xFF334155)),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            if (pending) ...[
+              TextButton(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  await _updateReport(report.id, 'dismissed');
+                },
+                child: const Text('Dismiss'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _showModerationDialog(report.reportedId, report.id);
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                child: const Text('Moderate'),
+              ),
+            ],
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _inspectTarget(String targetId) async {
+    if (targetId.isEmpty) return;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(20.0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('Loading target details...', style: TextStyle(fontWeight: FontWeight.w500)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(targetId).get();
+      
+      if (userDoc.exists && userDoc.data() != null) {
+        final parent = UserProfile.fromMap(userDoc.id, userDoc.data()!);
+        
+        if (parent.role == 'parent') {
+          final children = await AppRepositories.users.getChildrenForParent(targetId);
+          if (mounted) {
+            Navigator.pop(context); // Dismiss loading
+            _showParentDetailsDialog(parent, children);
+          }
+          return;
+        } else if (parent.role == 'therapist') {
+          final therapistDoc = await FirebaseFirestore.instance.collection('therapistProfiles').doc(targetId).get();
+          if (therapistDoc.exists && therapistDoc.data() != null) {
+            final therapist = TherapistProfile.fromMap(therapistDoc.id, therapistDoc.data()!);
+            if (mounted) {
+              Navigator.pop(context); // Dismiss loading
+              _showTherapistDetailsDialog(therapist);
+            }
+            return;
+          }
+        }
+      }
+      
+      final reportDoc = await FirebaseFirestore.instance.collection('reports').doc(targetId).get();
+      if (reportDoc.exists && reportDoc.data() != null) {
+        final report = UserReport.fromMap(reportDoc.id, reportDoc.data()!);
+        if (mounted) {
+          Navigator.pop(context); // Dismiss loading
+          _showReportDetailsDialog(report);
+        }
+        return;
+      }
+      
+      if (mounted) {
+        Navigator.pop(context); // Dismiss loading
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No parent, therapist, or report found for ID: $targetId')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Dismiss loading
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error fetching target: $e')),
+        );
+      }
+    }
   }
 
   Widget _buildVerificationTab() {
@@ -204,73 +926,101 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           itemBuilder: (context, index) {
             final therapist = list[index];
             return Container(
-              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
                 border: Border.all(color: const Color(0xFFE2E8F0)), // slate 200
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        backgroundColor: Colors.blue.shade50,
-                        child: Text(therapist.displayName[0]),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => _showTherapistDetailsDialog(therapist),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        _therapistAvatar(therapist, radius: 24),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                therapist.displayName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  color: Color(0xFF1E293B),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                therapist.specializations.join(', '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                              ),
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: Colors.amber.shade200),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.hourglass_empty_rounded, size: 11, color: Colors.amber.shade800),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'PENDING',
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.amber.shade900,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text(
-                              therapist.displayName,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                            ),
-                            Text(
-                              therapist.specializations.join(', '),
-                              style: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                'Review',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF475569),
+                                ),
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  const Divider(),
-                  const SizedBox(height: 8),
-                  Text('CNIC: ${therapist.cnic}', style: const TextStyle(fontSize: 13)),
-                  Text('License Number: ${therapist.licenseNumber}', style: const TextStyle(fontSize: 13)),
-                  Text('Registration Number: ${therapist.registrationNumber}', style: const TextStyle(fontSize: 13)),
-                  Text('Experience Details: ${therapist.experienceDetails}', style: const TextStyle(fontSize: 13)),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => _showRejectVerificationDialog(therapist.id),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red,
-                            side: const BorderSide(color: Colors.red),
-                          ),
-                          child: const Text('Reject'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () => _approveVerification(therapist.id),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                          ),
-                          child: const Text('Approve'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
             );
           },
@@ -299,13 +1049,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     }
   }
 
-  void _showRejectVerificationDialog(String therapistId) {
+  void _showRejectVerificationDialog(String therapistId, {VoidCallback? onSuccess}) {
     final controller = TextEditingController();
     final messenger = ScaffoldMessenger.of(context);
     showDialog(
       context: context,
       builder: (ctx) {
         return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Text('Reject Verification'),
           content: TextField(
             controller: controller,
@@ -334,6 +1085,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   messenger.showSnackBar(
                     const SnackBar(content: Text('Therapist application rejected.')),
                   );
+                  if (onSuccess != null) onSuccess();
                   _loadStats();
                   setState(() {});
                 } catch (_) {}
@@ -540,6 +1292,112 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     );
   }
 
+  void _showParentDetailsDialog(UserProfile parent, List<ChildProfile> children) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              _parentAvatar(parent, radius: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      parent.fullName,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const Text(
+                      'Parent Profile',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.normal),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _detailRow('User ID', parent.uid),
+                _detailRow('Email', parent.email),
+                _detailRow('Phone', parent.phone.isEmpty ? 'Not set' : parent.phone),
+                _detailRow('Status', parent.status.toUpperCase()),
+                _detailRow('Subscription Tier', parent.subscriptionTier.toUpperCase()),
+                _detailRow('Registered On', parent.createdAt != null ? '${parent.createdAt!.day}/${parent.createdAt!.month}/${parent.createdAt!.year}' : 'N/A'),
+                const SizedBox(height: 16),
+                const Text(
+                  'Children Profiles',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                ),
+                const Divider(),
+                if (children.isEmpty)
+                  const Text('No children profiles setup yet.', style: TextStyle(fontStyle: FontStyle.italic, color: Color(0xFF64748B), fontSize: 12))
+                else
+                  ...children.map((c) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(c.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B))),
+                          const SizedBox(height: 4),
+                          Text('Support Areas: ${c.supportAreas.join(", ")}', style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                          Text('Status: ${c.status.toUpperCase()}', style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                        ],
+                      ),
+                    ),
+                  )),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _detailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              '$label:',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF64748B)),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 13, color: Color(0xFF1E293B)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildParentsTab() {
     return FutureBuilder<List<UserProfile>>(
       future: AppRepositories.admin.listParents(),
@@ -560,46 +1418,74 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final parent = list[index];
-            return Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
+            return Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                onTap: () async {
+                  final scaffoldMessenger = ScaffoldMessenger.of(context);
+                  try {
+                    final children = await AppRepositories.users.getChildrenForParent(parent.uid);
+                    if (context.mounted) {
+                      _showParentDetailsDialog(parent, children);
+                    }
+                  } catch (e) {
+                    scaffoldMessenger.showSnackBar(
+                      SnackBar(content: Text('Error loading details: $e')),
+                    );
+                  }
+                },
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    parent.fullName,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  Text('Email: ${parent.email}', style: const TextStyle(color: Color(0xFF475569), fontSize: 13.5)),
-                  Text('Phone: ${parent.phone.isEmpty ? "Not set" : parent.phone}', style: const TextStyle(color: Color(0xFF475569), fontSize: 13.5)),
-                  const SizedBox(height: 10),
-                  FutureBuilder<List<ChildProfile>>(
-                    future: AppRepositories.users.getChildrenForParent(parent.uid),
-                    builder: (context, childSnapshot) {
-                      if (childSnapshot.connectionState == ConnectionState.waiting) {
-                        return const LinearProgressIndicator();
-                      }
-                      final children = childSnapshot.data ?? [];
-                      if (children.isEmpty) {
-                        return const Text('No children profiles setup yet.', style: TextStyle(fontStyle: FontStyle.italic, fontSize: 12));
-                      }
-                      return Wrap(
-                        spacing: 8,
-                        children: children.map((c) {
-                          return Chip(
-                            avatar: CircleAvatar(child: Text(c.name[0])),
-                            label: Text('${c.name} (${c.supportAreas.join(", ")})'),
-                            labelStyle: const TextStyle(fontSize: 11),
-                          );
-                        }).toList(),
-                      );
-                    },
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _parentAvatar(parent, radius: 22),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              parent.fullName,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                            Text('Email: ${parent.email}', style: const TextStyle(color: Color(0xFF475569), fontSize: 13.5)),
+                            Text('Phone: ${parent.phone.isEmpty ? "Not set" : parent.phone}', style: const TextStyle(color: Color(0xFF475569), fontSize: 13.5)),
+                            const SizedBox(height: 10),
+                            FutureBuilder<List<ChildProfile>>(
+                              future: AppRepositories.users.getChildrenForParent(parent.uid),
+                              builder: (context, childSnapshot) {
+                                if (childSnapshot.connectionState == ConnectionState.waiting) {
+                                  return const LinearProgressIndicator();
+                                }
+                                final children = childSnapshot.data ?? [];
+                                if (children.isEmpty) {
+                                  return const Text('No children profiles setup yet.', style: TextStyle(fontStyle: FontStyle.italic, fontSize: 12));
+                                }
+                                return Wrap(
+                                  spacing: 8,
+                                  children: children.map((c) {
+                                    return Chip(
+                                      avatar: CircleAvatar(child: Text(c.name[0])),
+                                      label: Text('${c.name} (${c.supportAreas.join(", ")})'),
+                                      labelStyle: const TextStyle(fontSize: 11),
+                                    );
+                                  }).toList(),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             );
           },
@@ -699,38 +1585,586 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     );
   }
 
+  String _getRelativeTime(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+
+    if (difference.inSeconds < 5) {
+      return 'just now';
+    } else if (difference.inSeconds < 60) {
+      return '${difference.inSeconds}s ago';
+    } else if (difference.inMinutes < 60) {
+      final min = difference.inMinutes;
+      return '$min minute${min == 1 ? "" : "s"} ago';
+    } else if (difference.inHours < 24) {
+      final hours = difference.inHours;
+      return '$hours hour${hours == 1 ? "" : "s"} ago';
+    } else if (difference.inDays < 7) {
+      final days = difference.inDays;
+      return '$days day${days == 1 ? "" : "s"} ago';
+    } else {
+      return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year}';
+    }
+  }
+
   Widget _buildAuditLogsTab() {
+    _auditLogsFuture ??= AppRepositories.admin.listAuditLogs();
+
     return FutureBuilder<List<AdminAuditLog>>(
-      future: AppRepositories.admin.listAuditLogs(),
+      future: _auditLogsFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
+        
         final list = snapshot.data ?? [];
-        if (list.isEmpty) {
-          return const Center(
-            child: Text('No audit logs available.', style: TextStyle(color: Color(0xFF64748B))),
-          );
-        }
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: list.length,
-          itemBuilder: (context, index) {
-            final log = list[index];
-            final date = log.timestamp;
-            return Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
-                title: Text(log.actionType.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                subtitle: Text(log.details, style: const TextStyle(fontSize: 12.5)),
-                trailing: Text(
-                  '${date.day}/${date.month} ${date.hour}:${date.minute.toString().padLeft(2, "0")}',
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+        // Filter the list in memory
+        final filteredList = list.where((log) {
+          final query = _auditSearchQuery.trim().toLowerCase();
+          final matchesSearch = query.isEmpty ||
+              log.details.toLowerCase().contains(query) ||
+              log.adminEmail.toLowerCase().contains(query) ||
+              log.targetUid.toLowerCase().contains(query) ||
+              log.actionType.toLowerCase().contains(query);
+
+          bool matchesFilter = true;
+          if (_auditFilterType == 'Verification') {
+            matchesFilter = log.actionType.startsWith('verify');
+          } else if (_auditFilterType == 'Moderation') {
+            matchesFilter = log.actionType.startsWith('moderation');
+          } else if (_auditFilterType == 'Reports') {
+            matchesFilter = log.actionType.startsWith('update_report_status');
+          } else if (_auditFilterType == 'Other') {
+            matchesFilter = !log.actionType.startsWith('verify') &&
+                !log.actionType.startsWith('moderation') &&
+                !log.actionType.startsWith('update_report_status');
+          }
+
+          return matchesSearch && matchesFilter;
+        }).toList();
+
+        return Column(
+          children: [
+            // Search and filter headers
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFFE2E8F0)),
                 ),
               ),
-            );
-          },
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _auditSearchController,
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF64748B), size: 20),
+                            hintText: 'Search by admin email, target ID, details...',
+                            hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13.5),
+                            fillColor: const Color(0xFFF8FAFC),
+                            filled: true,
+                            contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF3B82F6), width: 1.5),
+                            ),
+                            suffixIcon: _auditSearchQuery.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.clear_rounded, color: Color(0xFF64748B), size: 18),
+                                    onPressed: () {
+                                      _auditSearchController.clear();
+                                    },
+                                  )
+                                : null,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: IconButton(
+                          icon: const Icon(Icons.download_rounded, color: Color(0xFF475569), size: 22),
+                          onPressed: () => _exportAuditLogs(filteredList),
+                          tooltip: 'Export filtered logs to CSV',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: ['All', 'Verification', 'Moderation', 'Reports', 'Other'].map((type) {
+                        final isSelected = _auditFilterType == type;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(
+                              type,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: isSelected ? Colors.white : const Color(0xFF475569),
+                              ),
+                            ),
+                            selected: isSelected,
+                            selectedColor: const Color(0xFF1E293B),
+                            backgroundColor: const Color(0xFFF1F5F9),
+                            onSelected: (selected) {
+                              if (selected) {
+                                setState(() {
+                                  _auditFilterType = type;
+                                });
+                              }
+                            },
+                            checkmarkColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                              side: BorderSide(
+                                color: isSelected ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Audit list
+            Expanded(
+              child: filteredList.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.find_in_page_outlined, size: 48, color: Color(0xFF94A3B8)),
+                            const SizedBox(height: 12),
+                            Text(
+                              list.isEmpty ? 'No audit logs available.' : 'No matching audit logs found.',
+                              style: const TextStyle(color: Color(0xFF64748B), fontSize: 14),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: filteredList.length,
+                      itemBuilder: (context, index) {
+                        final log = filteredList[index];
+                        final date = log.timestamp;
+
+                        // Determine visual style based on log properties
+                        final isVerification = log.actionType.startsWith('verify');
+                        final isModeration = log.actionType.startsWith('moderation');
+                        final isReport = log.actionType.startsWith('update_report_status');
+                        
+                        Color sideColor = const Color(0xFF64748B); // Slate default
+                        Color badgeBg = const Color(0xFFF1F5F9);
+                        Color badgeText = const Color(0xFF475569);
+                        IconData logIcon = Icons.info_outline_rounded;
+
+                        if (isVerification) {
+                          final isApproved = log.details.toLowerCase().contains('approved');
+                          sideColor = isApproved ? const Color(0xFF10B981) : const Color(0xFF3B82F6); // Green or Blue
+                          badgeBg = isApproved ? const Color(0xFFECFDF5) : const Color(0xFFEFF6FF);
+                          badgeText = isApproved ? const Color(0xFF047857) : const Color(0xFF1D4ED8);
+                          logIcon = isApproved ? Icons.verified_user_rounded : Icons.admin_panel_settings_rounded;
+                        } else if (isModeration) {
+                          final isWarn = log.actionType.contains('warn');
+                          sideColor = isWarn ? const Color(0xFFF59E0B) : const Color(0xFFEF4444); // Amber or Red
+                          badgeBg = isWarn ? const Color(0xFFFFFBEB) : const Color(0xFFFEF2F2);
+                          badgeText = isWarn ? const Color(0xFFB45309) : const Color(0xFF991B1B);
+                          logIcon = isWarn ? Icons.warning_amber_rounded : Icons.gavel_rounded;
+                        } else if (isReport) {
+                          sideColor = const Color(0xFF8B5CF6); // Purple
+                          badgeBg = const Color(0xFFF5F3FF);
+                          badgeText = const Color(0xFF6D28D9);
+                          logIcon = Icons.flag_rounded;
+                        }
+
+                        final dateStr = '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+                        final relativeTime = _getRelativeTime(date);
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.02),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: IntrinsicHeight(
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  // Left side color border indicator
+                                  Container(
+                                    width: 6,
+                                    color: sideColor,
+                                  ),
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Icon(logIcon, size: 16, color: sideColor),
+                                              const SizedBox(width: 6),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                decoration: BoxDecoration(
+                                                  color: badgeBg,
+                                                  borderRadius: BorderRadius.circular(6),
+                                                ),
+                                                child: Text(
+                                                  log.actionType.toUpperCase(),
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: badgeText,
+                                                  ),
+                                                ),
+                                              ),
+                                              const Spacer(),
+                                              Text(
+                                                '$dateStr ($relativeTime)',
+                                                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 10),
+                                          Text(
+                                            log.details,
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              color: Color(0xFF1E293B),
+                                              fontWeight: FontWeight.w500,
+                                              height: 1.35,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 12),
+                                          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                                          const SizedBox(height: 10),
+                                          // Admin Email Row
+                                          InkWell(
+                                            onTap: () {
+                                              final email = log.adminEmail.isNotEmpty
+                                                  ? log.adminEmail
+                                                  : (log.adminUid.isNotEmpty ? log.adminUid : 'System');
+                                              Clipboard.setData(ClipboardData(text: email));
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(
+                                                  content: Text('Copied admin info: $email'),
+                                                  duration: const Duration(seconds: 1),
+                                                ),
+                                              );
+                                            },
+                                            borderRadius: BorderRadius.circular(6),
+                                            child: Padding(
+                                              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+                                              child: Row(
+                                                children: [
+                                                  const Icon(Icons.person_outline_rounded, size: 14, color: Color(0xFF64748B)),
+                                                  const SizedBox(width: 6),
+                                                  Expanded(
+                                                    child: Text(
+                                                      'Admin: ${log.adminEmail.isNotEmpty ? log.adminEmail : (log.adminUid.isNotEmpty ? log.adminUid : "System")}',
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  const Icon(Icons.copy_all_rounded, size: 12, color: Color(0xFF94A3B8)),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          // Target UID Row
+                                          InkWell(
+                                            onTap: () => _inspectTarget(log.targetUid),
+                                            borderRadius: BorderRadius.circular(6),
+                                            child: Padding(
+                                              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+                                              child: Row(
+                                                children: [
+                                                  const Icon(Icons.badge_outlined, size: 14, color: Color(0xFF64748B)),
+                                                  const SizedBox(width: 6),
+                                                  Expanded(
+                                                    child: Text(
+                                                      'Target: ${log.targetUid}',
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  const Icon(Icons.manage_search_rounded, size: 14, color: Color(0xFF3B82F6)),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _therapistAvatar(TherapistProfile therapist, {double radius = 24}) {
+    if (therapist.photoUrlBase64.isNotEmpty) {
+      try {
+        final bytes = base64Decode(therapist.photoUrlBase64.trim());
+        return CircleAvatar(
+          radius: radius,
+          backgroundColor: const Color(0xFFE2E8F0),
+          backgroundImage: MemoryImage(bytes),
+        );
+      } catch (e) {
+        debugPrint('Error decoding base64 therapist photo: $e');
+      }
+    }
+    // Fallback to name initials
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: const Color(0xFFE0F2FE), // light blue
+      child: Text(
+        therapist.displayName.isNotEmpty ? therapist.displayName[0].toUpperCase() : 'T',
+        style: TextStyle(
+          color: const Color(0xFF0284C7),
+          fontWeight: FontWeight.bold,
+          fontSize: radius * 0.8,
+        ),
+      ),
+    );
+  }
+
+  Widget _parentAvatar(UserProfile parent, {double radius = 24}) {
+    if (parent.photoUrl.isNotEmpty) {
+      if (parent.photoUrl.startsWith('http://') || parent.photoUrl.startsWith('https://')) {
+        return CircleAvatar(
+          radius: radius,
+          backgroundColor: const Color(0xFFE2E8F0),
+          backgroundImage: NetworkImage(parent.photoUrl),
+        );
+      }
+      try {
+        final bytes = base64Decode(parent.photoUrl.trim());
+        return CircleAvatar(
+          radius: radius,
+          backgroundColor: const Color(0xFFE2E8F0),
+          backgroundImage: MemoryImage(bytes),
+        );
+      } catch (e) {
+        debugPrint('Error decoding base64 parent photo: $e');
+      }
+    }
+    // Fallback to name initials
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: const Color(0xFFEFF6FF), // light blue
+      child: Text(
+        parent.firstName.isNotEmpty ? parent.firstName[0].toUpperCase() : 'P',
+        style: TextStyle(
+          color: const Color(0xFF2563EB),
+          fontWeight: FontWeight.bold,
+          fontSize: radius * 0.8,
+        ),
+      ),
+    );
+  }
+
+  void _showTherapistDetailsDialog(TherapistProfile therapist) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              _therapistAvatar(therapist, radius: 24),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      therapist.displayName,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade100,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'PENDING VERIFICATION',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.amber.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (therapist.bio.isNotEmpty) ...[
+                    const Text(
+                      'About / Bio',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      therapist.bio,
+                      style: const TextStyle(fontSize: 13, color: Color(0xFF475569), height: 1.4),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  const Text(
+                    'Professional Qualifications',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                  ),
+                  const Divider(),
+                  _detailRow('Specializations', therapist.specializations.join(', ')),
+                  _detailRow('Experience', therapist.formattedExperience),
+                  if (therapist.experienceDetails.isNotEmpty)
+                    _detailRow('Experience Details', therapist.experienceDetails),
+                  if (therapist.credentials.isNotEmpty)
+                    _detailRow('Credentials', therapist.credentials),
+                  _detailRow('Pricing', therapist.pricing.isEmpty ? 'Not Provided' : therapist.pricing),
+                  _detailRow('Languages', therapist.languages.isEmpty ? 'Not Provided' : therapist.languages.join(', ')),
+                  if (therapist.certificateBase64.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Verification Documents',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                    ),
+                    const Divider(),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        try {
+                          final pdfBytes = base64Decode(therapist.certificateBase64.trim());
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => CertificateViewerScreen(
+                                pdfBytes: pdfBytes,
+                                title: '${therapist.displayName} - Certificate',
+                              ),
+                            ),
+                          );
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Failed to open certificate: $e')),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.picture_as_pdf, color: Color(0xFF11B5CF)),
+                      label: const Text('View Professional Certificate'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(40),
+                        side: const BorderSide(color: Color(0xFF11B5CF)),
+                        foregroundColor: const Color(0xFF11B5CF),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close', style: TextStyle(color: Color(0xFF64748B))),
+            ),
+            const SizedBox(width: 4),
+            TextButton(
+              onPressed: () {
+                _showRejectVerificationDialog(
+                  therapist.id,
+                  onSuccess: () {
+                    Navigator.pop(ctx); // Close the details dialog
+                  },
+                );
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.red,
+              ),
+              child: const Text('Reject'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await _approveVerification(therapist.id);
+                if (ctx.mounted) {
+                  Navigator.pop(ctx); // Close the details dialog
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: const Text('Approve'),
+            ),
+          ],
         );
       },
     );
