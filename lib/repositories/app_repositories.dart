@@ -229,6 +229,12 @@ class FirebaseAuthRepository implements AuthRepository {
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
 
+  /// Predefined admin emails — users logging in with these are automatically
+  /// promoted to the admin role without manual Firestore changes.
+  static const _adminEmails = <String>{
+    'admin@autiease.com',
+  };
+
   @override
   User? get currentUser => _auth.currentUser;
 
@@ -262,6 +268,24 @@ class FirebaseAuthRepository implements AuthRepository {
         .get();
 
     if (!doc.exists || doc.data() == null) {
+      // If this is a predefined admin email, auto-create their profile.
+      final regEmail = user.email?.toLowerCase().trim() ?? '';
+      if (_adminEmails.contains(regEmail)) {
+        await _firestore
+            .collection(FirestoreCollections.users)
+            .doc(user.uid)
+            .set({
+          'displayName': user.displayName ?? 'Admin',
+          'email': regEmail,
+          'role': 'admin',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        return AppSession(
+          state: AppSessionState.admin,
+          uid: user.uid,
+          role: 'admin',
+        );
+      }
       return AppSession(
         state: AppSessionState.incompleteProfile,
         uid: user.uid,
@@ -269,6 +293,24 @@ class FirebaseAuthRepository implements AuthRepository {
     }
 
     final profile = UserProfile.fromMap(doc.id, doc.data()!);
+
+    // ── Auto-promote predefined admin emails ──────────────────────────
+    // If the user's email matches a predefined admin email, automatically
+    // set their Firestore role to 'admin' so they don't need manual setup.
+    final email = user.email?.toLowerCase().trim() ?? '';
+    if (_adminEmails.contains(email) && profile.role != 'admin') {
+      await _firestore
+          .collection(FirestoreCollections.users)
+          .doc(user.uid)
+          .update({'role': 'admin'});
+      return AppSession(
+        state: AppSessionState.admin,
+        uid: profile.uid,
+        role: 'admin',
+      );
+    }
+    // ──────────────────────────────────────────────────────────────────
+
     if (profile.role.isEmpty) {
       return AppSession(
         state: AppSessionState.incompleteProfile,
