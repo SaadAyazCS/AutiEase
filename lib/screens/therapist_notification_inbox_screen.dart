@@ -1,26 +1,56 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
-import 'notification_settings_screen.dart';
+import 'therapist_home_screen.dart';
 import 'therapist_chat_screen.dart';
 
-class NotificationInboxScreen extends StatefulWidget {
-  const NotificationInboxScreen({super.key});
+class TherapistNotificationInboxScreen extends StatefulWidget {
+  const TherapistNotificationInboxScreen({
+    super.key,
+    required this.initialPrefs,
+  });
+
+  final Map<String, bool> initialPrefs;
 
   @override
-  State<NotificationInboxScreen> createState() => _NotificationInboxScreenState();
+  State<TherapistNotificationInboxScreen> createState() =>
+      _TherapistNotificationInboxScreenState();
 }
 
-class _NotificationInboxScreenState extends State<NotificationInboxScreen> with SingleTickerProviderStateMixin {
+class _TherapistNotificationInboxScreenState
+    extends State<TherapistNotificationInboxScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final List<String> _tabs = ['All', 'Messages', 'Subscriptions', 'Activities', 'System'];
+  final List<String> _tabs = [
+    'All',
+    'Messages',
+    'Subscriptions',
+    'Activities',
+    'System'
+  ];
+
+  late Map<String, bool> _currentPrefs;
+
+
+  static const Map<String, bool> _defaultTherapistNotificationPrefs = <String, bool>{
+    'email': false,
+    'sms': false,
+    'newMessages': false,
+    'bookings': false,
+    'reminders': false,
+    'payments': false,
+    'emergency': true,
+  };
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: _tabs.length, vsync: this);
+    _currentPrefs = Map<String, bool>.from(widget.initialPrefs);
   }
 
   @override
@@ -74,10 +104,11 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
     }
   }
 
-  List<NotificationInboxItem> _filterNotifications(List<NotificationInboxItem> items, int tabIndex) {
+  List<NotificationInboxItem> _filterNotifications(
+      List<NotificationInboxItem> items, int tabIndex) {
     if (tabIndex == 0) return items; // 'All'
     final category = _tabs[tabIndex].toLowerCase();
-    
+
     return items.where((item) {
       if (category == 'messages') {
         return item.category == 'messages';
@@ -86,7 +117,9 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
       } else if (category == 'activities') {
         return item.category == 'activities';
       } else if (category == 'system') {
-        return item.category == 'system' || item.category == 'verification' || item.category == 'reviews';
+        return item.category == 'system' ||
+            item.category == 'verification' ||
+            item.category == 'reviews';
       }
       return false;
     }).toList();
@@ -94,25 +127,30 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
 
   Future<void> _handleNotificationTap(NotificationInboxItem item) async {
     await AppRepositories.support.markNotificationAsRead(item.id);
-    
+
     if (!mounted) return;
 
     final target = item.navigationTarget;
     final route = target['route']?.toString();
 
-    if (route == 'Reviews') {
-      Navigator.popUntil(context, (route) => route.isFirst);
-    } else if (route == 'ProfileStatus') {
-      Navigator.popUntil(context, (route) => route.isFirst);
-    } else if (route == 'Chat' && target['threadId'] != null) {
+    if (route == 'Reviews' || route == 'reviews') {
+      Navigator.popUntil(context, (r) => r.isFirst);
+    } else if (route == 'ProfileStatus' || route == 'profilestatus') {
+      Navigator.popUntil(context, (r) => r.isFirst);
+    } else if ((route == 'Chat' || route == 'chat') && target['threadId'] != null) {
       final threadId = target['threadId'].toString();
       try {
-        final threadDoc = await AppRepositories.support.watchThread(threadId).first;
+        final threadDoc =
+            await AppRepositories.support.watchThread(threadId).first;
         if (threadDoc != null && mounted) {
           final currentUser = AppRepositories.auth.currentUser;
-          final role = currentUser?.uid == threadDoc.parentId ? 'parent' : 'therapist';
-          final peerName = role == 'parent' ? threadDoc.therapistDisplayName : threadDoc.parentDisplayName;
-          
+          final role = currentUser?.uid == threadDoc.parentId
+              ? 'parent'
+              : 'therapist';
+          final peerName = role == 'parent'
+              ? threadDoc.therapistDisplayName
+              : threadDoc.parentDisplayName;
+
           Navigator.push(
             context,
             MaterialPageRoute(
@@ -128,22 +166,105 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
     }
   }
 
+  Future<void> _saveNotificationPreferences(Map<String, bool> values) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+
+
+    final sanitised = <String, bool>{
+      for (final key in _defaultTherapistNotificationPrefs.keys)
+        key: values[key] ?? _defaultTherapistNotificationPrefs[key]!,
+    };
+
+    try {
+      await Future.wait([
+        FirebaseFirestore.instance
+            .collection(FirestoreCollections.therapistProfiles)
+            .doc(uid)
+            .update({
+          'therapistNotificationPreferences': sanitised,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }),
+        FirebaseFirestore.instance
+            .collection(FirestoreCollections.users)
+            .doc(uid)
+            .update({
+          'notificationPreferences': sanitised,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _currentPrefs = sanitised;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
+              SizedBox(width: 10),
+              Text(
+                'Notification preferences saved successfully!',
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF2ECC71),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.white, size: 20),
+              SizedBox(width: 10),
+              Text(
+                'Failed to save notification preferences.',
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFFE74C3C),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SessionGuard(
-      role: SessionGuardRole.authenticated,
+      role: SessionGuardRole.therapist,
       child: FigmaModuleScaffold(
-        title: 'Inbox',
-        onBack: () => Navigator.pop(context),
+        title: 'Alerts',
+        onBack: () => Navigator.pop(context, _currentPrefs),
         trailing: IconButton(
           icon: const Icon(Icons.settings_outlined, color: Color(0xFF1E293B)),
-          onPressed: () {
-            Navigator.push(
+          onPressed: () async {
+            final updated = await Navigator.push<Map<String, bool>>(
               context,
               MaterialPageRoute(
-                builder: (_) => const NotificationSettingsScreen(),
+                builder: (_) => TherapistNotificationSettingsScreen(
+                  initialValues: _currentPrefs,
+                ),
               ),
             );
+            if (updated != null) {
+              await _saveNotificationPreferences(updated);
+            }
           },
         ),
         child: Container(
@@ -184,7 +305,8 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
                             if (count > 0) ...[
                               const SizedBox(width: 4),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFEF4444),
                                   borderRadius: BorderRadius.circular(10),
@@ -210,7 +332,7 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
                       child: Row(
                         children: [
                           Text(
-                            'You have $unreadCount unread notifications',
+                            'You have $unreadCount unread alerts',
                             style: const TextStyle(
                               color: Color(0xFF64748B),
                               fontSize: 13,
@@ -219,8 +341,10 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
                           ),
                           const Spacer(),
                           TextButton.icon(
-                            onPressed: () => AppRepositories.support.markAllNotificationsAsRead(),
-                            icon: const Icon(Icons.done_all, size: 16, color: Color(0xFF4EA9E3)),
+                            onPressed: () => AppRepositories.support
+                                .markAllNotificationsAsRead(),
+                            icon: const Icon(Icons.done_all,
+                                size: 16, color: Color(0xFF4EA9E3)),
                             label: const Text(
                               'Mark all as read',
                               style: TextStyle(
@@ -251,8 +375,10 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
                                 ),
                                 const SizedBox(height: 12),
                                 Text(
-                                  'No notifications in this category',
-                                  style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                                  'No alerts in this category',
+                                  style: TextStyle(
+                                      color: Colors.grey.shade500,
+                                      fontSize: 14),
                                 ),
                               ],
                             ),
@@ -262,10 +388,12 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
                         return ListView.separated(
                           padding: const EdgeInsets.fromLTRB(14, 12, 14, 120),
                           itemCount: filtered.length,
-                          separatorBuilder: (context, index) => const SizedBox(height: 8),
+                          separatorBuilder: (context, index) =>
+                              const SizedBox(height: 8),
                           itemBuilder: (context, index) {
                             final item = filtered[index];
-                            final categoryColor = _getCategoryColor(item.category);
+                            final categoryColor =
+                                _getCategoryColor(item.category);
 
                             return InkWell(
                               onTap: () => _handleNotificationTap(item),
@@ -273,10 +401,14 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
                               child: Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: item.isRead ? Colors.white : const Color(0xFFF0F7FF),
+                                  color: item.isRead
+                                      ? Colors.white
+                                      : const Color(0xFFF0F7FF),
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
-                                    color: item.isRead ? const Color(0xFFE2E8F0) : const Color(0xFFBFDBFE),
+                                    color: item.isRead
+                                        ? const Color(0xFFE2E8F0)
+                                        : const Color(0xFFBFDBFE),
                                     width: 1.2,
                                   ),
                                 ),
@@ -286,7 +418,8 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
                                     Container(
                                       padding: const EdgeInsets.all(8),
                                       decoration: BoxDecoration(
-                                        color: categoryColor.withValues(alpha: 0.1),
+                                        color: categoryColor.withValues(
+                                            alpha: 0.1),
                                         shape: BoxShape.circle,
                                       ),
                                       child: Icon(
@@ -298,7 +431,8 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Row(
                                             children: [
@@ -306,14 +440,18 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
                                                 child: Text(
                                                   item.title,
                                                   style: TextStyle(
-                                                    fontWeight: item.isRead ? FontWeight.w600 : FontWeight.bold,
+                                                    fontWeight: item.isRead
+                                                        ? FontWeight.w600
+                                                        : FontWeight.bold,
                                                     fontSize: 14.5,
-                                                    color: const Color(0xFF1E293B),
+                                                    color:
+                                                        const Color(0xFF1E293B),
                                                   ),
                                                 ),
                                               ),
                                               Text(
-                                                _formatRelativeTime(item.timestamp),
+                                                _formatRelativeTime(
+                                                    item.timestamp),
                                                 style: const TextStyle(
                                                   fontSize: 11,
                                                   color: Color(0xFF64748B),

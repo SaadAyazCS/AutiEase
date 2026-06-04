@@ -23,6 +23,7 @@ import '../widgets/figma_module_scaffold.dart';
 import 'feedback_screen.dart';
 import 'therapist_chat_screen.dart';
 import '../utils/currency_utils.dart';
+import 'therapist_notification_inbox_screen.dart';
 
 class TherapistHomeScreen extends StatefulWidget {
   const TherapistHomeScreen({super.key});
@@ -842,15 +843,16 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
             final updated = await Navigator.push<Map<String, bool>>(
               this.context,
               MaterialPageRoute(
-                builder: (_) => TherapistNotificationSettingsScreen(
-                  initialValues: _notificationPrefs,
+                builder: (_) => TherapistNotificationInboxScreen(
+                  initialPrefs: _notificationPrefs,
                 ),
               ),
             );
             if (updated != null) {
-              await _saveNotificationPreferences(updated);
+              setState(() {
+                _notificationPrefs = updated;
+              });
             }
-            // Snackbar is shown inside _saveNotificationPreferences.
           },
           onFeedback: () async {
             Navigator.pop(context);
@@ -873,93 +875,6 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
         );
       },
     );
-  }
-
-  Future<void> _saveNotificationPreferences(Map<String, bool> values) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
-      return;
-    }
-
-    // Build a sanitised map that contains ONLY the keys the app knows about.
-    // This removes any stale / renamed keys that may be in Firestore from older
-    // versions of the app, keeping the stored document in sync with the UI.
-    final sanitised = <String, bool>{
-      for (final key in _defaultTherapistNotificationPrefs.keys)
-        key: values[key] ?? _defaultTherapistNotificationPrefs[key]!,
-    };
-
-    try {
-      // Write to BOTH documents concurrently so they are always in sync.
-      // We use .update() with the map field directly to OVERWRITE the entire 
-      // map, which ensures any extra/stale keys are completely removed.
-      await Future.wait([
-        FirebaseFirestore.instance
-            .collection(FirestoreCollections.therapistProfiles)
-            .doc(uid)
-            .update({
-              'therapistNotificationPreferences': sanitised,
-              'updatedAt': FieldValue.serverTimestamp(),
-            }),
-        FirebaseFirestore.instance
-            .collection(FirestoreCollections.users)
-            .doc(uid)
-            .update({
-              'notificationPreferences': sanitised,
-              'updatedAt': FieldValue.serverTimestamp(),
-            }),
-      ]);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _notificationPrefs = sanitised;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
-              SizedBox(width: 10),
-              Text(
-                'Notification preferences saved successfully!',
-                style: TextStyle(fontWeight: FontWeight.w500),
-              ),
-            ],
-          ),
-          backgroundColor: const Color(0xFF2ECC71),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.error_outline, color: Colors.white, size: 20),
-              SizedBox(width: 10),
-              Text(
-                'Failed to save notification preferences.',
-                style: TextStyle(fontWeight: FontWeight.w500),
-              ),
-            ],
-          ),
-          backgroundColor: const Color(0xFFE74C3C),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
   }
 
   Future<void> _openDashboard() async {
