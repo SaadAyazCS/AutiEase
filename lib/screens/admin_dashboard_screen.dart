@@ -344,262 +344,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               _buildOverviewCard('Reviews & Feedback', '${_stats['totalFeedback'] ?? 0}', Icons.feedback_outlined, const Color(0xFF0D9488)),
             ],
           ),
-          const SizedBox(height: 24),
-          const Text(
-            'User Base Distribution',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-          ),
-          const SizedBox(height: 12),
-          _buildUserDistributionCard(),
-          const SizedBox(height: 24),
-          const Text(
-            'Therapist Rating Sentiment',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-          ),
-          const SizedBox(height: 12),
-          _buildRatingSentimentCard(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildUserDistributionCard() {
-    final totalParents = int.tryParse(_stats['totalParents']?.toString() ?? '0') ?? 0;
-    final approvedTherapists = int.tryParse(_stats['approvedTherapists']?.toString() ?? '0') ?? 0;
-    final total = totalParents + approvedTherapists;
-    
-    final parentPct = total > 0 ? (totalParents / total) : 0.0;
-    final therapistPct = total > 0 ? (approvedTherapists / total) : 0.0;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Parents vs. Verified Therapists',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
-              ),
-              Text(
-                'Total: $total Users',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          // Stacked Progress Bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: SizedBox(
-              height: 20,
-              child: Row(
-                children: [
-                  if (parentPct > 0)
-                    Expanded(
-                      flex: (parentPct * 100).round(),
-                      child: Container(
-                        color: const Color(0xFF3B82F6), // Blue
-                        alignment: Alignment.center,
-                        child: Text(
-                          '${(parentPct * 100).toStringAsFixed(0)}%',
-                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
-                  if (therapistPct > 0)
-                    Expanded(
-                      flex: (therapistPct * 100).round(),
-                      child: Container(
-                        color: const Color(0xFF10B981), // Green
-                        alignment: Alignment.center,
-                        child: Text(
-                          '${(therapistPct * 100).toStringAsFixed(0)}%',
-                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
-                  if (total == 0)
-                    Expanded(
-                      child: Container(
-                        color: const Color(0xFFE2E8F0),
-                        alignment: Alignment.center,
-                        child: const Text(
-                          'No Users Registered',
-                          style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Legend row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF3B82F6),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Parents: $totalParents',
-                    style: const TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w500),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 24),
-              Row(
-                children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF10B981),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Therapists: $approvedTherapists',
-                    style: const TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w500),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRatingSentimentCard() {
-    final avgRating = double.tryParse(_stats['averageTherapistRating']?.toString() ?? '0.0') ?? 0.0;
-    
-    double w5 = 0.0, w4 = 0.0, w3 = 0.0, w2 = 0.0, w1 = 0.0;
-    
-    if (avgRating >= 4.5) {
-      w5 = 0.65; w4 = 0.23; w3 = 0.08; w2 = 0.03; w1 = 0.01;
-    } else if (avgRating >= 4.0) {
-      w5 = 0.45; w4 = 0.35; w3 = 0.12; w2 = 0.06; w1 = 0.02;
-    } else if (avgRating >= 3.0) {
-      w5 = 0.20; w4 = 0.25; w3 = 0.35; w2 = 0.12; w1 = 0.08;
-    } else if (avgRating > 0) {
-      w5 = 0.05; w4 = 0.10; w3 = 0.25; w2 = 0.35; w1 = 0.25;
-    } else {
-      w5 = 0.0; w4 = 0.0; w3 = 0.0; w2 = 0.0; w1 = 0.0;
-    }
-
-    Widget ratingRow(String stars, double weight, Color color) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 32,
-              child: Text(
-                stars,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
-              ),
-            ),
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Container(
-                  height: 8,
-                  color: const Color(0xFFF1F5F9),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        flex: (weight * 100).round(),
-                        child: Container(color: color),
-                      ),
-                      Expanded(
-                        flex: ((1.0 - weight) * 100).round(),
-                        child: Container(color: Colors.transparent),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            SizedBox(
-              width: 36,
-              child: Text(
-                '${(weight * 100).toStringAsFixed(0)}%',
-                textAlign: TextAlign.right,
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'User Feedback Rating Spread',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
-              ),
-              Row(
-                children: [
-                  const Icon(Icons.star_rounded, color: Color(0xFFF59E0B), size: 18),
-                  const SizedBox(width: 4),
-                  Text(
-                    avgRating > 0 ? avgRating.toStringAsFixed(2) : 'No Ratings',
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          ratingRow('5 ★', w5, const Color(0xFF10B981)),
-          ratingRow('4 ★', w4, const Color(0xFF3B82F6)),
-          ratingRow('3 ★', w3, const Color(0xFFF59E0B)),
-          ratingRow('2 ★', w2, const Color(0xFFF97316)),
-          ratingRow('1 ★', w1, const Color(0xFFEF4444)),
         ],
       ),
     );
@@ -1489,11 +1233,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                 }
                                 return Wrap(
                                   spacing: 8,
+                                  runSpacing: 8,
                                   children: children.map((c) {
-                                    return Chip(
-                                      avatar: CircleAvatar(child: Text(c.name[0])),
-                                      label: Text('${c.name} (${c.supportAreas.join(", ")})'),
-                                      labelStyle: const TextStyle(fontSize: 11),
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF1F5F9), // slate 100
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                                      ),
+                                      child: Text(
+                                        '${c.name} (${c.supportAreas.join(", ")})',
+                                        style: const TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF475569), // slate 600
+                                        ),
+                                      ),
                                     );
                                   }).toList(),
                                 );
