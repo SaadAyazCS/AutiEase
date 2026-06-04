@@ -803,23 +803,10 @@ class _TherapistListCard extends StatelessWidget {
     return 'Specialization not set';
   }
 
-  int _yearsExp(TherapistProfile profile, int fallback) {
-    if (profile.yearsOfExperience > 0) {
-      return profile.yearsOfExperience;
-    }
-    final source = '${profile.availability} ${profile.bio}';
-    final match = RegExp(r'(\d{1,2})\s*\+?\s*years?').firstMatch(source);
-    if (match != null) {
-      return int.tryParse(match.group(1) ?? '') ?? fallback;
-    }
-    return fallback;
-  }
-
 
   @override
   Widget build(BuildContext context) {
     final specialization = _specialization(therapist);
-    final years = _yearsExp(therapist, 0);
 
     return InkWell(
       onTap: onTap,
@@ -1177,21 +1164,6 @@ class _SupportTherapistDetailsScreenState
     return 'Specialization not set';
   }
 
-  int _yearsExp(TherapistProfile profile) {
-    if (_yearsFromProfile > 0) {
-      return _yearsFromProfile;
-    }
-    if (profile.yearsOfExperience > 0) {
-      return profile.yearsOfExperience;
-    }
-    final source = '${profile.availability} ${profile.bio}';
-    final match = RegExp(r'(\d{1,2})\s*\+?\s*years?').firstMatch(source);
-    if (match != null) {
-      return int.tryParse(match.group(1) ?? '') ?? 8;
-    }
-    return 0;
-  }
-
 
 
   Future<void> _subscribe() async {
@@ -1245,7 +1217,6 @@ class _SupportTherapistDetailsScreenState
     final visiblePackages = _visiblePackages(therapist);
     final safePackageIndex = _selectedPackageIndexWithin(visiblePackages.length);
     final selectedPackage = visiblePackages.isNotEmpty ? visiblePackages[safePackageIndex] : null;
-    final years = _yearsExp(therapist);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F3),

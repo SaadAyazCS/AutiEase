@@ -1,9 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
@@ -84,7 +82,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   _MessageSendState _sendState = _MessageSendState.idle;
-  String? _sendError;
   Timer? _resolvedBannerTimer;
   DateTime? _lastResolvedAtSeen;
   bool _showResolvedBanner = false;
@@ -236,7 +233,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
 
     setState(() {
       _sendState = _MessageSendState.sending;
-      _sendError = null;
     });
 
     try {
@@ -288,7 +284,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
       if (!mounted) return;
       setState(() {
         _sendState = _MessageSendState.error;
-        _sendError = error.toString();
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -655,301 +650,10 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
     await _resolveEmergency();
   }
 
-  Future<void> _persistHiddenTherapist(String therapistId) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
-      return;
-    }
-    final ref = FirebaseFirestore.instance
-        .collection(FirestoreCollections.users)
-        .doc(uid);
-    final doc = await ref.get();
-    final data = doc.data() ?? <String, dynamic>{};
-    final subscribed = stringListFrom(data['proSupportSubscribedTherapistIds'])
-      ..remove(therapistId);
-    final hidden = stringListFrom(data['proSupportHiddenTherapistIds']);
-    if (!hidden.contains(therapistId)) {
-      hidden.add(therapistId);
-    }
-    await ref.set({
-      'proSupportSubscribedTherapistIds': subscribed,
-      'proSupportHiddenTherapistIds': hidden,
-      'proSupportUpdatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-  }
 
-  Future<void> _confirmCancelSubscription(TherapistProfile therapist) async {
-    final shouldCancel = await showDialog<bool>(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFF3040),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      color: Colors.white,
-                      size: 46,
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Cancel Subscription?',
-                      style: TextStyle(color: Colors.white, fontSize: 18),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-                child: Column(
-                  children: [
-                    const Text(
-                      'Are you sure you want to cancel your subscription?',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Color(0xFF374151)),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFF5DD),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Text(
-                        'Please note: You will lose access to:\n- Direct messaging with therapist\n- 24-hour response time\n- Progress tracking & reports\n- Future session scheduling',
-                        style: TextStyle(
-                          height: 1.45,
-                          color: Color(0xFF4B5563),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFFE5E7EB),
-                              foregroundColor: const Color(0xFF374151),
-                            ),
-                            child: const Text('Keep Subscription'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () => Navigator.pop(context, true),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFFFF3040),
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text('Yes, Cancel'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
 
-    if (shouldCancel != true) {
-      return;
-    }
 
-    try {
-      final subscriptionId = widget.thread.subscriptionId.trim();
-      final canCallStripeBackend =
-          AppRepositories.stripeBackend.isConfigured &&
-          subscriptionId.isNotEmpty &&
-          subscriptionId != 'local-bypass';
 
-      if (canCallStripeBackend) {
-        try {
-          await AppRepositories.billing.cancelSubscription(subscriptionId);
-        } catch (error) {
-          final message = error.toString();
-          final backendNotConfigured =
-              message.contains('Stripe backend is not configured') ||
-              message.contains('STRIPE_BACKEND_BASE_URL');
-          if (!backendNotConfigured) {
-            rethrow;
-          }
-        }
-      }
-
-      await _persistHiddenTherapist(widget.thread.therapistId);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Subscription canceled.'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      Navigator.pop(context); // close therapist detail dialog
-      Navigator.pop(context); // back to messages home
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Unable to cancel subscription: $error'),
-          backgroundColor: AppColors.errorRed,
-        ),
-      );
-    }
-  }
-
-  Future<void> _openTherapistDetails() async {
-    final therapist = widget.therapistProfile;
-    if (therapist == null) {
-      return;
-    }
-    await showDialog<void>(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (context) {
-        final specialization = therapist.specializations.isNotEmpty
-            ? therapist.specializations.first
-            : 'Specialization not set';
-        final yearsText = therapist.formattedExperience;
-        return Dialog(
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 24,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF00C853),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-                ),
-                child: Stack(
-                  children: [
-                    Align(
-                      child: Column(
-                        children: [
-                          const _TherapistPlaceholderAvatar(size: 70),
-                          const SizedBox(height: 10),
-                          Text(
-                            therapist.displayName,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            specialization,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Positioned(
-                      right: 0,
-                      top: 0,
-                      child: IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close, color: Colors.white),
-                        style: IconButton.styleFrom(
-                          backgroundColor: const Color(0x334B5563),
-                          minimumSize: const Size(32, 32),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 12),
-                    const Divider(height: 1),
-                    const SizedBox(height: 10),
-                    Text('Experience\n$yearsText'),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Certifications\n${therapist.credentials.isEmpty ? 'No certifications listed' : therapist.credentials}',
-                    ),
-                    const SizedBox(height: 10),
-                    const Divider(height: 1),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'About',
-                      style: TextStyle(
-                        color: Color(0xFF4B5563),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      therapist.bio.trim().isEmpty
-                          ? 'Bio not provided'
-                          : therapist.bio,
-                      style: const TextStyle(height: 1.4),
-                    ),
-                    const SizedBox(height: 10),
-                    const Center(
-                      child: Text(
-                        '- Active now',
-                        style: TextStyle(color: Color(0xFF00A63E)),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () => _confirmCancelSubscription(therapist),
-                        icon: const Icon(Icons.cancel_outlined),
-                        label: const Text('Cancel Subscription'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFF3040),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 13),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
 
   String _formatTime(DateTime? value) {
     if (value == null) {
