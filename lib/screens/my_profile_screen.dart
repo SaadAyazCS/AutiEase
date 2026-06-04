@@ -36,8 +36,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   bool _communicationEnabled = false;
   bool _learningEnabled = false;
   bool _isSaving = false;
-  bool _revealSavedPassword = false;
-  bool _obscureNewPassword = true;
+
   UserProfile? _profile;
   ChildProfile? _child;
   PlayPreferences _playPreferences = PlayPreferences.defaults;
@@ -501,11 +500,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       ) ??
       false;
 
-  void _toggleParentSavedPasswordVisibility() {
-    setState(() {
-      _revealSavedPassword = !_revealSavedPassword;
-    });
-  }
+
 
   List<Widget> _savedPasswordWidgets() {
     if (!_parentHasEmailPassword()) {

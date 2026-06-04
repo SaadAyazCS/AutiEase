@@ -411,7 +411,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                 const Text('Help us understand what happened. Select a reason below:', style: TextStyle(fontSize: 14)),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: selectedReason,
+                  initialValue: selectedReason,
                   items: reasons.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
                   onChanged: (value) {
                     if (value != null) {
@@ -492,7 +492,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
 
           if (!mounted) return;
           showDialog<void>(
-            context: this.context,
+            // ignore: use_build_context_synchronously
+            context: context,
             builder: (context) => AlertDialog(
               title: const Text('Report Submitted'),
               content: const Text('Thank you. We have received your report and will take action if any violations are found.'),

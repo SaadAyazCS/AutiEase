@@ -1697,10 +1697,15 @@ class FirebaseAdminRepository implements AdminRepository {
 
     for (final doc in therapistsSnap.docs) {
       final status = (doc.data()['verificationStatus'] ?? 'pending').toString();
-      if (status == 'approved') approved++;
-      else if (status == 'rejected') rejected++;
-      else if (status == 'suspended') suspended++;
-      else pending++;
+      if (status == 'approved') {
+        approved++;
+      } else if (status == 'rejected') {
+        rejected++;
+      } else if (status == 'suspended') {
+        suspended++;
+      } else {
+        pending++;
+      }
 
       final rating = doc.data()['rating'];
       if (rating is num && rating > 0) {
@@ -1895,7 +1900,7 @@ class FirebaseAdminRepository implements AdminRepository {
       id: logRef.id,
       adminUid: adminId,
       targetUid: reportedUserId,
-      actionType: 'moderation_${action}',
+      actionType: 'moderation_$action',
       details: 'Moderation action $action executed. Reason: $reason',
       timestamp: DateTime.now(),
     );

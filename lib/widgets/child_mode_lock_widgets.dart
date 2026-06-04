@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../navigation/child_mode_lock_controller.dart';
-import '../utils/app_colors.dart';
+
 import '../utils/responsive.dart';
 
 class ChildModeLockWidgets {
