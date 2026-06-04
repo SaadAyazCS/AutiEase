@@ -1038,6 +1038,38 @@ class FirebasePlannerRepository implements PlannerRepository {
       'completedAt': FieldValue.serverTimestamp(),
       if (metadata != null) ...metadata,
     });
+
+    try {
+      final childDoc = await _firestore.collection(FirestoreCollections.childProfiles).doc(childId).get();
+      if (childDoc.exists && childDoc.data() != null) {
+        final parentId = childDoc.data()?['parentId']?.toString();
+        final childName = childDoc.data()?['name']?.toString() ?? 'Your child';
+        if (parentId != null && parentId.isNotEmpty) {
+          final parentDoc = await _firestore.collection(FirestoreCollections.users).doc(parentId).get();
+          final parentData = parentDoc.data();
+          if (parentData != null) {
+            final prefs = boolMapFrom(parentData['notificationPreferences']);
+            final enabled = prefs['levelProgressNotification'] != false || prefs['progressUpdates'] != false;
+            
+            if (enabled) {
+              final isGame = moduleId == 'games' || moduleId == 'learning_games' || itemId.contains('game');
+              final typeLabel = isGame ? 'game' : 'activity';
+              
+              await _firestore.collection('notifications').add({
+                'userId': parentId,
+                'title': isGame ? '🎉 Game Completed!' : '🌟 Activity Completed!',
+                'message': '$childName completed the $typeLabel: "${itemId.replaceAll('_', ' ')}"${score > 0 ? " with a score of $score" : ""}.',
+                'category': 'progress',
+                'timestamp': FieldValue.serverTimestamp(),
+                'isRead': false,
+              });
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // Prevent notification errors from blocking activity completion save
+    }
   }
 
   @override
@@ -1592,6 +1624,8 @@ class FirebaseSupportRepository implements SupportRepository {
           enabled = prefs['therapistsUpdate'] != false || prefs['pushNotifications'] != false;
         } else if (category == 'activities') {
           enabled = prefs['routineReminders'] != false || prefs['dailyReminders'] != false;
+        } else if (category == 'progress') {
+          enabled = prefs['levelProgressNotification'] != false || prefs['progressUpdates'] != false;
         } else if (category == 'subscription') {
           enabled = prefs['subscription'] != false || prefs['emailNotifications'] != false;
         } else if (category == 'reviews') {

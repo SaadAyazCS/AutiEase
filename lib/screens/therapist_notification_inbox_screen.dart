@@ -115,7 +115,7 @@ class _TherapistNotificationInboxScreenState
       } else if (category == 'subscriptions') {
         return item.category == 'subscription';
       } else if (category == 'activities') {
-        return item.category == 'activities';
+        return item.category == 'activities' || item.category == 'progress';
       } else if (category == 'system') {
         return item.category == 'system' ||
             item.category == 'verification' ||
