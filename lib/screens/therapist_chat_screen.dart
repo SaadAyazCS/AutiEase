@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
@@ -531,70 +532,124 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
             : _peerUserProfile?.photoUrl)
         : _peerUserProfile?.photoUrl;
 
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          padding: const EdgeInsets.fromLTRB(20, 24, 20, 34),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 44,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(10),
+    if (isTherapist) {
+      showDialog<void>(
+        context: context,
+        builder: (context) {
+          return _TherapistProfileDialog(
+            therapist: _peerTherapistProfile,
+            photoUrlBase64: photoUrlBase64,
+            onCancelSubscription: () {
+              Navigator.pop(context); // Close profile dialog
+              _showCancelSubscriptionFlow(context); // Start cancel flow
+            },
+          );
+        },
+      );
+    } else {
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 34),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              _TherapistPlaceholderAvatar(size: 88, photoUrlBase64: photoUrlBase64),
-              const SizedBox(height: 14),
-              Text(
-                widget.participantName,
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-              ),
-              Text(
-                isTherapist ? 'Therapist Specialist' : 'Verified Parent Member',
-                style: const TextStyle(fontSize: 14, color: Color(0xFF00A63E), fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 16),
-              const Divider(),
-              const SizedBox(height: 10),
-              if (isTherapist) ...[
-                _buildProfileDetailRow('Role', 'Therapist'),
-                _buildProfileDetailRow('Experience', _peerTherapistProfile?.formattedExperience ?? 'Loading...'),
-                _buildProfileDetailRow(
-                  'Bio', 
-                  _peerTherapistProfile?.bio != null && _peerTherapistProfile!.bio.isNotEmpty 
-                      ? _peerTherapistProfile!.bio 
-                      : 'No bio available yet.',
+                const SizedBox(height: 20),
+                _TherapistPlaceholderAvatar(size: 88, photoUrlBase64: photoUrlBase64),
+                const SizedBox(height: 14),
+                Text(
+                  widget.participantName,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
                 ),
-                _buildProfileDetailRow('Availability', _peerTherapistProfile?.availability ?? 'Loading...'),
-                _buildProfileDetailRow('Pricing', _peerTherapistProfile?.pricing ?? 'Loading...'),
-              ] else ...[
+                const Text(
+                  'Verified Parent Member',
+                  style: TextStyle(fontSize: 14, color: Color(0xFF00A63E), fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 10),
                 _buildProfileDetailRow('Role', 'Parent'),
                 _buildProfileDetailRow('Verification Status', 'Verified account'),
-              ],
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primaryBlue,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 44),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryBlue,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 44),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Close Profile'),
                 ),
-                child: const Text('Close Profile'),
-              ),
-            ],
-          ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+  }
+
+  void _showCancelSubscriptionFlow(BuildContext parentDialogContext) {
+    showDialog<void>(
+      context: parentDialogContext,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return _CancelSubscriptionDialog(
+          therapistName: widget.participantName,
+          onConfirmCancel: () {
+            Navigator.pop(dialogCtx);
+            _showChatHistoryChoicesDialog(parentDialogContext);
+          },
+        );
+      },
+    );
+  }
+
+  void _showChatHistoryChoicesDialog(BuildContext parentCtx) {
+    showDialog<void>(
+      context: parentCtx,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return _ChatHistoryChoicesDialog(
+          threadId: widget.thread.id,
+          therapistId: widget.thread.therapistId,
+          onComplete: (choice) async {
+            if (choice == 'delete') {
+              if (parentCtx.mounted) {
+                Navigator.pop(parentCtx);
+                ScaffoldMessenger.of(parentCtx).showSnackBar(
+                  const SnackBar(
+                    content: Text('Subscription cancelled and chat history deleted.'),
+                    backgroundColor: Color(0xFFEF4444),
+                  ),
+                );
+              }
+            } else {
+              if (parentCtx.mounted) {
+                ScaffoldMessenger.of(parentCtx).showSnackBar(
+                  const SnackBar(
+                    content: Text('Subscription cancelled. Chat locked to read-only.'),
+                    backgroundColor: Color(0xFF3B82F6),
+                  ),
+                );
+              }
+            }
+          },
         );
       },
     );
@@ -1263,6 +1318,711 @@ class _ChatStateBanner extends StatelessWidget {
           color: Color(0xFF223651),
         ),
         textAlign: TextAlign.center,
+      ),
+    );
+  }
+}
+
+class _TherapistProfileDialog extends StatelessWidget {
+  const _TherapistProfileDialog({
+    required this.therapist,
+    this.photoUrlBase64,
+    required this.onCancelSubscription,
+  });
+
+  final TherapistProfile? therapist;
+  final String? photoUrlBase64;
+  final VoidCallback onCancelSubscription;
+
+  String _specialization(TherapistProfile? profile) {
+    if (profile == null || profile.specializations.isEmpty) {
+      return 'Speech & Language Therapy';
+    }
+    return profile.specializations.first;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayName = therapist?.displayName ?? 'Dr. Sarah Johnson';
+    final specialization = _specialization(therapist);
+    final rating = therapist?.rating ?? 4.9;
+    final totalReviews = therapist?.totalReviews ?? 127;
+    final formattedExperience = therapist?.formattedExperience ?? '12 years of practice';
+    final credentials = therapist?.credentials != null && therapist!.credentials.isNotEmpty
+        ? therapist!.credentials
+        : 'Board Certified, Licensed Therapist';
+    final bio = therapist?.bio != null && therapist!.bio.isNotEmpty
+        ? therapist!.bio
+        : 'Specialized in autism spectrum disorders and speech development. Passionate about helping children communicate effectively.';
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Green Header Card
+          Stack(
+            children: [
+              Container(
+                color: const Color(0xFF22C55E), // Vibrant Green
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                child: Column(
+                  children: [
+                    // Avatar with Gradient Ring
+                    Container(
+                      width: 82,
+                      height: 82,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: SweepGradient(
+                          colors: [Color(0xFF22C55E), Color(0xFFFFB800), Color(0xFF22C55E)],
+                        ),
+                      ),
+                      padding: const EdgeInsets.all(3),
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                        child: ClipOval(
+                          child: _TherapistPlaceholderAvatar(
+                            size: 76,
+                            photoUrlBase64: photoUrlBase64,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      displayName,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      specialization,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Close button
+              Positioned(
+                top: 12,
+                right: 12,
+                child: GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    padding: const EdgeInsets.all(6),
+                    child: const Icon(
+                      Icons.close,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          
+          // Body Content
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Star rating row
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.star, color: Colors.amber, size: 18),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${rating.toStringAsFixed(1)} ($totalReviews reviews)',
+                      style: const TextStyle(
+                        color: Color(0xFF475569),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Divider(),
+                const SizedBox(height: 10),
+                
+                // Experience Row
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.access_time_rounded, color: Color(0xFF22C55E), size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Experience',
+                            style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            formattedExperience,
+                            style: const TextStyle(
+                              color: Color(0xFF1E293B),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                
+                // Certifications Row
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.verified_user_outlined, color: Color(0xFF22C55E), size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Certifications',
+                            style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            credentials,
+                            style: const TextStyle(
+                              color: Color(0xFF1E293B),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Divider(),
+                const SizedBox(height: 10),
+                
+                // About
+                const Text(
+                  'About',
+                  style: TextStyle(
+                    color: Color(0xFF1E293B),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14.5,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  bio,
+                  style: const TextStyle(
+                    color: Color(0xFF475569),
+                    fontSize: 13,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Divider(),
+                const SizedBox(height: 10),
+                
+                // Status dot row
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF22C55E),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Active now',
+                      style: TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                
+                // Cancel Subscription button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: onCancelSubscription,
+                    icon: const Icon(Icons.cancel_outlined, size: 18),
+                    label: const Text(
+                      'Cancel Subscription',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEF4444),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CancelSubscriptionDialog extends StatelessWidget {
+  const _CancelSubscriptionDialog({
+    required this.therapistName,
+    required this.onConfirmCancel,
+  });
+
+  final String therapistName;
+  final VoidCallback onConfirmCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Red Alert Header Card
+          Container(
+            color: const Color(0xFFEF4444),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: const Column(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.white,
+                  size: 48,
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'Cancel Subscription?',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Content
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                const Text(
+                  'Are you sure you want to cancel your subscription?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color(0xFF1E293B),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Warning note box
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFBEB), // Amber 50
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFDE68A)), // Amber 200
+                  ),
+                  child: const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Please note: You will lose access to:',
+                        style: TextStyle(
+                          color: Color(0xFF78350F), // Amber 900
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        '• Direct messaging with the therapist\n'
+                        '• 24-hour response time\n'
+                        '• Progress tracking & reports\n'
+                        '• Future session scheduling',
+                        style: TextStyle(
+                          color: Color(0xFF92400E), // Amber 800
+                          fontSize: 12.5,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // Buttons row
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFE2E8F0),
+                          foregroundColor: const Color(0xFF475569),
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          'Keep Subscription',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: onConfirmCancel,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFEF4444),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          'Yes, Cancel',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChatHistoryChoicesDialog extends StatefulWidget {
+  const _ChatHistoryChoicesDialog({
+    required this.threadId,
+    required this.therapistId,
+    required this.onComplete,
+  });
+
+  final String threadId;
+  final String therapistId;
+  final Function(String choice) onComplete;
+
+  @override
+  State<_ChatHistoryChoicesDialog> createState() => _ChatHistoryChoicesDialogState();
+}
+
+class _ChatHistoryChoicesDialogState extends State<_ChatHistoryChoicesDialog> {
+  bool _isLoading = false;
+
+  Future<void> _handleChoice(String choice) async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    final parentId = FirebaseAuth.instance.currentUser?.uid;
+    if (parentId == null) return;
+
+    try {
+      // 1. Remove from subscribed list and add to hidden list (if deleting)
+      final userDoc = await FirebaseFirestore.instance
+          .collection(FirestoreCollections.users)
+          .doc(parentId)
+          .get();
+      
+      List<dynamic> subscribed = [];
+      List<dynamic> hidden = [];
+      if (userDoc.exists && userDoc.data() != null) {
+        subscribed = List.from(userDoc.data()?['proSupportSubscribedTherapistIds'] ?? []);
+        hidden = List.from(userDoc.data()?['proSupportHiddenTherapistIds'] ?? []);
+      }
+      
+      subscribed.remove(widget.therapistId);
+      if (choice == 'delete') {
+        if (!hidden.contains(widget.therapistId)) {
+          hidden.add(widget.therapistId);
+        }
+      }
+
+      await FirebaseFirestore.instance
+          .collection(FirestoreCollections.users)
+          .doc(parentId)
+          .set({
+            'proSupportSubscribedTherapistIds': subscribed,
+            'proSupportHiddenTherapistIds': hidden,
+            'proSupportUpdatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+      // 2. Perform thread action
+      if (choice == 'delete') {
+        await FirebaseFirestore.instance
+            .collection(FirestoreCollections.therapistThreads)
+            .doc(widget.threadId)
+            .delete();
+      } else {
+        await FirebaseFirestore.instance
+            .collection(FirestoreCollections.therapistThreads)
+            .doc(widget.threadId)
+            .update({
+              'status': 'cancelled',
+              'postCancelVisible': true,
+            });
+      }
+
+      // Smooth transition delay
+      await Future.delayed(const Duration(seconds: 1));
+      
+      if (mounted) {
+        Navigator.pop(context); // Close the dialog
+        widget.onComplete(choice);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Purple/Blue Gradient Banner
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF8B5CF6), Color(0xFF3B82F6)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Expanded(
+                  child: Text(
+                    'What about your chat history?',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (!_isLoading)
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, color: Colors.white, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+              ],
+            ),
+          ),
+          
+          if (_isLoading)
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: const Column(
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text(
+                    'Processing...',
+                    style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Choose what you'd like to do with your conversation history and shared content",
+                    style: TextStyle(
+                      color: Color(0xFF475569),
+                      fontSize: 13.5,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  // Option 1: Delete everything card
+                  InkWell(
+                    onTap: () => _handleChoice('delete'),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2), // Red 50
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFFCA5A5)), // Red 200
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFFEE2E2),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.delete_outline_rounded,
+                              color: Color(0xFFEF4444),
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Delete Everything',
+                                  style: TextStyle(
+                                    color: Color(0xFF991B1B), // Red 800
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Remove all messages, images, videos, and documents. The therapist will be completely removed from your messages list.',
+                                  style: TextStyle(
+                                    color: Color(0xFF7F1D1D),
+                                    fontSize: 11.5,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // Option 2: Keep & Lock Chats card
+                  InkWell(
+                    onTap: () => _handleChoice('keep'),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF), // Blue 50
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFBFDBFE)), // Blue 200
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFDBEAFE),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.lock_outline_rounded,
+                              color: Color(0xFF3B82F6),
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Keep & Lock Chats',
+                                  style: TextStyle(
+                                    color: Color(0xFF1E3A8A), // Blue 800
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  "Save all conversation history. You can view messages but won't be able to send new ones. The therapist remains in your messages list (read-only).",
+                                  style: TextStyle(
+                                    color: Color(0xFF1E40AF),
+                                    fontSize: 11.5,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }

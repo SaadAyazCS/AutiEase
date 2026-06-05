@@ -2695,6 +2695,45 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
     };
   }
 
+  Widget _buildParentAvatar(String? photoUrl, {double size = 40}) {
+    Widget imageWidget;
+    if (photoUrl != null && photoUrl.isNotEmpty) {
+      if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')) {
+        imageWidget = Image.network(
+          photoUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => const Icon(Icons.person, color: Color(0xFF64748B)),
+        );
+      } else {
+        try {
+          final imageBytes = base64Decode(photoUrl);
+          imageWidget = Image.memory(
+            imageBytes,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => const Icon(Icons.person, color: Color(0xFF64748B)),
+          );
+        } catch (_) {
+          imageWidget = const Icon(Icons.person, color: Color(0xFF64748B));
+        }
+      }
+    } else {
+      imageWidget = const Icon(Icons.person, color: Color(0xFF64748B));
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: const BoxDecoration(
+        color: Color(0xFFD9F4DF),
+        shape: BoxShape.circle,
+      ),
+      padding: const EdgeInsets.all(2),
+      child: ClipOval(
+        child: imageWidget,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SessionGuard(
@@ -2718,7 +2757,7 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
                         'Messages',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 46 / 1.5,
+                          fontSize: 30 / 1.5,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -2785,13 +2824,7 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
                                       : parentProfile?.email ?? 'Parent');
 
                             return ListTile(
-                              leading: const CircleAvatar(
-                                backgroundColor: Color(0xFFD9F4DF),
-                                child: Icon(
-                                  Icons.person,
-                                  color: Color(0xFF64748B),
-                                ),
-                              ),
+                              leading: _buildParentAvatar(parentProfile?.photoUrl),
                               title: Text(
                                 parentName,
                                 style: const TextStyle(
