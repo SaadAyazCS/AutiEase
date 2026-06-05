@@ -213,7 +213,6 @@ class _DragGameScreenState extends State<DragGameScreen> {
 
   final TtsService _tts = TtsService();
   bool _showFeedback = false;
-  MovePlayFeedbackKind _feedbackKind = MovePlayFeedbackKind.mistake;
   bool _pendingAdvance = false;
 
   _DragLevel get _currentLevel => _levels[_levelIndex];
@@ -268,8 +267,53 @@ class _DragGameScreenState extends State<DragGameScreen> {
     if (_showFeedback) return;
     setState(() {
       _showFeedback = true;
-      _feedbackKind = kind;
     });
+
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(
+        alpha: _playPreferences.lowStimulationMode ? 0.16 : 0.25,
+      ),
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return MovePlayFeedbackOverlay(
+          kind: kind,
+          primaryLabel: kind == MovePlayFeedbackKind.success
+              ? 'Next'
+              : 'Try again',
+          message: kind == MovePlayFeedbackKind.mistake
+              ? _wrongHint
+              : null,
+          lowStimulationMode: _playPreferences.lowStimulationMode,
+          onPrimaryAction: () {
+            Navigator.pop(dialogCtx);
+            if (!mounted) return;
+            setState(() {
+              _showFeedback = false;
+            });
+            if (kind == MovePlayFeedbackKind.mistake) {
+              _speakInstruction();
+              return;
+            }
+            if (!_pendingAdvance) return;
+
+            if (_levelIndex < _levels.length - 1) {
+              setState(() {
+                _levelIndex += 1;
+                _wrongAttemptsThisLevel = 0;
+                _metricsTracker.reset();
+                _shuffleSeed++;
+                _activeOptions = _shuffledOptionsForLevel();
+              });
+              _speakInstruction();
+            } else {
+              setState(() => _stage = _DragGameStage.celebration);
+              _saveProgressIfNeeded();
+            }
+          },
+        );
+      },
+    );
   }
 
   Future<void> _handleDrop(String pieceKey) async {
@@ -426,41 +470,6 @@ class _DragGameScreenState extends State<DragGameScreen> {
           },
           onDrop: _handleDrop,
         ),
-        if (_showFeedback)
-          MovePlayFeedbackOverlay(
-            kind: _feedbackKind,
-            primaryLabel: _feedbackKind == MovePlayFeedbackKind.success
-                ? 'Next'
-                : 'Try again',
-            message: _feedbackKind == MovePlayFeedbackKind.mistake
-                ? _wrongHint
-                : null,
-            lowStimulationMode: _playPreferences.lowStimulationMode,
-            onPrimaryAction: () {
-              if (!mounted) return;
-              final kind = _feedbackKind;
-              setState(() => _showFeedback = false);
-              if (kind == MovePlayFeedbackKind.mistake) {
-                _speakInstruction();
-                return;
-              }
-              if (!_pendingAdvance) return;
-
-              if (_levelIndex < _levels.length - 1) {
-                setState(() {
-                  _levelIndex += 1;
-                  _wrongAttemptsThisLevel = 0;
-                  _metricsTracker.reset();
-                  _shuffleSeed++;
-                  _activeOptions = _shuffledOptionsForLevel();
-                });
-                _speakInstruction();
-              } else {
-                setState(() => _stage = _DragGameStage.celebration);
-                _saveProgressIfNeeded();
-              }
-            },
-          ),
       ],
     );
   }

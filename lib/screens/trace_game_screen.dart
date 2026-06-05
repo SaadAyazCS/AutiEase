@@ -60,7 +60,6 @@ class _TraceGameScreenState extends State<TraceGameScreen>
 
   final TtsService _tts = TtsService();
   bool _showFeedback = false;
-  MovePlayFeedbackKind _feedbackKind = MovePlayFeedbackKind.mistake;
   bool _pendingAdvance = false;
   late final AnimationController _sparkleCtrl;
 
@@ -119,8 +118,56 @@ class _TraceGameScreenState extends State<TraceGameScreen>
     if (_showFeedback) return;
     setState(() {
       _showFeedback = true;
-      _feedbackKind = kind;
     });
+
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(
+        alpha: _playPreferences.lowStimulationMode ? 0.16 : 0.25,
+      ),
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return MovePlayFeedbackOverlay(
+          kind: kind,
+          primaryLabel: kind == MovePlayFeedbackKind.success
+              ? 'Next'
+              : 'Try again',
+          message: kind == MovePlayFeedbackKind.mistake
+              ? _traceWrongHint
+              : null,
+          lowStimulationMode: _playPreferences.lowStimulationMode,
+          onPrimaryAction: () {
+            Navigator.pop(dialogCtx);
+            if (!mounted) return;
+            setState(() {
+              _showFeedback = false;
+            });
+            if (kind == MovePlayFeedbackKind.mistake) {
+              _speakInstruction();
+              return;
+            }
+            if (!_pendingAdvance) return;
+
+            if (_levelIndex < _levels.length - 1) {
+              setState(() {
+                _levelIndex += 1;
+                _completedElements.clear();
+                _tracePoints.clear();
+                _activeElementIndex = null;
+                _wrongAttemptsThisLevel = 0;
+                _lastTraceAccuracy = null;
+                _metricsTracker.reset();
+                _shuffleSeed++;
+              });
+              _speakInstruction();
+            } else {
+              setState(() => _stage = _TraceGameStage.celebration);
+              _saveProgressIfNeeded();
+            }
+          },
+        );
+      },
+    );
   }
 
   void _onPanStart(DragStartDetails details) {
@@ -394,44 +441,6 @@ class _TraceGameScreenState extends State<TraceGameScreen>
             ),
           ),
         ),
-        if (_showFeedback)
-          MovePlayFeedbackOverlay(
-            kind: _feedbackKind,
-            primaryLabel: _feedbackKind == MovePlayFeedbackKind.success
-                ? 'Next'
-                : 'Try again',
-            message: _feedbackKind == MovePlayFeedbackKind.mistake
-                ? _traceWrongHint
-                : null,
-            lowStimulationMode: _playPreferences.lowStimulationMode,
-            onPrimaryAction: () {
-              if (!mounted) return;
-              final kind = _feedbackKind;
-              setState(() => _showFeedback = false);
-              if (kind == MovePlayFeedbackKind.mistake) {
-                _speakInstruction();
-                return;
-              }
-              if (!_pendingAdvance) return;
-
-              if (_levelIndex < _levels.length - 1) {
-                setState(() {
-                  _levelIndex += 1;
-                  _completedElements.clear();
-                  _tracePoints.clear();
-                  _activeElementIndex = null;
-                  _wrongAttemptsThisLevel = 0;
-                  _lastTraceAccuracy = null;
-                  _metricsTracker.reset();
-                  _shuffleSeed++;
-                });
-                _speakInstruction();
-              } else {
-                setState(() => _stage = _TraceGameStage.celebration);
-                _saveProgressIfNeeded();
-              }
-            },
-          ),
       ],
     );
   }
