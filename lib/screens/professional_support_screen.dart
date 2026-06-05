@@ -11,6 +11,7 @@ import 'therapist_chat_screen.dart';
 import 'certificate_viewer_screen.dart';
 import '../utils/currency_utils.dart';
 
+
 class _TherapistPlaceholderAvatar extends StatelessWidget {
   const _TherapistPlaceholderAvatar({
     required this.size,
@@ -186,7 +187,332 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
         index == 0;
   }
 
+  Widget _buildChecklistItem(IconData icon, String text) {
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: const Color(0xFF4B5563)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF4B5563),
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool?> _showSubscriptionWarningDialog(
+    BuildContext context,
+    TherapistProfile therapist,
+  ) async {
+    bool isChecked = false;
+
+    // Fetch latest therapist profile to ensure we have credentials and certificate base64
+    String certificateBase64 = therapist.certificateBase64;
+    String licenseNumber = therapist.licenseNumber;
+    String registrationNumber = therapist.registrationNumber;
+    String credentials = therapist.credentials;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection(FirestoreCollections.therapistProfiles)
+          .doc(therapist.id)
+          .get();
+      final data = doc.data();
+      if (data != null) {
+        certificateBase64 = (data['certificateBase64'] ?? '').toString();
+        licenseNumber = (data['licenseNumber'] ?? data['license_number'] ?? '').toString();
+        registrationNumber = (data['registrationNumber'] ?? data['registration_number'] ?? '').toString();
+        credentials = (data['credentials'] ?? '').toString();
+      }
+    } catch (_) {}
+
+    if (!context.mounted) return false;
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              titlePadding: EdgeInsets.zero,
+              title: Container(
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFF3CD),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Color(0xFFD97706),
+                      size: 28,
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Verification Consent',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF92400E),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'AutiEase has verified this therapist\'s documentation. However, just for backup, you must also individually and independently verify them before subscribing.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1F2937),
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Independent Verification Checklist:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF374151),
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildChecklistItem(
+                      Icons.assignment_ind_outlined,
+                      'Check their certificates and ensure their profile is aligned with their documents.',
+                    ),
+                    _buildChecklistItem(
+                      Icons.star_border,
+                      'Check ratings and reviews from other parents.',
+                    ),
+                    _buildChecklistItem(
+                      Icons.search,
+                      'Verify registry status online via professional websites (e.g. PMC, AHPC or field-related registers).',
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF9FAFB),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFE5E7EB)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            therapist.displayName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: Color(0xFF1F2937),
+                            ),
+                          ),
+                          if (credentials.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Credentials: $credentials',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF4B5563)),
+                            ),
+                          ],
+                          if (licenseNumber.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'License Number: $licenseNumber',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF4B5563)),
+                            ),
+                          ],
+                          if (registrationNumber.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'Registration ID: $registrationNumber',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF4B5563)),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (certificateBase64.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            try {
+                              final pdfBytes = base64Decode(certificateBase64);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => CertificateViewerScreen(
+                                    pdfBytes: pdfBytes,
+                                    title: '${therapist.displayName} - Certificate',
+                                  ),
+                                ),
+                              );
+                            } catch (_) {}
+                          },
+                          icon: const Icon(Icons.description_outlined, size: 16),
+                          label: const Text(
+                            'View Therapist Certificate',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF11B5CF),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    // Liability Warning Box
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFFCA5A5)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.gavel_rounded,
+                            color: Color(0xFFDC2626),
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Liability Alert: AutiEase is not responsible for any issues. You must also independently verify before subscribing.',
+                              style: TextStyle(
+                                color: Color(0xFF991B1B),
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w500,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    // Checkbox Consent row
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: Checkbox(
+                            value: isChecked,
+                            onChanged: (bool? val) {
+                              setState(() {
+                                isChecked = val ?? false;
+                              });
+                            },
+                            activeColor: const Color(0xFF00C853),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                isChecked = !isChecked;
+                              });
+                            },
+                            child: const Text(
+                              'I verified therapist and I read the warning and consent to subscribe',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: Color(0xFF374151),
+                                fontWeight: FontWeight.w500,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: isChecked
+                      ? () => Navigator.pop(dialogContext, true)
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00C853),
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey[300],
+                    disabledForegroundColor: Colors.grey[500],
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  ),
+                  child: const Text(
+                    'Subscribe',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<bool> _openCheckoutForTherapist(TherapistProfile therapist) async {
+    final confirmed = await _showSubscriptionWarningDialog(context, therapist);
+    if (confirmed != true) {
+      return false;
+    }
+
     setState(() {
       _subscribedTherapistIds.add(therapist.id);
       _hiddenTherapistIds.remove(therapist.id);

@@ -14,7 +14,7 @@ import 'child_profile_home_screen.dart';
 import 'feedback_screen.dart';
 import 'login_screen.dart';
 import 'my_profile_screen.dart';
-import 'notification_inbox_screen.dart';
+import 'notification_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -391,7 +391,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => const NotificationInboxScreen(),
+                          builder: (_) => const NotificationSettingsScreen(),
                         ),
                       );
                     },

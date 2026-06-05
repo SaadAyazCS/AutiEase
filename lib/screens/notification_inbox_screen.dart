@@ -3,6 +3,8 @@ import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
+import '../navigation/child_mode_lock_controller.dart';
+import '../widgets/child_mode_lock_widgets.dart';
 import 'notification_settings_screen.dart';
 import 'therapist_chat_screen.dart';
 
@@ -140,14 +142,34 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
         title: 'Inbox',
         onBack: () => Navigator.pop(context),
         trailing: IconButton(
-          icon: const Icon(Icons.settings_outlined, color: Color(0xFF1E293B)),
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const NotificationSettingsScreen(),
-              ),
-            );
+          icon: ValueListenableBuilder<bool>(
+            valueListenable: ChildModeLockController.isLockedNotifier,
+            builder: (context, isLocked, _) {
+              return Icon(
+                isLocked ? Icons.lock_outline_rounded : Icons.settings_outlined,
+                color: const Color(0xFF1E293B),
+              );
+            },
+          ),
+          onPressed: () async {
+            if (ChildModeLockController.isLocked) {
+              final unlocked = await ChildModeLockWidgets.showUnlockDialog(context);
+              if (unlocked && context.mounted) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const NotificationSettingsScreen(),
+                  ),
+                );
+              }
+            } else {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const NotificationSettingsScreen(),
+                ),
+              );
+            }
           },
         ),
         child: Container(

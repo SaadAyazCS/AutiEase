@@ -33,7 +33,7 @@ class TherapistHomeScreen extends StatefulWidget {
 }
 
 class _TherapistHomeScreenState extends State<TherapistHomeScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   TherapistProfile? _profile;
   bool _loading = true;
   int _years = 0;
@@ -54,6 +54,11 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
 
+  // Bell animation variables
+  late final AnimationController _bellController;
+  late final Animation<double> _bellAnimation;
+  int _lastUnreadCount = 0;
+
   // Profile completion control
   bool _shouldCheckProfileCompletion = true;
   bool _hasCompletedInitialProfile = false;
@@ -71,13 +76,38 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.18).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+
+    _bellController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _bellAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: -0.12), weight: 1),
+      TweenSequenceItem(tween: Tween(begin: -0.12, end: 0.12), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 0.12, end: -0.08), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: -0.08, end: 0.08), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 0.08, end: 0.0), weight: 1),
+    ]).animate(CurvedAnimation(parent: _bellController, curve: Curves.linear));
+
     _loadState();
   }
 
   @override
   void dispose() {
     _pulseController.dispose();
+    _bellController.dispose();
     super.dispose();
+  }
+
+  void _triggerBellAnimation() {
+    if (_bellController.isAnimating) return;
+    _bellController.repeat(reverse: true);
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        _bellController.stop();
+        _bellController.animateTo(0.0);
+      }
+    });
   }
 
   Future<void> _loadState() async {
@@ -865,12 +895,53 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
             final updated = await Navigator.push<Map<String, bool>>(
               this.context,
               MaterialPageRoute(
-                builder: (_) => TherapistNotificationInboxScreen(
-                  initialPrefs: _notificationPrefs,
+                builder: (_) => TherapistNotificationSettingsScreen(
+                  initialValues: _notificationPrefs,
                 ),
               ),
             );
             if (updated != null) {
+              final uid = FirebaseAuth.instance.currentUser?.uid;
+              if (uid != null) {
+                try {
+                  await Future.wait([
+                    FirebaseFirestore.instance
+                        .collection(FirestoreCollections.users)
+                        .doc(uid)
+                        .update({
+                      'notificationPreferences': updated,
+                    }),
+                    FirebaseFirestore.instance
+                        .collection(FirestoreCollections.therapistProfiles)
+                        .doc(uid)
+                        .set({
+                      'therapistNotificationPreferences': updated,
+                    }, SetOptions(merge: true)),
+                  ]);
+                  if (mounted) {
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(
+                        content: const Row(
+                          children: [
+                            Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
+                            SizedBox(width: 10),
+                            Text(
+                              'Notification preferences saved successfully!',
+                              style: TextStyle(fontWeight: FontWeight.w500),
+                            ),
+                          ],
+                        ),
+                        backgroundColor: const Color(0xFF2ECC71),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                  }
+                } catch (_) {}
+              }
               setState(() {
                 _notificationPrefs = updated;
               });
@@ -1320,10 +1391,112 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
                   ],
                 ),
               ),
+            Positioned(
+              top: MediaQuery.of(context).padding.top + r.h(12),
+              right: r.w(18),
+              child: _buildHomeNotificationBell(context),
+            ),
           ],
         ),
       ),
     ),
+    );
+  }
+
+  Widget _buildHomeNotificationBell(BuildContext context) {
+    return StreamBuilder<List<NotificationInboxItem>>(
+      stream: AppRepositories.support.watchNotifications(),
+      builder: (context, snapshot) {
+        final items = snapshot.data ?? const [];
+        final unreadCount = items.where((item) => !item.isRead).length;
+
+        if (unreadCount > _lastUnreadCount) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _triggerBellAnimation();
+            _lastUnreadCount = unreadCount;
+          });
+        } else if (unreadCount < _lastUnreadCount) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _lastUnreadCount = unreadCount;
+          });
+        }
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.8),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: AnimatedBuilder(
+                animation: _bellAnimation,
+                builder: (context, child) {
+                  return Transform.rotate(
+                    angle: _bellAnimation.value,
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.notifications_none_rounded,
+                        color: Color(0xFF1E293B),
+                        size: 24,
+                      ),
+                      onPressed: () async {
+                        final updated = await Navigator.push<Map<String, bool>>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => TherapistNotificationInboxScreen(
+                              initialPrefs: _notificationPrefs,
+                            ),
+                          ),
+                        );
+                        if (updated != null) {
+                          setState(() {
+                            _notificationPrefs = updated;
+                          });
+                        }
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+            if (unreadCount > 0)
+              Positioned(
+                right: -2,
+                top: -2,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEF4444),
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 18,
+                    minHeight: 18,
+                  ),
+                  child: Center(
+                    child: Text(
+                      '$unreadCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }

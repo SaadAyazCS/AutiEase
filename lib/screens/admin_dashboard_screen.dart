@@ -2008,6 +2008,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     showDialog(
       context: context,
       builder: (ctx) {
+        Color statusBg;
+        Color statusTextColor;
+        String statusLabel;
+        switch (therapist.verificationStatus) {
+          case 'approved':
+            statusBg = Colors.green.shade100;
+            statusTextColor = Colors.green.shade900;
+            statusLabel = 'APPROVED';
+            break;
+          case 'rejected':
+            statusBg = Colors.red.shade100;
+            statusTextColor = Colors.red.shade900;
+            statusLabel = 'REJECTED';
+            break;
+          default:
+            statusBg = Colors.amber.shade100;
+            statusTextColor = Colors.amber.shade900;
+            statusLabel = 'PENDING VERIFICATION';
+        }
+
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
@@ -2026,15 +2046,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.amber.shade100,
+                        color: statusBg,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        'PENDING VERIFICATION',
+                        statusLabel,
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
-                          color: Colors.amber.shade900,
+                          color: statusTextColor,
                         ),
                       ),
                     ),
