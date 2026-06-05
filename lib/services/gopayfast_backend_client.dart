@@ -6,22 +6,22 @@ import 'package:http/http.dart' as http;
 import '../config/app_runtime_config.dart';
 import '../models/app_models.dart';
 
-class StripeBackendClient {
-  StripeBackendClient(this._auth, {http.Client? httpClient})
+class GoPayFastBackendClient {
+  GoPayFastBackendClient(this._auth, {http.Client? httpClient})
     : _httpClient = httpClient ?? http.Client();
 
   final FirebaseAuth _auth;
   final http.Client _httpClient;
 
   bool get isConfigured =>
-      AppRuntimeConfig.stripeBackendBaseUrl.trim().isNotEmpty;
+      AppRuntimeConfig.paymentBackendBaseUrl.trim().isNotEmpty;
 
   Uri _buildUri(String path) {
-    final base = AppRuntimeConfig.stripeBackendBaseUrl.trim();
+    final base = AppRuntimeConfig.paymentBackendBaseUrl.trim();
     if (base.isEmpty) {
       throw StateError(
-        'Stripe backend is not configured. Launch the app with '
-        '--dart-define=STRIPE_BACKEND_BASE_URL=https://your-backend-url',
+        'Payment backend is not configured. Launch the app with '
+        '--dart-define=PAYMENT_BACKEND_BASE_URL=https://your-backend-url',
       );
     }
     final normalizedBase = base.endsWith('/')
@@ -70,7 +70,7 @@ class StripeBackendClient {
       final message =
           payload['error']?.toString() ??
           payload['message']?.toString() ??
-          'Stripe backend request failed (${response.statusCode}).';
+          'Payment backend request failed (${response.statusCode}).';
       throw StateError(message);
     }
 
@@ -78,6 +78,7 @@ class StripeBackendClient {
   }
 
   Future<String?> createCheckoutSession({
+    required String therapistId,
     required String productId,
     required String successUrl,
     required String cancelUrl,
@@ -85,12 +86,20 @@ class StripeBackendClient {
     final payload = await _postJson(
       '/api/v1/checkout/session',
       body: {
+        'therapistId': therapistId,
         'productId': productId,
         'successUrl': successUrl,
         'cancelUrl': cancelUrl,
       },
     );
     return payload['url']?.toString();
+  }
+
+  Future<Map<String, dynamic>> checkSubscriptionStatus(String therapistId) async {
+    return await _postJson(
+      '/api/v1/checkout/status',
+      body: {'therapistId': therapistId},
+    );
   }
 
   Future<void> cancelSubscription(String subscriptionId) async {
@@ -104,6 +113,21 @@ class StripeBackendClient {
     await _postJson(
       '/api/v1/subscription/reactivate',
       body: {'subscriptionId': subscriptionId},
+    );
+  }
+
+  Future<void> requestWithdrawal({
+    required double amount,
+    required String paymentMethod,
+    required String accountDetails,
+  }) async {
+    await _postJson(
+      '/api/v1/therapist/withdraw',
+      body: {
+        'amount': amount,
+        'paymentMethod': paymentMethod,
+        'accountDetails': accountDetails,
+      },
     );
   }
 }

@@ -15,6 +15,7 @@ import 'feedback_screen.dart';
 import 'login_screen.dart';
 import 'my_profile_screen.dart';
 import 'notification_settings_screen.dart';
+import 'professional_support_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -429,6 +430,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onTap: _logout,
                   ),
                   if (_isParent) ...[
+                    _SettingsRow(
+                      icon: Icons.receipt_long_rounded,
+                      title: 'Subscriptions & Payments',
+                      trailing: const Icon(Icons.chevron_right_rounded, size: 24),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ParentSubscriptionsHistoryScreen(),
+                          ),
+                        );
+                      },
+                    ),
                     _SettingsRow(
                       icon: Icons.delete_forever_outlined,
                       title: 'Delete account',

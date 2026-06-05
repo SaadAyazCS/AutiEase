@@ -27,6 +27,14 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
 
+            <!-- Custom scheme deep linking for returning from payment checkouts -->
+            <intent-filter android:label="autiease_payment">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="autiease" />
+            </intent-filter>
+
         </activity>
 
         <!-- Required by Flutter -->

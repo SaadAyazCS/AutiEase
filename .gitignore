@@ -72,6 +72,7 @@ pnpm-debug.log*
 *.mobileprovision
 *.service-account.json
 service-account*.json
+*firebase-adminsdk*.json
 
 # Firebase and cloud credentials/config generated locally
 .firebaserc
@@ -95,3 +96,4 @@ migrate_working_dir/
 # Keep dependency folders ignored in subprojects
 functions/node_modules/
 stripe-backend/node_modules/
+scratch/

@@ -2179,6 +2179,8 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
+                    _TherapistWalletSection(therapistId: profile.id),
+                    const SizedBox(height: 10),
                     StreamBuilder<List<TherapistReview>>(
                       stream: AppRepositories.support.watchReviewsForTherapist(profile.id),
                       builder: (context, snapshot) {
@@ -2660,6 +2662,659 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
   }
 }
 
+class _TherapistWalletSection extends StatefulWidget {
+  final String therapistId;
+  const _TherapistWalletSection({required this.therapistId});
+
+  @override
+  State<_TherapistWalletSection> createState() => _TherapistWalletSectionState();
+}
+
+class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
+  late Future<Map<String, dynamic>> _walletFuture;
+  late Future<List<Map<String, dynamic>>> _transactionsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  void _refresh() {
+    setState(() {
+      _walletFuture = AppRepositories.billing.getTherapistWallet(widget.therapistId);
+      _transactionsFuture = AppRepositories.billing.getTherapistTransactions(widget.therapistId);
+    });
+  }
+
+  void _showWithdrawalSheet(BuildContext context, double availableBalance) {
+    final formKey = GlobalKey<FormState>();
+    final amountController = TextEditingController();
+    final accountDetailsController = TextEditingController();
+    final accountTitleController = TextEditingController();
+    String selectedMethod = 'EasyPaisa';
+    bool submitting = false;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 34),
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Withdraw Funds',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Available Balance: ${formatPrice(availableBalance)}',
+                        style: const TextStyle(fontSize: 14, color: Color(0xFF0D9488), fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 16),
+
+                      DropdownButtonFormField<String>(
+                        value: selectedMethod,
+                        decoration: const InputDecoration(
+                          labelText: 'Payment Method',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.payment),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'EasyPaisa', child: Text('EasyPaisa')),
+                          DropdownMenuItem(value: 'JazzCash', child: Text('JazzCash')),
+                          DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
+                        ],
+                        onChanged: submitting
+                            ? null
+                            : (val) {
+                                if (val != null) {
+                                  setSheetState(() => selectedMethod = val);
+                                }
+                              },
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextFormField(
+                        controller: amountController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        enabled: !submitting,
+                        decoration: const InputDecoration(
+                          labelText: 'Amount (PKR)',
+                          hintText: 'Enter amount to withdraw',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.money),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter an amount';
+                          }
+                          final val = double.tryParse(value);
+                          if (val == null || val <= 0) {
+                            return 'Enter a valid positive number';
+                          }
+                          if (val > availableBalance) {
+                            return 'Amount exceeds available balance';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextFormField(
+                        controller: accountTitleController,
+                        enabled: !submitting,
+                        decoration: const InputDecoration(
+                          labelText: 'Account Title',
+                          hintText: 'Full name on account',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.person_outline),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter account title';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextFormField(
+                        controller: accountDetailsController,
+                        enabled: !submitting,
+                        decoration: InputDecoration(
+                          labelText: selectedMethod == 'Bank Transfer'
+                              ? 'IBAN / Account Number'
+                              : 'Mobile Account Number',
+                          hintText: selectedMethod == 'Bank Transfer'
+                              ? 'Enter full IBAN or Bank Account Number'
+                              : 'e.g. 03001234567',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.pin),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter account details';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 24),
+
+                      ElevatedButton(
+                        onPressed: submitting
+                            ? null
+                            : () async {
+                                if (formKey.currentState?.validate() != true) {
+                                  return;
+                                }
+                                setSheetState(() => submitting = true);
+
+                                final double withdrawAmt = double.parse(amountController.text.trim());
+                                final String accTitle = accountTitleController.text.trim();
+                                final String accNum = accountDetailsController.text.trim();
+                                final String fullDetailsStr = '$accTitle - $accNum';
+
+                                try {
+                                  await AppRepositories.billing.requestWithdrawal(
+                                    widget.therapistId,
+                                    withdrawAmt,
+                                    selectedMethod,
+                                    fullDetailsStr,
+                                  );
+
+                                  if (context.mounted) {
+                                    Navigator.pop(context);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Withdrawal request submitted successfully!'),
+                                        backgroundColor: Color(0xFF059669),
+                                      ),
+                                    );
+                                  }
+                                  _refresh();
+                                } catch (e) {
+                                  setSheetState(() => submitting = false);
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Withdrawal request failed: $e'),
+                                        backgroundColor: const Color(0xFFDC2626),
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0D9488),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: submitting
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              )
+                            : const Text('Submit Withdrawal Request', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _formatTime(DateTime dt) {
+    final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final suffix = dt.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $suffix';
+  }
+
+  void _showTherapistTransactionModal(BuildContext context, Map<String, dynamic> tx) {
+    final isEarning = tx['type'] == 'subscription';
+    final amount = double.tryParse((tx['amount'] ?? 0.0).toString()) ?? 0.0;
+    final amountStr = formatPrice(amount);
+    final dateVal = tx['createdAt'];
+    String formattedDate = '';
+    if (dateVal is Timestamp) {
+      final dt = dateVal.toDate().toLocal();
+      formattedDate = '${dt.day}/${dt.month}/${dt.year} at ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    }
+    final status = (tx['status'] ?? 'pending').toString().toUpperCase();
+    final details = (tx['accountDetails'] ?? '').toString();
+    final method = (tx['paymentMethod'] ?? '').toString();
+    final parentName = (tx['parentName'] ?? '').toString();
+    final txnId = (tx['transactionId'] ?? tx['id'] ?? 'N/A').toString();
+    final basketId = (tx['basketId'] ?? 'N/A').toString();
+
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: isEarning ? const Color(0xFFE6F4EA) : const Color(0xFFFEF3C7),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: Center(
+                  child: Column(
+                    children: [
+                      Icon(
+                        isEarning ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                        color: isEarning ? const Color(0xFF059669) : const Color(0xFFD97706),
+                        size: 48,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        isEarning ? 'Earning Receipt' : 'Withdrawal Request',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        amountStr,
+                        style: TextStyle(
+                          fontSize: 26, 
+                          fontWeight: FontWeight.w800, 
+                          color: isEarning ? const Color(0xFF059669) : const Color(0xFFD97706),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    _buildModalDetailRow('Status', status, 
+                      valueColor: status == 'COMPLETED' || status == 'PAID'
+                          ? const Color(0xFF059669)
+                          : status == 'PENDING'
+                              ? const Color(0xFFD97706)
+                              : const Color(0xFFDC2626),
+                      isBoldValue: true,
+                    ),
+                    const Divider(),
+                    _buildModalDetailRow('Transaction ID', txnId),
+                    const Divider(),
+                    if (isEarning) ...[
+                      _buildModalDetailRow('Basket Order ID', basketId),
+                      const Divider(),
+                      _buildModalDetailRow('From Parent', parentName.isNotEmpty ? parentName : 'Parent Member'),
+                    ] else ...[
+                      _buildModalDetailRow('Payment Method', method.isNotEmpty ? method : 'Bank/Wallet'),
+                      const Divider(),
+                      _buildModalDetailRow('Account Details', details),
+                    ],
+                    const Divider(),
+                    _buildModalDetailRow('Date', formattedDate),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFFCBD5E1)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            child: const Text('Close', style: TextStyle(color: Color(0xFF475569))),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildModalDetailRow(String label, String value, {Color? valueColor, bool isBoldValue = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                fontSize: 13,
+                color: valueColor ?? const Color(0xFF1E293B),
+                fontWeight: isBoldValue ? FontWeight.bold : FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _walletFuture,
+      builder: (context, walletSnapshot) {
+        if (walletSnapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(24.0),
+            decoration: _cardDeco,
+            child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        }
+        if (walletSnapshot.hasError) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(16.0),
+            decoration: _cardDeco,
+            child: Text('Error loading wallet: ${walletSnapshot.error}'),
+          );
+        }
+        final walletData = walletSnapshot.data ?? {'walletBalance': 0.0, 'totalEarnings': 0.0};
+        final balance = double.tryParse(walletData['walletBalance'].toString()) ?? 0.0;
+        final earnings = double.tryParse(walletData['totalEarnings'].toString()) ?? 0.0;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+            border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF0EA5C6), Color(0xFF0D9488)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.account_balance_wallet, color: Colors.white, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              'Earnings & Wallet',
+                              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                            ),
+                          ],
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
+                          onPressed: _refresh,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Available Balance',
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      formatPrice(balance),
+                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Total Gross Earnings',
+                              style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 11),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              formatPrice(earnings),
+                              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: balance > 0
+                              ? () => _showWithdrawalSheet(context, balance)
+                              : null,
+                          icon: const Icon(Icons.arrow_upward_rounded, size: 16),
+                          label: const Text('Withdraw Funds', style: TextStyle(fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: const Color(0xFF0D9488),
+                            disabledBackgroundColor: Colors.white.withValues(alpha: 0.3),
+                            disabledForegroundColor: Colors.white.withValues(alpha: 0.5),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Transaction History',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF374151)),
+                    ),
+                    const SizedBox(height: 8),
+                    FutureBuilder<List<Map<String, dynamic>>>(
+                      future: _transactionsFuture,
+                      builder: (context, txSnapshot) {
+                        if (txSnapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 20),
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          );
+                        }
+                        final txList = txSnapshot.data ?? [];
+                        if (txList.isEmpty) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 20),
+                            child: Center(
+                              child: Text(
+                                'No transaction history yet.',
+                                style: TextStyle(color: Colors.grey, fontSize: 13, fontStyle: FontStyle.italic),
+                              ),
+                            ),
+                          );
+                        }
+
+                        return ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: txList.length,
+                          separatorBuilder: (context, index) => const Divider(height: 12),
+                          itemBuilder: (context, index) {
+                            final tx = txList[index];
+                            final isEarning = tx['type'] == 'subscription';
+                            final amount = double.tryParse((tx['amount'] ?? 0.0).toString()) ?? 0.0;
+                            final dateVal = tx['createdAt'];
+                            String formattedDate = '';
+                            if (dateVal is Timestamp) {
+                              final dt = dateVal.toDate().toLocal();
+                              formattedDate = '${dt.day}/${dt.month}/${dt.year} ${_formatTime(dt)}';
+                            }
+                            final status = (tx['status'] ?? 'pending').toString().toLowerCase();
+                            final details = (tx['accountDetails'] ?? '').toString();
+                            final method = (tx['paymentMethod'] ?? '').toString();
+                            final parentName = (tx['parentName'] ?? '').toString();
+
+                            return InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () => _showTherapistTransactionModal(context, tx),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                                child: Row(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 16,
+                                      backgroundColor: isEarning ? const Color(0xFFD1FAE5) : const Color(0xFFF3F4F6),
+                                      child: Icon(
+                                        isEarning ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                                        size: 16,
+                                        color: isEarning ? const Color(0xFF059669) : const Color(0xFF4B5563),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            isEarning 
+                                                ? 'Subscription received ${parentName.isNotEmpty ? "from $parentName" : ""}'
+                                                : 'Withdrawal to ${method.toUpperCase()}',
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1F2937)),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          if (formattedDate.isNotEmpty)
+                                            Text(
+                                              formattedDate,
+                                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                            ),
+                                          if (!isEarning && details.isNotEmpty)
+                                            Text(
+                                              'Acc: $details',
+                                              style: const TextStyle(fontSize: 11, color: Colors.black54),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          '${isEarning ? "+" : "-"}${formatPrice(amount).replaceAll(" PKR", "")}',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                            color: isEarning ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                                          ),
+                                        ),
+                                        Container(
+                                          margin: const EdgeInsets.only(top: 2),
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: status == 'completed' || status == 'paid'
+                                                ? const Color(0xFFD1FAE5)
+                                                : status == 'pending'
+                                                    ? const Color(0xFFFEF3C7)
+                                                    : const Color(0xFFFEE2E2),
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Text(
+                                            status.toUpperCase(),
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                              color: status == 'completed' || status == 'paid'
+                                                  ? const Color(0xFF065F46)
+                                                  : status == 'pending'
+                                                      ? const Color(0xFF92400E)
+                                                      : const Color(0xFF991B1B),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 class TherapistMessagesScreen extends StatefulWidget {
   const TherapistMessagesScreen({super.key});
 
@@ -2697,16 +3352,17 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
 
   Widget _buildParentAvatar(String? photoUrl, {double size = 40}) {
     Widget imageWidget;
-    if (photoUrl != null && photoUrl.isNotEmpty) {
-      if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')) {
+    final cleanPhoto = photoUrl?.trim() ?? '';
+    if (cleanPhoto.isNotEmpty) {
+      if (cleanPhoto.startsWith('http://') || cleanPhoto.startsWith('https://')) {
         imageWidget = Image.network(
-          photoUrl,
+          cleanPhoto,
           fit: BoxFit.cover,
           errorBuilder: (context, error, stackTrace) => const Icon(Icons.person, color: Color(0xFF64748B)),
         );
       } else {
         try {
-          final imageBytes = base64Decode(photoUrl);
+          final imageBytes = base64Decode(cleanPhoto);
           imageWidget = Image.memory(
             imageBytes,
             fit: BoxFit.cover,

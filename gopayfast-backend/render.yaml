@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: autiease-payment-backend
+    runtime: node
+    rootDir: gopayfast-backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PAYFAST_MERCHANT_ID
+        value: "103"
+      - key: PAYFAST_SECURED_KEY
+        value: "PzPx6ut-SVay7tCUMqG"
+      - key: PAYFAST_BASE_URL
+        value: "https://ipguat.apps.net.pk/Ecommerce/api/Transaction"
+      - key: PAYFAST_STRICT_WEBHOOK_VERIFICATION
+        value: "true"
+      - key: PAYMENT_PROVIDER
+        value: "payfast_pk"

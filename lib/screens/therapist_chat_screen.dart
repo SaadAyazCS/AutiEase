@@ -25,10 +25,11 @@ class _TherapistPlaceholderAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget imageWidget;
-    if (photoUrlBase64 != null && photoUrlBase64!.isNotEmpty) {
-      if (photoUrlBase64!.startsWith('http://') || photoUrlBase64!.startsWith('https://')) {
+    final cleanPhoto = photoUrlBase64?.trim() ?? '';
+    if (cleanPhoto.isNotEmpty) {
+      if (cleanPhoto.startsWith('http://') || cleanPhoto.startsWith('https://')) {
         imageWidget = Image.network(
-          photoUrlBase64!,
+          cleanPhoto,
           fit: BoxFit.cover,
           errorBuilder: (context, error, stackTrace) {
             return Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
@@ -36,7 +37,7 @@ class _TherapistPlaceholderAvatar extends StatelessWidget {
         );
       } else {
         try {
-          final imageBytes = base64Decode(photoUrlBase64!);
+          final imageBytes = base64Decode(cleanPhoto);
           imageWidget = Image.memory(
             imageBytes,
             fit: BoxFit.cover,
@@ -89,7 +90,7 @@ class TherapistChatScreen extends StatefulWidget {
 
 enum _MessageSendState { idle, sending, sent, error }
 
-class _TherapistChatScreenState extends State<TherapistChatScreen> {
+class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsBindingObserver {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   _MessageSendState _sendState = _MessageSendState.idle;
@@ -118,9 +119,13 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
   UserProfile? _peerUserProfile;
   TherapistProfile? _peerTherapistProfile;
 
+  String? _activeCheckoutTherapistId;
+  bool _isCheckoutCancelled = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _peerTherapistProfile = widget.therapistProfile;
     _checkBlockedStatus();
     _loadPeerProfile();
@@ -128,11 +133,37 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     _scrollController.dispose();
     _resolvedBannerTimer?.cancel();
     super.dispose();
   }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _activeCheckoutTherapistId != null) {
+      final therapistId = _activeCheckoutTherapistId!;
+      Future.delayed(const Duration(milliseconds: 1000), () async {
+        if (_activeCheckoutTherapistId == therapistId && !_isCheckoutCancelled) {
+          try {
+            await AppRepositories.billing.syncSubscriptionStatus(therapistId);
+          } catch (e) {
+            debugPrint('Error syncing checkout status on resume: $e');
+          }
+          final sub = await AppRepositories.billing.getSubscriptionForTherapist(therapistId);
+          if (sub == null || !sub.isActive) {
+            if (mounted) {
+              setState(() {
+                _isCheckoutCancelled = true;
+              });
+            }
+          }
+        }
+      });
+    }
+  }
+
 
   Future<void> _checkBlockedStatus() async {
     final peerId = widget.senderRole == 'parent' ? widget.thread.therapistId : widget.thread.parentId;
@@ -529,7 +560,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
     final photoUrlBase64 = isTherapist
         ? (_peerTherapistProfile?.photoUrlBase64.isNotEmpty == true 
             ? _peerTherapistProfile?.photoUrlBase64 
-            : _peerUserProfile?.photoUrl)
+            : (_peerTherapistProfile?.photoUrl.isNotEmpty == true
+                ? _peerTherapistProfile?.photoUrl
+                : _peerUserProfile?.photoUrl))
         : _peerUserProfile?.photoUrl;
 
     if (isTherapist) {
@@ -747,7 +780,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
     final photoUrlBase64 = widget.senderRole == 'parent' 
         ? (_peerTherapistProfile?.photoUrlBase64.isNotEmpty == true 
             ? _peerTherapistProfile?.photoUrlBase64 
-            : _peerUserProfile?.photoUrl)
+            : (_peerTherapistProfile?.photoUrl.isNotEmpty == true
+                ? _peerTherapistProfile?.photoUrl
+                : _peerUserProfile?.photoUrl))
         : _peerUserProfile?.photoUrl;
 
     return SessionGuard(
@@ -1182,17 +1217,159 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
                                 ),
                               if (!canSendMessage)
                                 Container(
-                                  padding: const EdgeInsets.all(12),
+                                  padding: const EdgeInsets.all(16),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFFF7F7F7),
-                                    borderRadius: BorderRadius.circular(12),
+                                    color: const Color(0xFFFFFBEB),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: const Color(0xFFFDE68A), width: 1.5),
                                   ),
-                                  child: Text(
-                                    _isBlocked 
-                                        ? 'This conversation is disabled because a user is blocked.'
-                                        : 'Messaging is currently disabled for this conversation state.',
-                                    style: const TextStyle(color: Colors.black54),
-                                    textAlign: TextAlign.center,
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        _isBlocked 
+                                            ? 'This conversation is disabled because a user is blocked.'
+                                            : 'This chat is read-only because the subscription was cancelled.',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: _isBlocked ? const Color(0xFF991B1B) : const Color(0xFF92400E),
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      if (!_isBlocked && widget.senderRole == 'parent') ...[
+                                        const SizedBox(height: 12),
+                                        ElevatedButton(
+                                          onPressed: () async {
+                                            _activeCheckoutTherapistId = widget.thread.therapistId;
+                                            _isCheckoutCancelled = false;
+
+                                            showDialog<void>(
+                                              context: context,
+                                              barrierDismissible: true,
+                                              builder: (BuildContext dialogCtx) {
+                                                return PopScope(
+                                                  canPop: true,
+                                                  onPopInvokedWithResult: (didPop, _) {
+                                                    if (didPop) {
+                                                      setState(() {
+                                                        _isCheckoutCancelled = true;
+                                                      });
+                                                    }
+                                                  },
+                                                  child: AlertDialog(
+                                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                                    contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                                                    content: const Column(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        CircularProgressIndicator(color: Color(0xFF00C853)),
+                                                        SizedBox(height: 16),
+                                                        Text(
+                                                          'Checkout opened in browser',
+                                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                                          textAlign: TextAlign.center,
+                                                        ),
+                                                        SizedBox(height: 6),
+                                                        Text(
+                                                          'Complete your payment in the browser. This screen will update automatically when payment is confirmed.',
+                                                          style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                                                          textAlign: TextAlign.center,
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    actions: [
+                                                      TextButton(
+                                                        onPressed: () {
+                                                          setState(() {
+                                                            _isCheckoutCancelled = true;
+                                                          });
+                                                          Navigator.pop(dialogCtx);
+                                                        },
+                                                        style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
+                                                        child: const Text('Cancel Payment'),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                );
+                                              },
+                                            );
+                                            try {
+                                              final success = await AppRepositories.billing
+                                                  .purchaseTherapistSubscription(
+                                                    widget.thread.therapistId,
+                                                    isCancelledCheck: () => _isCheckoutCancelled,
+                                                  );
+                                              if (context.mounted && Navigator.canPop(context)) {
+                                                Navigator.pop(context);
+                                              }
+                                              if (_isCheckoutCancelled) {
+                                                AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
+                                                if (context.mounted) {
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text('Payment cancelled. You can renew anytime.'),
+                                                      backgroundColor: Color(0xFF64748B),
+                                                      duration: Duration(seconds: 4),
+                                                    ),
+                                                  );
+                                                }
+                                              } else if (success) {
+                                                if (context.mounted) {
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text('Subscription renewed successfully!'),
+                                                      backgroundColor: Color(0xFF00C853),
+                                                    ),
+                                                  );
+                                                }
+                                              } else {
+                                                AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
+                                                if (context.mounted) {
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text('Payment not completed. Please try again.'),
+                                                      backgroundColor: AppColors.errorRed,
+                                                      duration: Duration(seconds: 5),
+                                                    ),
+                                                  );
+                                                }
+                                              }
+                                            } catch (e) {
+                                              setState(() {
+                                                _isCheckoutCancelled = true;
+                                              });
+                                              if (context.mounted && Navigator.canPop(context)) {
+                                                Navigator.pop(context);
+                                              }
+                                              AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
+                                              if (context.mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('Error: $e'),
+                                                    backgroundColor: AppColors.errorRed,
+                                                  ),
+                                                );
+                                              }
+                                            } finally {
+                                              _activeCheckoutTherapistId = null;
+                                            }
+                                          },
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xFF00C853),
+                                            foregroundColor: Colors.white,
+                                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(10),
+                                            ),
+                                          ),
+                                          child: const Text(
+                                            'Renew Subscription to Chat',
+                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                 )
                               else

@@ -1,11 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 
 import '../config/app_runtime_config.dart';
 import '../models/app_models.dart';
 import '../services/auth_verification_policy.dart';
 import '../services/dashboard_metrics_calculator.dart';
-import '../services/stripe_backend_client.dart';
+import '../services/gopayfast_backend_client.dart';
 
 class FirestoreCollections {
   static const users = 'users';
@@ -179,14 +183,22 @@ abstract class AdminRepository {
 
 abstract class BillingRepository {
   Future<List<SubscriptionProduct>> listProducts();
-  Future<UserSubscription?> getCurrentSubscription();
-  Future<String?> createCheckoutSession({
-    required String productId,
-    required String successUrl,
-    required String cancelUrl,
-  });
-  Future<void> cancelSubscription(String subscriptionId);
-  Future<void> reactivateSubscription(String subscriptionId);
+  Future<UserSubscription?> getSubscriptionForTherapist(String therapistId);
+  Stream<UserSubscription?> watchSubscriptionForTherapist(String therapistId);
+  Future<bool> purchaseTherapistSubscription(String therapistId, {bool Function()? isCancelledCheck});
+  Future<String?> prepareCheckoutUrl(String therapistId);
+  Future<void> deletePendingSubscription(String therapistId);
+  Future<void> cancelSubscriptionInStore(String therapistId, {required bool keepAndLockChats});
+  Future<void> reactivateSubscriptionInStore(String therapistId);
+  Future<void> syncSubscriptionStatus(String therapistId);
+
+  // Therapist Wallet Operations
+  Future<Map<String, dynamic>> getTherapistWallet(String therapistId);
+  Future<void> requestWithdrawal(String therapistId, double amount, String paymentMethod, String accountDetails);
+
+  // Ledgers
+  Future<List<Map<String, dynamic>>> getTherapistTransactions(String therapistId);
+  Future<List<Map<String, dynamic>>> getParentTransactions();
 }
 
 class AppRepositories {
@@ -194,7 +206,7 @@ class AppRepositories {
 
   static final FirebaseFirestore firestore = FirebaseFirestore.instance;
   static final FirebaseAuth authClient = FirebaseAuth.instance;
-  static final StripeBackendClient stripeBackend = StripeBackendClient(
+  static final GoPayFastBackendClient paymentBackend = GoPayFastBackendClient(
     authClient,
   );
 
@@ -219,7 +231,7 @@ class AppRepositories {
   static final BillingRepository billing = FirebaseBillingRepository(
     authClient,
     firestore,
-    stripeBackend,
+    paymentBackend,
   );
 }
 
@@ -1756,21 +1768,127 @@ class FirebaseSupportRepository implements SupportRepository {
 }
 
 class FirebaseBillingRepository implements BillingRepository {
-  FirebaseBillingRepository(this._auth, this._firestore, this._stripeBackend);
+  FirebaseBillingRepository(this._auth, this._firestore, this._paymentBackend);
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
-  final StripeBackendClient _stripeBackend;
+  final GoPayFastBackendClient _paymentBackend;
 
-  UserSubscription _localBypassSubscription(String userId) {
+  String _subscriptionDocId(String userId, String therapistId) =>
+      '${userId.trim()}_${therapistId.trim()}';
+
+  UserSubscription _localBypassSubscription(String userId, String therapistId) {
     return UserSubscription(
-      id: 'local-bypass',
+      id: _subscriptionDocId(userId, therapistId),
       userId: userId,
       productId: 'bypass-plan',
       status: 'active',
       cancelAtPeriodEnd: false,
       currentPeriodEnd: DateTime.now().add(const Duration(days: 3650)),
     );
+  }
+
+  String _requireAuthenticatedUser({required String action}) {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) {
+      throw StateError('You need to be logged in to $action.');
+    }
+    return userId;
+  }
+
+  Future<String> _resolveProductIdForTherapist(String therapistId) async {
+    final therapistSnapshot = await _firestore
+        .collection(FirestoreCollections.therapistProfiles)
+        .doc(therapistId)
+        .get();
+    final therapistData =
+        therapistSnapshot.data() ?? const <String, dynamic>{};
+    final existingProductId =
+        (therapistData['subscriptionProductId'] ?? '').toString().trim();
+
+    // If a product ID is already set, use it directly.
+    // The backend will validate the product exists when creating the checkout.
+    if (existingProductId.isNotEmpty) {
+      return existingProductId;
+    }
+
+    // ── Derive a deterministic product ID from servicePackages ────────
+    // The backend will auto-create the subscription_products document
+    // if it does not exist yet (using Admin SDK which bypasses rules).
+    final rawPackages = therapistData['servicePackages'];
+    if (rawPackages is List && rawPackages.isNotEmpty) {
+      final visiblePackages = rawPackages
+          .whereType<Map>()
+          .where((p) => p['visible'] != false)
+          .toList();
+      if (visiblePackages.isNotEmpty) {
+        final pkg = visiblePackages.first;
+        final rawPrice = pkg['price'];
+        final price = rawPrice is num
+            ? rawPrice.toDouble()
+            : double.tryParse(rawPrice?.toString() ?? '') ?? 0;
+        if (price > 0) {
+          return 'auto_$therapistId';
+        }
+      }
+    }
+
+    throw StateError(
+      'This therapist has no service packages with a valid price. '
+      'Add at least one visible service package in therapist profile settings.',
+    );
+  }
+
+  Future<bool> _waitForSubscriptionActivation({
+    required String userId,
+    required String therapistId,
+    bool Function()? isCancelledCheck,
+    Duration timeout = const Duration(minutes: 2),
+  }) async {
+    final docId = _subscriptionDocId(userId, therapistId);
+    final startedAt = DateTime.now();
+    while (DateTime.now().difference(startedAt) < timeout) {
+      if (isCancelledCheck != null && isCancelledCheck()) {
+        return false;
+      }
+      final snapshot = await _firestore
+          .collection(FirestoreCollections.subscriptions)
+          .doc(docId)
+          .get();
+      if (snapshot.exists && snapshot.data() != null) {
+        final subscription = UserSubscription.fromMap(snapshot.id, snapshot.data()!);
+        if (subscription.isActive) {
+          return true;
+        }
+        final status = subscription.status.trim().toLowerCase();
+        if (status == 'payment_failed' ||
+            status == 'failed' ||
+            status == 'canceled' ||
+            status == 'expired') {
+          return false;
+        }
+      }
+      await Future<void>.delayed(const Duration(seconds: 5));
+    }
+    return false;
+  }
+
+  Future<void> _updateUserEntitlements(String userId) async {
+    final activeSnapshot = await _firestore
+        .collection(FirestoreCollections.subscriptions)
+        .where('userId', isEqualTo: userId)
+        .where('status', whereIn: const ['active', 'trialing'])
+        .limit(1)
+        .get();
+    final hasActive = activeSnapshot.docs.isNotEmpty;
+    await _firestore.collection(FirestoreCollections.users).doc(userId).set({
+      'subscriptionTier': hasActive ? 'professional-support' : 'free',
+      'entitlements': {
+        'professionalSupport': hasActive,
+        'chatAccess': hasActive,
+      },
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   @override
@@ -1785,85 +1903,390 @@ class FirebaseBillingRepository implements BillingRepository {
   }
 
   @override
-  Future<UserSubscription?> getCurrentSubscription() async {
+  Future<UserSubscription?> getSubscriptionForTherapist(
+    String therapistId,
+  ) async {
+    final normalizedTherapistId = therapistId.trim();
+    if (normalizedTherapistId.isEmpty) {
+      return null;
+    }
     final userId = _auth.currentUser?.uid;
     if (userId == null) {
       return null;
     }
     if (AppRuntimeConfig.bypassProSupportPaywall) {
-      return _localBypassSubscription(userId);
+      return _localBypassSubscription(userId, normalizedTherapistId);
     }
-    final activeSnapshot = await _firestore
+    final docId = _subscriptionDocId(userId, normalizedTherapistId);
+    try {
+      final snapshot = await _firestore
+          .collection(FirestoreCollections.subscriptions)
+          .doc(docId)
+          .get();
+      if (!snapshot.exists || snapshot.data() == null) {
+        await _cacheSubscriptionStateOffline(docId, isActive: false);
+        return null;
+      }
+      final sub = UserSubscription.fromMap(snapshot.id, snapshot.data()!);
+      await _cacheSubscriptionStateOffline(docId, isActive: sub.isActive);
+      return sub;
+    } catch (_) {
+      final cachedActive = await _getCachedSubscriptionStateOffline(docId);
+      if (cachedActive) {
+        return UserSubscription(
+          id: docId,
+          userId: userId,
+          productId: 'cached-offline',
+          status: 'active',
+          cancelAtPeriodEnd: false,
+          currentPeriodEnd: DateTime.now().add(const Duration(days: 1)),
+        );
+      }
+      return null;
+    }
+  }
+
+  @override
+  Stream<UserSubscription?> watchSubscriptionForTherapist(String therapistId) {
+    final normalizedTherapistId = therapistId.trim();
+    final userId = _auth.currentUser?.uid;
+    if (userId == null || normalizedTherapistId.isEmpty) {
+      return const Stream<UserSubscription?>.empty();
+    }
+    if (AppRuntimeConfig.bypassProSupportPaywall) {
+      return Stream<UserSubscription?>.value(
+        _localBypassSubscription(userId, normalizedTherapistId),
+      );
+    }
+    final docId = _subscriptionDocId(userId, normalizedTherapistId);
+    return _firestore
         .collection(FirestoreCollections.subscriptions)
-        .where('userId', isEqualTo: userId)
-        .where('status', whereIn: ['active', 'trialing'])
-        .limit(1)
-        .get();
-    if (activeSnapshot.docs.isNotEmpty) {
-      return UserSubscription.fromMap(
-        activeSnapshot.docs.first.id,
-        activeSnapshot.docs.first.data(),
+        .doc(docId)
+        .snapshots()
+        .map((snapshot) {
+          final data = snapshot.data();
+          if (!snapshot.exists || data == null) {
+            _cacheSubscriptionStateOffline(docId, isActive: false);
+            return null;
+          }
+          final sub = UserSubscription.fromMap(snapshot.id, data);
+          _cacheSubscriptionStateOffline(docId, isActive: sub.isActive);
+          return sub;
+        });
+  }
+
+  Future<void> _cacheSubscriptionStateOffline(String docId, {required bool isActive}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('sub_active_$docId', isActive);
+    } catch (_) {}
+  }
+
+  Future<bool> _getCachedSubscriptionStateOffline(String docId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool('sub_active_$docId') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<void> syncSubscriptionStatus(String therapistId) async {
+    final normalizedTherapistId = therapistId.trim();
+    if (normalizedTherapistId.isEmpty) {
+      return;
+    }
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) {
+      return;
+    }
+    if (AppRuntimeConfig.bypassProSupportPaywall) {
+      return;
+    }
+    
+    // Trigger direct backend gateway verification request
+    await _paymentBackend.checkSubscriptionStatus(normalizedTherapistId);
+    await _updateUserEntitlements(userId);
+  }
+
+  @override
+  Future<String?> prepareCheckoutUrl(String therapistId) async {
+    final normalizedTherapistId = therapistId.trim();
+    if (normalizedTherapistId.isEmpty) {
+      throw StateError('Missing therapist id.');
+    }
+    _requireAuthenticatedUser(action: 'purchase a subscription');
+    if (AppRuntimeConfig.bypassProSupportPaywall) {
+      return null;
+    }
+    if (!_paymentBackend.isConfigured) {
+      throw StateError(
+        'Payment backend is not configured. Start app with '
+        '--dart-define=PAYMENT_BACKEND_BASE_URL=https://your-backend-url',
+      );
+    }
+    final productId = await _resolveProductIdForTherapist(normalizedTherapistId);
+
+    final checkoutUrl = await _paymentBackend.createCheckoutSession(
+      therapistId: normalizedTherapistId,
+      productId: productId,
+      successUrl: AppRuntimeConfig.paymentSuccessUrl,
+      cancelUrl: AppRuntimeConfig.paymentCancelUrl,
+    );
+    return checkoutUrl;
+  }
+
+  @override
+  Future<bool> purchaseTherapistSubscription(
+    String therapistId, {
+    bool Function()? isCancelledCheck,
+  }) async {
+    final normalizedTherapistId = therapistId.trim();
+    if (normalizedTherapistId.isEmpty) {
+      throw StateError('Missing therapist id.');
+    }
+    final userId = _requireAuthenticatedUser(action: 'purchase a subscription');
+    if (AppRuntimeConfig.bypassProSupportPaywall) {
+      return true;
+    }
+
+    if (isCancelledCheck != null && isCancelledCheck()) {
+      return false;
+    }
+
+    final checkoutUrl = await prepareCheckoutUrl(normalizedTherapistId);
+    if (checkoutUrl == null || checkoutUrl.trim().isEmpty) {
+      if (AppRuntimeConfig.bypassProSupportPaywall) {
+        return true;
+      }
+      throw StateError('Payment backend did not return a checkout URL.');
+    }
+
+    if (isCancelledCheck != null && isCancelledCheck()) {
+      return false;
+    }
+
+    final launched = await launchUrl(
+      Uri.parse(checkoutUrl),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!launched) {
+      throw StateError('Unable to open payment checkout.');
+    }
+
+    if (isCancelledCheck != null && isCancelledCheck()) {
+      return false;
+    }
+
+    final active = await _waitForSubscriptionActivation(
+      userId: userId,
+      therapistId: normalizedTherapistId,
+      isCancelledCheck: isCancelledCheck,
+    );
+    await _updateUserEntitlements(userId);
+    if (active) {
+      return true;
+    }
+    final latest = await getSubscriptionForTherapist(normalizedTherapistId);
+    return latest?.isActive == true;
+  }
+
+  @override
+  Future<void> deletePendingSubscription(String therapistId) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+    final docId = _subscriptionDocId(userId, therapistId);
+    try {
+      final doc = await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).get();
+      if (doc.exists && doc.data() != null) {
+        final status = (doc.data()?['status'] ?? '').toString().trim().toLowerCase();
+        final isActive = doc.data()?['isActive'] == true;
+        if (!isActive && (status == 'pending' || status == 'payment_failed')) {
+          await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).delete();
+          debugPrint('Successfully deleted pending/failed subscription $docId on user cancellation request');
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to delete pending subscription: $e');
+    }
+  }
+
+  @override
+  Future<void> cancelSubscriptionInStore(
+    String therapistId, {
+    required bool keepAndLockChats,
+  }) async {
+    final normalizedTherapistId = therapistId.trim();
+    if (normalizedTherapistId.isEmpty) {
+      throw StateError('Missing therapist id.');
+    }
+    final userId = _requireAuthenticatedUser(action: 'manage subscriptions');
+    if (AppRuntimeConfig.bypassProSupportPaywall) {
+      return;
+    }
+    if (!_paymentBackend.isConfigured) {
+      throw StateError(
+        'Payment backend is not configured. Start app with '
+        '--dart-define=PAYMENT_BACKEND_BASE_URL=https://your-backend-url',
       );
     }
 
-    final fallbackSnapshot = await _firestore
+    final docId = _subscriptionDocId(userId, normalizedTherapistId);
+    await _paymentBackend.cancelSubscription(docId);
+    
+    final subscriptionRef = _firestore
         .collection(FirestoreCollections.subscriptions)
-        .where('userId', isEqualTo: userId)
-        .limit(1)
+        .doc(docId);
+    final snapshot = await subscriptionRef.get();
+    if (snapshot.exists) {
+      await subscriptionRef.set({
+        'cancelAtPeriodEnd': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+    
+    // Handle chat history deletion vs lock
+    final threadSnapshot = await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .where('parentId', isEqualTo: userId)
+        .where('therapistId', isEqualTo: normalizedTherapistId)
         .get();
-    if (fallbackSnapshot.docs.isEmpty) {
-      return null;
+
+    for (final doc in threadSnapshot.docs) {
+      if (!keepAndLockChats) {
+        // Delete messages subcollection in chunks of 400 to respect Firestore batch write limits
+        final msgsSnapshot = await doc.reference.collection('messages').get();
+        final docsList = msgsSnapshot.docs;
+        for (var i = 0; i < docsList.length; i += 400) {
+          final end = (i + 400 > docsList.length) ? docsList.length : i + 400;
+          final chunk = docsList.sublist(i, end);
+          final batch = _firestore.batch();
+          for (final msg in chunk) {
+            batch.delete(msg.reference);
+          }
+          await batch.commit();
+        }
+        // Delete parent thread doc itself
+        await doc.reference.delete();
+      } else {
+        // Keep and Lock: Update thread status to locked
+        await doc.reference.set({
+          'status': 'locked',
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
     }
-    return UserSubscription.fromMap(
-      fallbackSnapshot.docs.first.id,
-      fallbackSnapshot.docs.first.data(),
+
+    await _updateUserEntitlements(userId);
+  }
+
+  @override
+  Future<void> reactivateSubscriptionInStore(String therapistId) async {
+    final normalizedTherapistId = therapistId.trim();
+    if (normalizedTherapistId.isEmpty) {
+      throw StateError('Missing therapist id.');
+    }
+    final userId = _requireAuthenticatedUser(action: 'manage subscriptions');
+    if (AppRuntimeConfig.bypassProSupportPaywall) {
+      return;
+    }
+    if (!_paymentBackend.isConfigured) {
+      throw StateError(
+        'Payment backend is not configured. Start app with '
+        '--dart-define=PAYMENT_BACKEND_BASE_URL=https://your-backend-url',
+      );
+    }
+
+    final docId = _subscriptionDocId(userId, normalizedTherapistId);
+    await _paymentBackend.reactivateSubscription(docId);
+    
+    final subscriptionRef = _firestore
+        .collection(FirestoreCollections.subscriptions)
+        .doc(docId);
+    final snapshot = await subscriptionRef.get();
+    if (snapshot.exists) {
+      await subscriptionRef.set({
+        'cancelAtPeriodEnd': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    // Set thread status back to active if it was locked
+    final threadSnapshot = await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .where('parentId', isEqualTo: userId)
+        .where('therapistId', isEqualTo: normalizedTherapistId)
+        .get();
+
+    for (final doc in threadSnapshot.docs) {
+      await doc.reference.set({
+        'status': 'active',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    await _updateUserEntitlements(userId);
+  }
+
+  @override
+  Future<Map<String, dynamic>> getTherapistWallet(String therapistId) async {
+    final snapshot = await _firestore
+        .collection(FirestoreCollections.therapistProfiles)
+        .doc(therapistId.trim())
+        .get();
+    if (!snapshot.exists || snapshot.data() == null) {
+      return {'walletBalance': 0.0, 'totalEarnings': 0.0};
+    }
+    final data = snapshot.data()!;
+    return {
+      'walletBalance': double.tryParse((data['walletBalance'] ?? 0.0).toString()) ?? 0.0,
+      'totalEarnings': double.tryParse((data['totalEarnings'] ?? 0.0).toString()) ?? 0.0,
+    };
+  }
+
+  @override
+  Future<void> requestWithdrawal(
+    String therapistId,
+    double amount,
+    String paymentMethod,
+    String accountDetails,
+  ) async {
+    if (AppRuntimeConfig.bypassProSupportPaywall) {
+      return;
+    }
+    if (!_paymentBackend.isConfigured) {
+      throw StateError('Payment backend is not configured.');
+    }
+    await _paymentBackend.requestWithdrawal(
+      amount: amount,
+      paymentMethod: paymentMethod,
+      accountDetails: accountDetails,
     );
   }
 
   @override
-  Future<String?> createCheckoutSession({
-    required String productId,
-    required String successUrl,
-    required String cancelUrl,
-  }) async {
-    if (AppRuntimeConfig.bypassProSupportPaywall) {
-      return 'mock://local-bypass';
-    }
-    return _stripeBackend.createCheckoutSession(
-      productId: productId,
-      successUrl: successUrl,
-      cancelUrl: cancelUrl,
-    );
+  Future<List<Map<String, dynamic>>> getTherapistTransactions(String therapistId) async {
+    final snapshot = await _firestore
+        .collection('therapist_earnings')
+        .where('therapistId', isEqualTo: therapistId.trim())
+        .orderBy('createdAt', descending: true)
+        .get();
+    return snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
   }
 
   @override
-  Future<void> cancelSubscription(String subscriptionId) async {
-    if (AppRuntimeConfig.bypassProSupportPaywall) {
-      return;
+  Future<List<Map<String, dynamic>>> getParentTransactions() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) {
+      return const [];
     }
-    await _stripeBackend.cancelSubscription(subscriptionId);
-    await _firestore
-        .collection(FirestoreCollections.subscriptions)
-        .doc(subscriptionId)
-        .set({
-          'cancelAtPeriodEnd': true,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-  }
-
-  @override
-  Future<void> reactivateSubscription(String subscriptionId) async {
-    if (AppRuntimeConfig.bypassProSupportPaywall) {
-      return;
-    }
-    await _stripeBackend.reactivateSubscription(subscriptionId);
-    await _firestore
-        .collection(FirestoreCollections.subscriptions)
-        .doc(subscriptionId)
-        .set({
-          'cancelAtPeriodEnd': false,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+    final snapshot = await _firestore
+        .collection('therapist_earnings')
+        .where('userId', isEqualTo: userId)
+        .orderBy('createdAt', descending: true)
+        .get();
+    return snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
   }
 }
 

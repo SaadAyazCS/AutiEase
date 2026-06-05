@@ -1,13 +1,8 @@
-app = "autiease-stripe-backend"
-primary_region = "sin"
+app = "autiease-payment-backend"
+primary_region = "cdg"
 
 [build]
   dockerfile = "Dockerfile"
-
-[env]
-  NODE_ENV = "production"
-  FIREBASE_PROJECT_ID = "autiease-fyp-2026"
-  PORT = "8080"
 
 [http_service]
   internal_port = 8080

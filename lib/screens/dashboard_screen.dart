@@ -866,7 +866,7 @@ class _ReportDetailScreenState extends State<_ReportDetailScreen> {
     if (!chatEnabled) {
       throw StateError('Coming soon');
     }
-    final subscription = await AppRepositories.billing.getCurrentSubscription();
+    final subscription = await AppRepositories.billing.getSubscriptionForTherapist(therapistId);
     final thread = await AppRepositories.support.ensureThread(
       therapistId: therapistId,
       childId: widget.childProfile.id,
