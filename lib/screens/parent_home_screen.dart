@@ -65,7 +65,53 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _evaluateParentCoachmark();
+      _syncNotificationPreferences();
     });
+  }
+
+  Future<void> _syncNotificationPreferences() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      return;
+    }
+
+    try {
+      final profile = await AppRepositories.users.getCurrentUserProfile();
+      if (profile == null || profile.role != 'parent') {
+        return;
+      }
+
+      final saved = profile.notificationPreferences;
+      const canonicalKeys = <String>{
+        'therapistsUpdate',
+        'levelProgressNotification',
+        'subscription',
+        'routineReminders',
+      };
+
+      final currentKeys = saved.keys.toSet();
+      final extraKeys = currentKeys.difference(canonicalKeys);
+      final missingKeys = canonicalKeys.difference(currentKeys);
+
+      if (extraKeys.isNotEmpty || missingKeys.isNotEmpty) {
+        final Map<String, bool> mappedPreferences = {
+          'therapistsUpdate':
+              saved['therapistsUpdate'] ?? saved['pushNotifications'] ?? true,
+          'levelProgressNotification':
+              saved['levelProgressNotification'] ??
+              saved['progressUpdates'] ??
+              true,
+          'subscription':
+              saved['subscription'] ?? saved['emailNotifications'] ?? true,
+          'routineReminders':
+              saved['routineReminders'] ?? saved['dailyReminders'] ?? true,
+        };
+
+        await AppRepositories.users.updateNotificationPreferences(mappedPreferences);
+      }
+    } catch (_) {
+      // Non-blocking: skip if Firestore or network fails.
+    }
   }
 
   @override

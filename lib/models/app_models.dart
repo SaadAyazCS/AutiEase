@@ -756,6 +756,60 @@ class DashboardMetrics {
   }
 }
 
+class TherapyPackage {
+  const TherapyPackage({
+    required this.title,
+    required this.durationMinutes,
+    required this.sessionsPerWeek,
+    required this.price,
+    required this.description,
+    this.visible = true,
+  });
+
+  final String title;
+  final int durationMinutes;
+  final int sessionsPerWeek;
+  final double price;
+  final String description;
+  final bool visible;
+
+  TherapyPackage copy({
+    String? title,
+    int? durationMinutes,
+    int? sessionsPerWeek,
+    double? price,
+    String? description,
+    bool? visible,
+  }) {
+    return TherapyPackage(
+      title: title ?? this.title,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
+      sessionsPerWeek: sessionsPerWeek ?? this.sessionsPerWeek,
+      price: price ?? this.price,
+      description: description ?? this.description,
+      visible: visible ?? this.visible,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'title': title,
+    'durationMinutes': durationMinutes,
+    'sessionsPerWeek': sessionsPerWeek,
+    'price': price,
+    'description': description,
+    'visible': visible,
+  };
+
+  factory TherapyPackage.fromMap(Map<String, dynamic> map) => TherapyPackage(
+    title: map['title']?.toString() ?? '',
+    durationMinutes: (map['durationMinutes'] as num?)?.toInt() ?? 0,
+    sessionsPerWeek: (map['sessionsPerWeek'] as num?)?.toInt() ?? 0,
+    price: (map['price'] as num?)?.toDouble() ?? 0.0,
+    description: map['description']?.toString() ?? '',
+    visible: map['visible'] as bool? ?? true,
+  );
+}
+
 class TherapistProfile {
   const TherapistProfile({
     required this.id,
@@ -782,6 +836,7 @@ class TherapistProfile {
     this.experienceDetails = '',
     this.ratingBreakdown = const <String, int>{'1': 0, '2': 0, '3': 0, '4': 0, '5': 0},
     this.totalReviews = 0,
+    this.servicePackages = const <TherapyPackage>[],
   });
 
   final String id;
@@ -810,6 +865,7 @@ class TherapistProfile {
   final String experienceDetails;
   final Map<String, int> ratingBreakdown;
   final int totalReviews;
+  final List<TherapyPackage> servicePackages;
 
   /// Convenience alias for yearsOfExperience.
   int get experienceYears => yearsOfExperience;
@@ -857,6 +913,11 @@ class TherapistProfile {
       experienceDetails: (data['experienceDetails'] ?? '').toString(),
       ratingBreakdown: resolvedBreakdown,
       totalReviews: intFrom(data['totalReviews'], 0),
+      servicePackages: (data['servicePackages'] is List)
+          ? (data['servicePackages'] as List)
+              .map((item) => TherapyPackage.fromMap(mapFrom(item)))
+              .toList()
+          : const <TherapyPackage>[],
     );
   }
 }

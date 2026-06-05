@@ -6,6 +6,7 @@ import 'dart:async';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../widgets/session_guard.dart';
+import '../utils/currency_utils.dart';
 import 'certificate_viewer_screen.dart';
 import 'login_screen.dart';
 
@@ -2093,7 +2094,61 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     _detailRow('Experience Details', therapist.experienceDetails),
                   if (therapist.credentials.isNotEmpty)
                     _detailRow('Credentials', therapist.credentials),
-                  _detailRow('Pricing', therapist.pricing.isEmpty ? 'Not Provided' : therapist.pricing),
+                  if (therapist.servicePackages.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Service Packages',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                    ),
+                    const Divider(),
+                    ...therapist.servicePackages.map((pkg) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      pkg.title,
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    formatPrice(pkg.price),
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF10B981)),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${pkg.durationMinutes} mins | ${pkg.sessionsPerWeek} sessions/week',
+                                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                              ),
+                              if (pkg.description.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  pkg.description,
+                                  style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
                   if (therapist.certificateBase64.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     const Text(
@@ -2508,7 +2563,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       _infoCard([
                         _infoTile(Icons.badge_outlined, 'User ID', therapist.id, mono: true),
                         _infoTile(Icons.schedule_rounded, 'Experience', therapist.formattedExperience),
-                        _infoTile(Icons.attach_money_rounded, 'Pricing', therapist.pricing.isEmpty ? 'Not specified' : therapist.pricing),
                         _infoTile(Icons.event_available_rounded, 'Availability', therapist.availability.isEmpty ? 'Not set' : therapist.availability),
                         if (therapist.credentials.isNotEmpty)
                           _infoTile(Icons.school_outlined, 'Credentials', therapist.credentials),
@@ -2541,6 +2595,60 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                             );
                           }).toList(),
                         ),
+                      ],
+
+                      // ── Service Packages ───────────────────────────
+                      if (therapist.servicePackages.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        _dialogSectionHeader(Icons.card_membership_rounded, 'Service Packages'),
+                        const SizedBox(height: 10),
+                        ...therapist.servicePackages.map((pkg) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8.0),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          pkg.title,
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        formatPrice(pkg.price),
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF10B981)),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${pkg.durationMinutes} mins | ${pkg.sessionsPerWeek} sessions/week',
+                                    style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                                  ),
+                                  if (pkg.description.isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      pkg.description,
+                                      style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
                       ],
 
                       // ── Bio ────────────────────────────────────────
