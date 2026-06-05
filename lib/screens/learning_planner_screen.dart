@@ -405,6 +405,10 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen>
             itemId: current.id,
             moduleId: current.id,
             score: 1,
+            metadata: {
+              'source': 'daily_activity',
+              'gameName': current.title,
+            },
           )
         : AppRepositories.planner.undoActivityCompletion(
             childId: _child!.id,

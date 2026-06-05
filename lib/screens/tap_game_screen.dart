@@ -307,6 +307,7 @@ class _TapGameScreenState extends State<TapGameScreen> {
   int _levelIndex = 0;
   _TapGameStage _stage = _TapGameStage.playing;
   bool _isSavingProgress = false;
+  bool _savedCompletion = false;
   final Set<int> _recordedLevelNumbers = <int>{};
   int _starsEarned = 0;
   int _wrongAttemptsThisLevel = 0;
@@ -425,28 +426,29 @@ class _TapGameScreenState extends State<TapGameScreen> {
   }
 
   Future<void> _recordLevelCompletion(int levelNumber) async {
-    if (_isSavingProgress || _recordedLevelNumbers.contains(levelNumber)) {
-      return;
-    }
+    // Record per-round progress for analytics (no parent notification here).
+    if (_recordedLevelNumbers.contains(levelNumber)) return;
+    _recordedLevelNumbers.add(levelNumber);
+    // Metrics-only: no score/notification — full game completion handles that.
+  }
 
-    setState(() {
-      _isSavingProgress = true;
-    });
+  Future<void> _saveProgressIfNeeded() async {
+    if (_savedCompletion || _isSavingProgress) return;
+    setState(() => _isSavingProgress = true);
     try {
       await AppRepositories.planner.recordActivityCompletion(
         childId: widget.childId,
-        itemId: '${widget.module.id}-level-$levelNumber',
+        itemId: widget.module.id,
         moduleId: widget.module.id,
-        score: levelNumber * 100,
-        metadata: const {'source': 'tap_game'},
+        score: _starsEarned * 100,
+        metadata: {
+          'source': 'tap_game',
+          'gameName': widget.module.title,
+        },
       );
-      _recordedLevelNumbers.add(levelNumber);
+      _savedCompletion = true;
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSavingProgress = false;
-        });
-      }
+      if (mounted) setState(() => _isSavingProgress = false);
     }
   }
 
@@ -486,6 +488,7 @@ class _TapGameScreenState extends State<TapGameScreen> {
       _completedTargets.clear();
       _metricsTracker.reset();
       _showFeedback = false;
+      _savedCompletion = false;
       _stage = _TapGameStage.playing;
       _shuffleSeed++;
       _activeOptions = _shuffledOptionsForLevel();
@@ -569,6 +572,7 @@ class _TapGameScreenState extends State<TapGameScreen> {
                 _speakInstruction();
               } else {
                 setState(() => _stage = _TapGameStage.celebration);
+                unawaited(_saveProgressIfNeeded());
               }
             },
           ),

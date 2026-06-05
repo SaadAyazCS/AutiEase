@@ -502,7 +502,6 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
       languages: profile.languages.isEmpty
           ? const ['English']
           : profile.languages,
-      // Hardcoded fallback rating removed for now.
       rating: profile.rating,
       availability: profile.availability.isEmpty
           ? 'Open'
@@ -514,6 +513,15 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
       credentials: profile.credentials,
       photoUrlBase64: profile.photoUrlBase64,
       certificateBase64: profile.certificateBase64,
+      verificationStatus: profile.verificationStatus,
+      adminFeedback: profile.adminFeedback,
+      verifiedBadge: profile.verifiedBadge,
+      licenseNumber: profile.licenseNumber,
+      registrationNumber: profile.registrationNumber,
+      cnic: profile.cnic,
+      experienceDetails: profile.experienceDetails,
+      ratingBreakdown: profile.ratingBreakdown,
+      totalReviews: profile.totalReviews,
     );
 
     await AppRepositories.users.upsertTherapistProfile(normalized);
@@ -661,6 +669,20 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
       availability: profile.availability,
       photoUrl: profile.photoUrl,
       isActive: isActive,
+      yearsOfExperience: profile.yearsOfExperience,
+      experienceMonths: profile.experienceMonths,
+      credentials: profile.credentials,
+      photoUrlBase64: profile.photoUrlBase64,
+      certificateBase64: profile.certificateBase64,
+      verificationStatus: profile.verificationStatus,
+      adminFeedback: profile.adminFeedback,
+      verifiedBadge: profile.verifiedBadge,
+      licenseNumber: profile.licenseNumber,
+      registrationNumber: profile.registrationNumber,
+      cnic: profile.cnic,
+      experienceDetails: profile.experienceDetails,
+      ratingBreakdown: profile.ratingBreakdown,
+      totalReviews: profile.totalReviews,
     );
     await AppRepositories.users.upsertTherapistProfile(updated);
     await FirebaseFirestore.instance
@@ -4470,11 +4492,8 @@ class TherapistNotificationSettingsScreen extends StatefulWidget {
 
 class _TherapistNotificationSettingsScreenState
     extends State<TherapistNotificationSettingsScreen> {
-  bool email = false;
-  bool sms = false;
   bool newMessages = false;
   bool bookings = false;
-  bool reminders = false;
   bool payments = false;
   bool emergency = true;
 
@@ -4485,11 +4504,8 @@ class _TherapistNotificationSettingsScreenState
       ..._defaultTherapistNotificationPrefs,
       ...widget.initialValues,
     };
-    email = initial['email'] ?? false;
-    sms = initial['sms'] ?? false;
     newMessages = initial['newMessages'] ?? false;
     bookings = initial['bookings'] ?? false;
-    reminders = initial['reminders'] ?? false;
     payments = initial['payments'] ?? false;
     emergency = initial['emergency'] ?? true;
   }
@@ -4506,18 +4522,6 @@ class _TherapistNotificationSettingsScreenState
           padding: EdgeInsets.fromLTRB(r.w(14), r.h(12), r.w(14), r.h(120)),
           children: [
             _switchTile(
-              'Email Notifications',
-              'Receive updates via email',
-              email,
-              (v) => setState(() => email = v),
-            ),
-            _switchTile(
-              'SMS Notifications',
-              'Receive text message alerts',
-              sms,
-              (v) => setState(() => sms = v),
-            ),
-            _switchTile(
               'New Messages',
               'When parents send you messages',
               newMessages,
@@ -4528,12 +4532,6 @@ class _TherapistNotificationSettingsScreenState
               'When parents book your sessions',
               bookings,
               (v) => setState(() => bookings = v),
-            ),
-            _switchTile(
-              'Session Reminders',
-              'Upcoming session notifications',
-              reminders,
-              (v) => setState(() => reminders = v),
             ),
             _switchTile(
               'Payment Alerts',
@@ -4551,11 +4549,8 @@ class _TherapistNotificationSettingsScreenState
             FilledButton(
               onPressed: () {
                 Navigator.pop(context, <String, bool>{
-                  'email': email,
-                  'sms': sms,
                   'newMessages': newMessages,
                   'bookings': bookings,
-                  'reminders': reminders,
                   'payments': payments,
                   'emergency': emergency,
                 });
@@ -5171,11 +5166,8 @@ const BoxDecoration _cardDeco = BoxDecoration(
 );
 
 const Map<String, bool> _defaultTherapistNotificationPrefs = <String, bool>{
-  'email': false,
-  'sms': false,
   'newMessages': false,
   'bookings': false,
-  'reminders': false,
   'payments': false,
   'emergency': true,
 };

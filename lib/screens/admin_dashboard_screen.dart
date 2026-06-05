@@ -18,7 +18,7 @@ class AdminDashboardScreen extends StatefulWidget {
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final List<String> _tabs = ['Overview', 'Verification', 'Reports', 'Parents', 'Feedback', 'Audit Logs'];
+  final List<String> _tabs = ['Overview', 'Verification', 'Reports', 'Parents', 'Therapists', 'Feedback', 'Audit Logs'];
   bool _loading = false;
   Map<String, dynamic> _stats = {};
   
@@ -200,6 +200,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   _buildVerificationTab(),
                   _buildReportsTab(),
                   _buildParentsTab(),
+                  _buildTherapistsTab(),
                   _buildFeedbackTab(),
                   _buildAuditLogsTab(),
                 ],
@@ -1059,79 +1060,167 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     showDialog(
       context: context,
       builder: (ctx) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Row(
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          clipBehavior: Clip.hardEdge,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              _parentAvatar(parent, radius: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
+              // ── Gradient header ─────────────────────────────────────
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF0F172A), Color(0xFF1E3A5F)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      parent.fullName,
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    _parentAvatar(parent, radius: 32),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            parent.fullName,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'TIER: ${parent.subscriptionTier.toUpperCase()}',
+                            style: const TextStyle(fontSize: 13, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: parent.status == 'active' || parent.status == 'verified'
+                                      ? const Color(0xFFD1FAE5)
+                                      : const Color(0xFFFEF3C7),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  parent.status.toUpperCase(),
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: parent.status == 'active' || parent.status == 'verified'
+                                        ? const Color(0xFF059669)
+                                        : const Color(0xFFD97706),
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                    const Text(
-                      'Parent Profile',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.normal),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white54, size: 22),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
                     ),
                   ],
                 ),
               ),
+
+              // ── Scrollable body ────────────────────────────────────
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ── Account Details section ──────────────────
+                      _dialogSectionHeader(Icons.account_box_outlined, 'Account Details'),
+                      const SizedBox(height: 10),
+                      _infoCard([
+                        _infoTile(Icons.badge_outlined, 'User ID', parent.uid, mono: true),
+                        _infoTile(Icons.email_outlined, 'Email Address', parent.email),
+                        _infoTile(Icons.phone_outlined, 'Phone Number', parent.phone.isEmpty ? 'Not set' : parent.phone),
+                        _infoTile(Icons.calendar_month_outlined, 'Registered On', parent.createdAt != null ? '${parent.createdAt!.day}/${parent.createdAt!.month}/${parent.createdAt!.year}' : 'N/A'),
+                      ]),
+
+                      // ── Children Profiles ────────────────────────────
+                      const SizedBox(height: 16),
+                      _dialogSectionHeader(Icons.child_care_rounded, 'Children Profiles'),
+                      const SizedBox(height: 10),
+                      if (children.isEmpty)
+                        const Text(
+                          'No children profiles setup yet.',
+                          style: TextStyle(fontStyle: FontStyle.italic, color: Color(0xFF64748B), fontSize: 12),
+                        )
+                      else
+                        ...children.map((c) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(c.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B))),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Text('Support Areas: ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
+                                    Expanded(
+                                      child: Text(
+                                        c.supportAreas.join(", "),
+                                        style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Row(
+                                  children: [
+                                    const Text('Status: ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
+                                    Text(
+                                      c.status.toUpperCase(),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: c.status == 'active' ? const Color(0xFF059669) : const Color(0xFFD97706),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        )),
+
+                      // ── Admin Message ─────────────────────────────
+                      const SizedBox(height: 20),
+                      _dialogSectionHeader(Icons.send_rounded, 'Send Message'),
+                      const SizedBox(height: 10),
+                      _AdminMessageSender(recipientId: parent.uid, recipientType: 'Parent'),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _detailRow('User ID', parent.uid),
-                _detailRow('Email', parent.email),
-                _detailRow('Phone', parent.phone.isEmpty ? 'Not set' : parent.phone),
-                _detailRow('Status', parent.status.toUpperCase()),
-                _detailRow('Subscription Tier', parent.subscriptionTier.toUpperCase()),
-                _detailRow('Registered On', parent.createdAt != null ? '${parent.createdAt!.day}/${parent.createdAt!.month}/${parent.createdAt!.year}' : 'N/A'),
-                const SizedBox(height: 16),
-                const Text(
-                  'Children Profiles',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
-                ),
-                const Divider(),
-                if (children.isEmpty)
-                  const Text('No children profiles setup yet.', style: TextStyle(fontStyle: FontStyle.italic, color: Color(0xFF64748B), fontSize: 12))
-                else
-                  ...children.map((c) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(c.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B))),
-                          const SizedBox(height: 4),
-                          Text('Support Areas: ${c.supportAreas.join(", ")}', style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
-                          Text('Status: ${c.status.toUpperCase()}', style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
-                        ],
-                      ),
-                    ),
-                  )),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Close'),
-            ),
-          ],
         );
       },
     );
@@ -1181,9 +1270,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final parent = list[index];
+
+            Color statusColor;
+            Color statusBg;
+            switch (parent.status) {
+              case 'active':
+              case 'verified':
+                statusColor = const Color(0xFF059669);
+                statusBg = const Color(0xFFD1FAE5);
+                break;
+              default:
+                statusColor = const Color(0xFFD97706);
+                statusBg = const Color(0xFFFEF3C7);
+            }
+
             return Material(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(16),
+              elevation: 0,
               child: InkWell(
                 onTap: () async {
                   final scaffoldMessenger = ScaffoldMessenger.of(context);
@@ -1198,57 +1302,133 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     );
                   }
                 },
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(16),
                 child: Container(
-                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     border: Border.all(color: const Color(0xFFE2E8F0)),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Row(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _parentAvatar(parent, radius: 22),
-                      const SizedBox(width: 14),
-                      Expanded(
+                      // ── Header strip ────────────────────────────────
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                        ),
+                        child: Row(
+                          children: [
+                            _parentAvatar(parent, radius: 26),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    parent.fullName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    'Tier: ${parent.subscriptionTier.toUpperCase()}',
+                                    style: const TextStyle(fontSize: 11, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Status badge
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: statusBg,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                parent.status.toUpperCase(),
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: statusColor,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // ── Body ────────────────────────────────────────
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              parent.fullName,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            Row(
+                              children: [
+                                const Icon(Icons.email_outlined, size: 14, color: Color(0xFF64748B)),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    parent.email,
+                                    style: const TextStyle(fontSize: 13.5, color: Color(0xFF475569)),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
-                            Text('Email: ${parent.email}', style: const TextStyle(color: Color(0xFF475569), fontSize: 13.5)),
-                            Text('Phone: ${parent.phone.isEmpty ? "Not set" : parent.phone}', style: const TextStyle(color: Color(0xFF475569), fontSize: 13.5)),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                const Icon(Icons.phone_outlined, size: 14, color: Color(0xFF64748B)),
+                                const SizedBox(width: 6),
+                                Text(
+                                  parent.phone.isEmpty ? 'Not set' : parent.phone,
+                                  style: const TextStyle(fontSize: 13.5, color: Color(0xFF475569)),
+                                ),
+                              ],
+                            ),
                             const SizedBox(height: 10),
                             FutureBuilder<List<ChildProfile>>(
                               future: AppRepositories.users.getChildrenForParent(parent.uid),
                               builder: (context, childSnapshot) {
                                 if (childSnapshot.connectionState == ConnectionState.waiting) {
-                                  return const LinearProgressIndicator();
+                                  return const SizedBox(
+                                    height: 16,
+                                    width: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 1.5),
+                                  );
                                 }
                                 final children = childSnapshot.data ?? [];
                                 if (children.isEmpty) {
-                                  return const Text('No children profiles setup yet.', style: TextStyle(fontStyle: FontStyle.italic, fontSize: 12));
+                                  return const Text(
+                                    'No children profiles setup yet.',
+                                    style: TextStyle(fontStyle: FontStyle.italic, color: Color(0xFF94A3B8), fontSize: 12),
+                                  );
                                 }
                                 return Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
+                                  spacing: 6,
+                                  runSpacing: 6,
                                   children: children.map((c) {
                                     return Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFFF1F5F9), // slate 100
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                                        color: const Color(0xFFEFF6FF),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: const Color(0xFFBFDBFE)),
                                       ),
                                       child: Text(
-                                        '${c.name} (${c.supportAreas.join(", ")})',
-                                        style: const TextStyle(
-                                          fontSize: 11.5,
-                                          fontWeight: FontWeight.w600,
-                                          color: Color(0xFF475569), // slate 600
-                                        ),
+                                        '${c.name} (${c.supportAreas.isNotEmpty ? c.supportAreas.join(", ") : "General"})',
+                                        style: const TextStyle(fontSize: 11, color: Color(0xFF1D4ED8), fontWeight: FontWeight.w500),
                                       ),
                                     );
                                   }).toList(),
@@ -1256,6 +1436,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                               },
                             ),
                           ],
+                        ),
+                      ),
+                      // ── Tap hint ────────────────────────────────────
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+                          border: Border(
+                            top: BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'Tap to view full profile & send message',
+                            style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                          ),
                         ),
                       ),
                     ],
@@ -1876,7 +2074,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   if (therapist.credentials.isNotEmpty)
                     _detailRow('Credentials', therapist.credentials),
                   _detailRow('Pricing', therapist.pricing.isEmpty ? 'Not Provided' : therapist.pricing),
-                  _detailRow('Languages', therapist.languages.isEmpty ? 'Not Provided' : therapist.languages.join(', ')),
                   if (therapist.certificateBase64.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     const Text(
@@ -1954,6 +2151,611 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           ],
         );
       },
+    );
+  }
+
+  Widget _buildTherapistsTab() {
+    return FutureBuilder<List<TherapistProfile>>(
+      future: AppRepositories.admin.listTherapistsByStatus(""),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final list = snapshot.data ?? [];
+        if (list.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.person_search_rounded, size: 56, color: Colors.grey.shade300),
+                const SizedBox(height: 12),
+                const Text('No therapist profiles found.', style: TextStyle(color: Color(0xFF64748B), fontSize: 15)),
+              ],
+            ),
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: list.length,
+          separatorBuilder: (context, index) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final therapist = list[index];
+
+            // Pick status colour
+            Color statusColor;
+            Color statusBg;
+            switch (therapist.verificationStatus) {
+              case 'approved':
+                statusColor = const Color(0xFF059669);
+                statusBg = const Color(0xFFD1FAE5);
+                break;
+              case 'rejected':
+                statusColor = const Color(0xFFDC2626);
+                statusBg = const Color(0xFFFEE2E2);
+                break;
+              default:
+                statusColor = const Color(0xFFD97706);
+                statusBg = const Color(0xFFFEF3C7);
+            }
+
+            return Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              elevation: 0,
+              child: InkWell(
+                onTap: () => _showTherapistAdminDialog(therapist),
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ── Header strip ────────────────────────────────
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                        ),
+                        child: Row(
+                          children: [
+                            _therapistAvatar(therapist, radius: 26),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    therapist.displayName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    therapist.formattedExperience == 'Not set'
+                                        ? 'Therapist'
+                                        : '${therapist.formattedExperience} experience',
+                                    style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Status badge
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: statusBg,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                therapist.verificationStatus.toUpperCase(),
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: statusColor,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // ── Body ────────────────────────────────────────
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Specializations as chips
+                            if (therapist.specializations.isNotEmpty) ...[
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: therapist.specializations.take(3).map((s) {
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEFF6FF),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: const Color(0xFFBFDBFE)),
+                                    ),
+                                    child: Text(
+                                      s,
+                                      style: const TextStyle(fontSize: 11, color: Color(0xFF1D4ED8), fontWeight: FontWeight.w500),
+                                    ),
+                                  );
+                                }).toList()
+                                  ..addAll(
+                                    therapist.specializations.length > 3
+                                        ? [
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFF1F5F9),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                '+${therapist.specializations.length - 3} more',
+                                                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                              ),
+                                            ),
+                                          ]
+                                        : [],
+                                  ),
+                              ),
+                              const SizedBox(height: 10),
+                            ],
+                            // Stats row
+                            Row(
+                              children: [
+                                _miniStat(Icons.star_rounded, therapist.rating.toStringAsFixed(1), const Color(0xFFF59E0B)),
+                                const SizedBox(width: 16),
+                                _miniStat(Icons.rate_review_rounded, '${therapist.totalReviews} reviews', const Color(0xFF6366F1)),
+                                const SizedBox(width: 16),
+                                if (therapist.certificateBase64.isNotEmpty)
+                                  _miniStat(Icons.verified_rounded, 'Has cert.', const Color(0xFF10B981)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      // ── Tap hint ────────────────────────────────────
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+                          border: Border(
+                            top: BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'Tap to view full profile & send message',
+                            style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _miniStat(IconData icon, String label, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 4),
+        Text(label, style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w600)),
+      ],
+    );
+  }
+
+  void _showTherapistAdminDialog(TherapistProfile therapist) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        // Status colour
+        Color statusColor;
+        Color statusBg;
+        switch (therapist.verificationStatus) {
+          case 'approved':
+            statusColor = const Color(0xFF059669);
+            statusBg = const Color(0xFFD1FAE5);
+            break;
+          case 'rejected':
+            statusColor = const Color(0xFFDC2626);
+            statusBg = const Color(0xFFFEE2E2);
+            break;
+          default:
+            statusColor = const Color(0xFFD97706);
+            statusBg = const Color(0xFFFEF3C7);
+        }
+
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          clipBehavior: Clip.hardEdge,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ── Gradient header ─────────────────────────────────────
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF0F172A), Color(0xFF1E3A5F)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _therapistAvatar(therapist, radius: 32),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            therapist.displayName,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            therapist.specializations.isEmpty
+                                ? 'General Therapist'
+                                : therapist.specializations.first,
+                            style: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: statusBg,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  therapist.verificationStatus.toUpperCase(),
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: statusColor,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Icon(Icons.star_rounded, color: const Color(0xFFFBBF24), size: 14),
+                              const SizedBox(width: 3),
+                              Text(
+                                '${therapist.rating.toStringAsFixed(1)} (${therapist.totalReviews})',
+                                style: const TextStyle(fontSize: 12, color: Colors.white70),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white54, size: 22),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ),
+
+              // ── Scrollable body ────────────────────────────────────
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+
+                      // ── Professional Info section ──────────────────
+                      _dialogSectionHeader(Icons.work_outline_rounded, 'Professional Info'),
+                      const SizedBox(height: 10),
+                      _infoCard([
+                        _infoTile(Icons.badge_outlined, 'User ID', therapist.id, mono: true),
+                        _infoTile(Icons.schedule_rounded, 'Experience', therapist.formattedExperience),
+                        _infoTile(Icons.attach_money_rounded, 'Pricing', therapist.pricing.isEmpty ? 'Not specified' : therapist.pricing),
+                        _infoTile(Icons.event_available_rounded, 'Availability', therapist.availability.isEmpty ? 'Not set' : therapist.availability),
+                        if (therapist.credentials.isNotEmpty)
+                          _infoTile(Icons.school_outlined, 'Credentials', therapist.credentials),
+                        if (therapist.licenseNumber.isNotEmpty)
+                          _infoTile(Icons.credit_card_outlined, 'License #', therapist.licenseNumber),
+                        if (therapist.registrationNumber.isNotEmpty)
+                          _infoTile(Icons.numbers_rounded, 'Registration #', therapist.registrationNumber),
+                      ]),
+
+                      // ── Specializations ────────────────────────────
+                      if (therapist.specializations.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        _dialogSectionHeader(Icons.psychology_outlined, 'Specializations'),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: therapist.specializations.map((s) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEFF6FF),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFFBFDBFE)),
+                              ),
+                              child: Text(
+                                s,
+                                style: const TextStyle(fontSize: 12, color: Color(0xFF1D4ED8), fontWeight: FontWeight.w500),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+
+                      // ── Bio ────────────────────────────────────────
+                      if (therapist.bio.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        _dialogSectionHeader(Icons.info_outline_rounded, 'About / Bio'),
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Text(
+                            therapist.bio,
+                            style: const TextStyle(fontSize: 13, color: Color(0xFF475569), height: 1.5),
+                          ),
+                        ),
+                      ],
+
+                      // ── Certificate ────────────────────────────────
+                      if (therapist.certificateBase64.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        _dialogSectionHeader(Icons.verified_outlined, 'Documents'),
+                        const SizedBox(height: 10),
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            try {
+                              final pdfBytes = base64Decode(therapist.certificateBase64.trim());
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => CertificateViewerScreen(
+                                    pdfBytes: pdfBytes,
+                                    title: '${therapist.displayName} – Certificate',
+                                  ),
+                                ),
+                              );
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Failed to open certificate: $e')),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                          label: const Text('View Professional Certificate'),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(44),
+                            side: const BorderSide(color: Color(0xFF0EA5E9)),
+                            foregroundColor: const Color(0xFF0EA5E9),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ],
+
+                      // ── Admin Message ─────────────────────────────
+                      const SizedBox(height: 20),
+                      _dialogSectionHeader(Icons.send_rounded, 'Send Message'),
+                      const SizedBox(height: 10),
+                      _AdminMessageSender(recipientId: therapist.id, recipientType: 'Therapist'),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _dialogSectionHeader(IconData icon, String title) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: const Color(0xFF3B82F6)),
+        const SizedBox(width: 6),
+        Text(
+          title,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+        ),
+        const SizedBox(width: 8),
+        Expanded(child: Divider(color: Colors.grey.shade200, height: 1)),
+      ],
+    );
+  }
+
+  Widget _infoCard(List<Widget> tiles) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        children: List.generate(tiles.length, (i) {
+          return Column(
+            children: [
+              tiles[i],
+              if (i < tiles.length - 1)
+                Divider(height: 1, indent: 40, endIndent: 12, color: Colors.grey.shade200),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _infoTile(IconData icon, String label, String value, {bool mono = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 15, color: const Color(0xFF64748B)),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 100,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 12,
+                color: const Color(0xFF1E293B),
+                fontFamily: mono ? 'monospace' : null,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminMessageSender extends StatefulWidget {
+  const _AdminMessageSender({required this.recipientId, required this.recipientType});
+
+  final String recipientId;
+  final String recipientType;
+
+  @override
+  State<_AdminMessageSender> createState() => _AdminMessageSenderState();
+}
+
+class _AdminMessageSenderState extends State<_AdminMessageSender> {
+  final TextEditingController _controller = TextEditingController();
+  bool _isSending = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+
+    setState(() => _isSending = true);
+    try {
+      await AppRepositories.support.sendNotification(
+        userId: widget.recipientId,
+        title: 'Message from Admin',
+        message: text,
+        category: 'system',
+      );
+      _controller.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Message sent successfully!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send message: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSending = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Send Message to ${widget.recipientType}',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _controller,
+                decoration: InputDecoration(
+                  hintText: 'Type message to send...',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+                style: const TextStyle(fontSize: 13),
+              ),
+            ),
+            const SizedBox(width: 10),
+            ElevatedButton(
+              onPressed: _isSending ? null : _sendMessage,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF38BDF8),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+              child: _isSending
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text('Send'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

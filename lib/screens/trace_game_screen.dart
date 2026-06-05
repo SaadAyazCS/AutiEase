@@ -288,7 +288,10 @@ class _TraceGameScreenState extends State<TraceGameScreen>
         itemId: widget.module.id,
         moduleId: widget.module.id,
         score: _earnedPoints,
-        metadata: const {'source': 'trace_game'},
+        metadata: {
+          'source': 'trace_game',
+          'gameName': widget.module.title,
+        },
       );
       _savedCompletion = true;
     } finally {

@@ -833,6 +833,35 @@ class FirebasePlannerRepository implements PlannerRepository {
           ...assignment.toMap(),
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
+
+    try {
+      final childDoc = await _firestore.collection(FirestoreCollections.childProfiles).doc(assignment.id).get();
+      if (childDoc.exists && childDoc.data() != null) {
+        final parentId = childDoc.data()?['parentId']?.toString();
+        final childName = childDoc.data()?['name']?.toString() ?? 'Your child';
+        if (parentId != null && parentId.isNotEmpty) {
+          final parentDoc = await _firestore.collection(FirestoreCollections.users).doc(parentId).get();
+          final parentData = parentDoc.data();
+          if (parentData != null) {
+            final prefs = boolMapFrom(parentData['notificationPreferences']);
+            final enabled = prefs['routineReminders'] ?? prefs['dailyReminders'] ?? true;
+            
+            if (enabled) {
+              await _firestore.collection('notifications').add({
+                'userId': parentId,
+                'title': '📋 Routine Updated!',
+                'message': 'A new routine/activity plan has been updated for $childName.',
+                'category': 'activities',
+                'timestamp': FieldValue.serverTimestamp(),
+                'isRead': false,
+              });
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // Prevent notification errors from blocking assignment save
+    }
   }
 
   @override
@@ -1049,20 +1078,59 @@ class FirebasePlannerRepository implements PlannerRepository {
           final parentData = parentDoc.data();
           if (parentData != null) {
             final prefs = boolMapFrom(parentData['notificationPreferences']);
-            final enabled = prefs['levelProgressNotification'] != false || prefs['progressUpdates'] != false;
+            final enabled = prefs['levelProgressNotification'] ?? prefs['progressUpdates'] ?? true;
+            final source = metadata?['source'] as String?;
+            final isCommunication = source == 'aac_sentence';
             
-            if (enabled) {
-              final isGame = moduleId == 'games' || moduleId == 'learning_games' || itemId.contains('game');
-              final typeLabel = isGame ? 'game' : 'activity';
-              
-              await _firestore.collection('notifications').add({
-                'userId': parentId,
-                'title': isGame ? '🎉 Game Completed!' : '🌟 Activity Completed!',
-                'message': '$childName completed the $typeLabel: "${itemId.replaceAll('_', ' ')}"${score > 0 ? " with a score of $score" : ""}.',
-                'category': 'progress',
-                'timestamp': FieldValue.serverTimestamp(),
-                'isRead': false,
-              });
+            if (enabled && !isCommunication) {
+              // Build a human-readable activity name:
+              // prefer metadata['gameName'], then moduleId title, then cleaned itemId.
+              final rawName = (metadata?['gameName'] as String?)?.isNotEmpty == true
+                  ? metadata!['gameName'] as String
+                  : (moduleId != null && moduleId.isNotEmpty)
+                      ? moduleId.replaceAll('_', ' ').replaceAll('-', ' ')
+                      : itemId.replaceAll('_', ' ').replaceAll('-', ' ');
+              // Capitalise first letter.
+              final activityName = rawName.isNotEmpty
+                  ? rawName[0].toUpperCase() + rawName.substring(1)
+                  : 'an activity';
+
+              // For games (moduleId-based calls), only send ONE notification per
+              // module per session. We deduplicate by skipping if a notification
+              // for this moduleId already exists today.
+              bool shouldSend = true;
+              if (moduleId != null && moduleId.isNotEmpty) {
+                final today = DateTime.now();
+                final startOfDay = DateTime(today.year, today.month, today.day);
+                final existing = await _firestore
+                    .collection('notifications')
+                    .where('userId', isEqualTo: parentId)
+                    .where('moduleId', isEqualTo: moduleId)
+                    .get();
+                for (final doc in existing.docs) {
+                  final ts = doc.data()['timestamp'];
+                  DateTime? docDate;
+                  if (ts is Timestamp) docDate = ts.toDate();
+                  if (docDate != null && docDate.isAfter(startOfDay)) {
+                    shouldSend = false;
+                    break;
+                  }
+                }
+              }
+
+              if (shouldSend) {
+                final isGame = moduleId != null && moduleId.isNotEmpty &&
+                    (moduleId.contains('game') || (metadata?['source'] as String? ?? '').contains('game'));
+                await _firestore.collection('notifications').add({
+                  'userId': parentId,
+                  'title': isGame ? '🎮 Game Completed!' : '🌟 Activity Completed!',
+                  'message': '$childName completed ${isGame ? 'the game' : 'the activity'} "$activityName".',
+                  'category': 'progress',
+                  'moduleId': moduleId ?? '',
+                  'timestamp': FieldValue.serverTimestamp(),
+                  'isRead': false,
+                });
+              }
             }
           }
         }
@@ -1258,6 +1326,32 @@ class FirebaseSupportRepository implements SupportRepository {
       'lastMessageAt': FieldValue.serverTimestamp(),
       'createdAt': FieldValue.serverTimestamp(),
     });
+
+    try {
+      final therapistUserDoc = await _firestore.collection(FirestoreCollections.users).doc(therapistId).get();
+      if (therapistUserDoc.exists && therapistUserDoc.data() != null) {
+        final prefs = boolMapFrom(therapistUserDoc.data()?['therapistNotificationPreferences']);
+        final enabled = prefs['bookings'] != false;
+        
+        if (enabled) {
+          await _firestore.collection('notifications').add({
+            'userId': therapistId,
+            'title': '📅 New Connection Request!',
+            'message': '$parentDisplayName has connected with you.',
+            'category': 'reviews', // maps to therapist bookings settings check
+            'timestamp': FieldValue.serverTimestamp(),
+            'isRead': false,
+            'navigationTarget': {
+              'route': 'chat',
+              'threadId': ref.id,
+            },
+          });
+        }
+      }
+    } catch (_) {
+      // Prevent notifications from failing the connection creation
+    }
+
     return thread;
   }
 
@@ -1609,27 +1703,27 @@ class FirebaseSupportRepository implements SupportRepository {
 
       if (isTherapist) {
         if (category == 'messages') {
-          enabled = prefs['newMessages'] != false;
+          enabled = prefs['newMessages'] ?? true;
         } else if (category == 'activities') {
-          enabled = prefs['reminders'] != false;
+          enabled = prefs['reminders'] ?? true;
         } else if (category == 'subscription') {
-          enabled = prefs['payments'] != false;
+          enabled = prefs['payments'] ?? true;
         } else if (category == 'reviews') {
-          enabled = prefs['bookings'] != false;
+          enabled = prefs['bookings'] ?? true;
         } else if (category == 'emergency') {
-          enabled = prefs['emergency'] != false;
+          enabled = prefs['emergency'] ?? true;
         }
       } else {
         if (category == 'messages') {
-          enabled = prefs['therapistsUpdate'] != false || prefs['pushNotifications'] != false;
+          enabled = prefs['therapistsUpdate'] ?? prefs['pushNotifications'] ?? true;
         } else if (category == 'activities') {
-          enabled = prefs['routineReminders'] != false || prefs['dailyReminders'] != false;
+          enabled = prefs['routineReminders'] ?? prefs['dailyReminders'] ?? true;
         } else if (category == 'progress') {
-          enabled = prefs['levelProgressNotification'] != false || prefs['progressUpdates'] != false;
+          enabled = prefs['levelProgressNotification'] ?? prefs['progressUpdates'] ?? true;
         } else if (category == 'subscription') {
-          enabled = prefs['subscription'] != false || prefs['emailNotifications'] != false;
+          enabled = prefs['subscription'] ?? prefs['emailNotifications'] ?? true;
         } else if (category == 'reviews') {
-          enabled = prefs['activityAlerts'] != false;
+          enabled = prefs['activityAlerts'] ?? true;
         }
       }
 

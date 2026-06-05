@@ -136,7 +136,10 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
         itemId: activity.id,
         moduleId: activity.id,
         score: 1,
-        metadata: const {'source': 'daily_activity'},
+        metadata: {
+          'source': 'daily_activity',
+          'gameName': activity.title,
+        },
       );
       if (!wasAllComplete &&
           _allActivitiesComplete() &&

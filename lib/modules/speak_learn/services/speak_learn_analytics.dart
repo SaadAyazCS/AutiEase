@@ -25,6 +25,7 @@ class SpeakLearnAnalytics {
       score: starRating,
       metadata: {
         'source': 'speak_learn',
+        'gameName': 'Speak & Learn: ${kind.levelsCardLabel}',
         'speakLearnLevel': kind.name,
         'speakLearnBadge': badge,
         'starRating': starRating,

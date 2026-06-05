@@ -37,11 +37,8 @@ class _TherapistNotificationInboxScreenState
 
 
   static const Map<String, bool> _defaultTherapistNotificationPrefs = <String, bool>{
-    'email': false,
-    'sms': false,
     'newMessages': false,
     'bookings': false,
-    'reminders': false,
     'payments': false,
     'emergency': true,
   };
@@ -71,36 +68,40 @@ class _TherapistNotificationInboxScreenState
   IconData _getCategoryIcon(String category) {
     switch (category) {
       case 'messages':
-        return Icons.chat_bubble_outline_rounded;
+        return Icons.chat_bubble_rounded;
       case 'subscription':
-        return Icons.payment_rounded;
+        return Icons.credit_card_rounded;
       case 'reviews':
-        return Icons.star_outline_rounded;
+        return Icons.star_rounded;
       case 'activities':
-        return Icons.task_alt_rounded;
+        return Icons.today_rounded;
+      case 'progress':
+        return Icons.emoji_events_rounded;
       case 'verification':
-        return Icons.verified_user_outlined;
+        return Icons.verified_user_rounded;
       case 'system':
       default:
-        return Icons.info_outline_rounded;
+        return Icons.notifications_active_rounded;
     }
   }
 
   Color _getCategoryColor(String category) {
     switch (category) {
       case 'messages':
-        return const Color(0xFF2563EB);
+        return const Color(0xFF2563EB); // blue 600
       case 'subscription':
-        return const Color(0xFF16A34A);
+        return const Color(0xFF10B981); // emerald 500
       case 'reviews':
-        return const Color(0xFFD97706);
+        return const Color(0xFFF59E0B); // amber 500
       case 'activities':
-        return const Color(0xFF7C3AED);
+        return const Color(0xFF8B5CF6); // purple 500
+      case 'progress':
+        return const Color(0xFFD97706); // amber 600
       case 'verification':
-        return const Color(0xFF0D9488);
+        return const Color(0xFF06B6D4); // cyan 500
       case 'system':
       default:
-        return const Color(0xFF4B5563);
+        return const Color(0xFF64748B); // slate 500
     }
   }
 
@@ -134,9 +135,9 @@ class _TherapistNotificationInboxScreenState
     final route = target['route']?.toString();
 
     if (route == 'Reviews' || route == 'reviews') {
-      Navigator.popUntil(context, (r) => r.isFirst);
+      // Just mark as read, keep user in the inbox
     } else if (route == 'ProfileStatus' || route == 'profilestatus') {
-      Navigator.popUntil(context, (r) => r.isFirst);
+      // Just mark as read, keep user in the inbox
     } else if ((route == 'Chat' || route == 'chat') && target['threadId'] != null) {
       final threadId = target['threadId'].toString();
       try {
