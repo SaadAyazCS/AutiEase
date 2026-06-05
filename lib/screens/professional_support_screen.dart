@@ -993,6 +993,9 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
                     ? "I'd recommend continuing with the communication exercises at home."
                     : thread.lastMessagePreview,
                 timeLabel: _formatTime(thread.lastMessageAt),
+                photoBase64: therapistById[thread.therapistId]?.photoUrlBase64.isNotEmpty == true
+                    ? therapistById[thread.therapistId]?.photoUrlBase64
+                    : therapistById[thread.therapistId]?.photoUrl,
                 onTap: () {
                   final therapist = therapistById[thread.therapistId];
                   if (therapist == null) {
@@ -1011,6 +1014,9 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
                 preview:
                     "I'd recommend continuing with the communication exercises at home.",
                 timeLabel: '10:40 AM',
+                photoBase64: therapist.photoUrlBase64.isNotEmpty
+                    ? therapist.photoUrlBase64
+                    : therapist.photoUrl,
                 onTap: () =>
                     _openTherapistChat(therapist, chatEnabled: chatEnabled),
               ),
@@ -1292,12 +1298,14 @@ class _MessageHomeCard extends StatelessWidget {
     required this.preview,
     required this.timeLabel,
     required this.onTap,
+    this.photoBase64,
   });
 
   final String therapistName;
   final String preview;
   final String timeLabel;
   final VoidCallback onTap;
+  final String? photoBase64;
 
   @override
   Widget build(BuildContext context) {
@@ -1320,7 +1328,7 @@ class _MessageHomeCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const _TherapistPlaceholderAvatar(size: 44),
+            _TherapistPlaceholderAvatar(size: 44, photoBase64: photoBase64),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -2192,10 +2200,13 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
                       Align(
                         child: Column(
                           children: [
-                            const _TherapistPlaceholderAvatar(
+                            _TherapistPlaceholderAvatar(
                               size: 70,
-                              backgroundColor: Color(0xFF3ACB6D),
+                              backgroundColor: const Color(0xFF3ACB6D),
                               padding: 5,
+                              photoBase64: therapist.photoUrlBase64.isNotEmpty
+                                  ? therapist.photoUrlBase64
+                                  : therapist.photoUrl,
                             ),
                             const SizedBox(height: 10),
                             Text(
@@ -2453,10 +2464,13 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
                     onTap: _showTherapistProfileSheet,
                     child: Row(
                       children: [
-                        const _TherapistPlaceholderAvatar(
+                        _TherapistPlaceholderAvatar(
                           size: 38,
-                          backgroundColor: Color(0xFF00C853),
+                          backgroundColor: const Color(0xFF00C853),
                           padding: 3,
+                          photoBase64: therapist.photoUrlBase64.isNotEmpty
+                              ? therapist.photoUrlBase64
+                              : therapist.photoUrl,
                         ),
                         const SizedBox(width: 10),
                         Column(
@@ -2671,9 +2685,12 @@ class _SupportCheckoutScreenState extends State<_SupportCheckoutScreen> {
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            const _TherapistPlaceholderAvatar(
+                            _TherapistPlaceholderAvatar(
                               size: 36,
                               padding: 3,
+                              photoBase64: therapist.photoUrlBase64.isNotEmpty
+                                  ? therapist.photoUrlBase64
+                                  : therapist.photoUrl,
                             ),
                             const SizedBox(width: 10),
                             Expanded(

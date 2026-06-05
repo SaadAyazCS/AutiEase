@@ -120,6 +120,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
   @override
   void initState() {
     super.initState();
+    _peerTherapistProfile = widget.therapistProfile;
     _checkBlockedStatus();
     _loadPeerProfile();
   }
@@ -525,7 +526,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
   void _openPeerProfileDetails() {
     final isTherapist = widget.senderRole == 'parent';
     final photoUrlBase64 = isTherapist
-        ? _peerTherapistProfile?.photoUrlBase64
+        ? (_peerTherapistProfile?.photoUrlBase64.isNotEmpty == true 
+            ? _peerTherapistProfile?.photoUrlBase64 
+            : _peerUserProfile?.photoUrl)
         : _peerUserProfile?.photoUrl;
 
     showModalBottomSheet<void>(
@@ -564,11 +567,17 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
               const SizedBox(height: 16),
               const Divider(),
               const SizedBox(height: 10),
-              if (isTherapist && _peerTherapistProfile != null) ...[
-                _buildProfileDetailRow('Experience', _peerTherapistProfile!.formattedExperience),
-                _buildProfileDetailRow('Bio', _peerTherapistProfile!.bio.isNotEmpty ? _peerTherapistProfile!.bio : 'No bio available yet.'),
-                _buildProfileDetailRow('Availability', _peerTherapistProfile!.availability),
-                _buildProfileDetailRow('Pricing', _peerTherapistProfile!.pricing),
+              if (isTherapist) ...[
+                _buildProfileDetailRow('Role', 'Therapist'),
+                _buildProfileDetailRow('Experience', _peerTherapistProfile?.formattedExperience ?? 'Loading...'),
+                _buildProfileDetailRow(
+                  'Bio', 
+                  _peerTherapistProfile?.bio != null && _peerTherapistProfile!.bio.isNotEmpty 
+                      ? _peerTherapistProfile!.bio 
+                      : 'No bio available yet.',
+                ),
+                _buildProfileDetailRow('Availability', _peerTherapistProfile?.availability ?? 'Loading...'),
+                _buildProfileDetailRow('Pricing', _peerTherapistProfile?.pricing ?? 'Loading...'),
               ] else ...[
                 _buildProfileDetailRow('Role', 'Parent'),
                 _buildProfileDetailRow('Verification Status', 'Verified account'),
@@ -681,7 +690,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> {
   Widget build(BuildContext context) {
     final peerRole = widget.senderRole == 'parent' ? 'Therapist' : 'Parent';
     final photoUrlBase64 = widget.senderRole == 'parent' 
-        ? _peerTherapistProfile?.photoUrlBase64 
+        ? (_peerTherapistProfile?.photoUrlBase64.isNotEmpty == true 
+            ? _peerTherapistProfile?.photoUrlBase64 
+            : _peerUserProfile?.photoUrl)
         : _peerUserProfile?.photoUrl;
 
     return SessionGuard(
