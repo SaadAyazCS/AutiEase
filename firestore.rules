@@ -128,13 +128,13 @@ service cloud.firestore {
     }
 
     match /subscriptions/{subscriptionId} {
-      allow read: if signedIn() && (resource.data.userId == request.auth.uid || resource.data.therapistId == request.auth.uid || isAdmin());
+      allow read: if signedIn() && (resource == null || resource.data.userId == request.auth.uid || resource.data.therapistId == request.auth.uid || isAdmin());
       allow create, update: if false;
       allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     match /checkout_sessions/{sessionId} {
-      allow read: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if signedIn() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
       allow create, update, delete: if false;
     }
 

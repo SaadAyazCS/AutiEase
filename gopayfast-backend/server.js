@@ -200,9 +200,9 @@ function toAmountString(amount) {
 }
 
 function buildBasketId(uid, productId) {
-  const safeProductId = normalizeValue(productId).replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 24);
+  const safeProductId = normalizeValue(productId).replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 24);
   const timestamp = Date.now();
-  return `ae_${uid.slice(0, 8)}_${safeProductId}_${timestamp}`;
+  return `ae-${uid.slice(0, 8)}-${safeProductId}-${timestamp}`;
 }
 
 function normalizeSubscriptionDocId(userId, therapistId) {
@@ -475,17 +475,7 @@ function payFastUrl(path) {
   return `${payfastConfig.baseUrl}${normalizedPath}`;
 }
 
-let tokenCache = {
-  token: null,
-  expiresAtMs: 0,
-};
-
 async function getPayFastAccessToken({ basketId, amount }) {
-  const now = Date.now();
-  if (tokenCache.token && tokenCache.expiresAtMs > now + 30000) {
-    return tokenCache.token;
-  }
-
   ensurePayFastConfigured();
   const body = new URLSearchParams({
     MERCHANT_ID: payfastConfig.merchantId,
@@ -514,11 +504,6 @@ async function getPayFastAccessToken({ basketId, amount }) {
     throw new Error('PayFast access token response did not include ACCESS_TOKEN.');
   }
 
-  const expiresInSeconds = Number.parseInt(payload.EXPIRES_IN || payload.expires_in || '600', 10);
-  tokenCache = {
-    token,
-    expiresAtMs: now + (Number.isFinite(expiresInSeconds) ? expiresInSeconds : 600) * 1000,
-  };
   return token;
 }
 
@@ -928,8 +913,16 @@ app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
       STORE_ID: payfastConfig.storeId || '',
       RECURRING_TXN: '',
       BILL_NUMBER: '',
-      CUSTOMER_ID: '',
+      CUSTOMER_ID: uid,
       ADDITIONAL_VALUE: '',
+      CUSTOMER_NAME: normalizeValue(user.displayName) || 'Customer',
+      MERCHANT_CUSTOMER_ID: uid,
+      CUSTOMER_IPADDRESS: req.ip || '127.0.0.1',
+      MERCHANT_USERAGENT: req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'ITEMS[0][SKU]': normalizedProductId,
+      'ITEMS[0][NAME]': product.title || 'Therapy Package',
+      'ITEMS[0][PRICE]': transactionAmount,
+      'ITEMS[0][QTY]': '1',
     };
 
     await db.collection('checkout_sessions').doc(checkoutId).set(
@@ -1099,126 +1092,53 @@ app.post('/api/v1/checkout/status', requireAuth, async (req, res) => {
 });
 
 
-app.post('/api/v1/payment/webhook', async (req, res) => {
-  try {
-    const normalized = normalizeProviderPayload(req.body || {});
-    if (!normalized.basketId) {
-      return jsonError(res, 400, 'Missing basket id in webhook payload');
-    }
+async function processTransactionResult(rawPayload) {
+  const normalized = normalizeProviderPayload(rawPayload);
+  if (!normalized.basketId) {
+    throw new Error('Missing basket id in payload');
+  }
 
-    const eventKey = normalized.transactionId || `${normalized.basketId}:${normalized.responseCode}:${normalized.status}`;
-    const eventId = crypto.createHash('sha256').update(eventKey).digest('hex');
-    const wasInserted = await markPaymentEventProcessed(eventId, normalized.raw);
-    if (!wasInserted) {
-      return res.status(200).json({ received: true, duplicate: true });
-    }
+  const eventKey = normalized.transactionId || `${normalized.basketId}:${normalized.responseCode}:${normalized.status}`;
+  const eventId = crypto.createHash('sha256').update(eventKey).digest('hex');
+  const wasInserted = await markPaymentEventProcessed(eventId, normalized.raw);
+  if (!wasInserted) {
+    console.log(`Payment event ${eventId} already processed, skipping.`);
+    return { status: 'already_processed' };
+  }
 
-    const subscriptionDoc = await findSubscriptionByBasketId(normalized.basketId);
-    if (!subscriptionDoc) {
-      return jsonError(res, 404, 'Subscription not found for basket');
-    }
-    const subscription = subscriptionDoc.data() || {};
-    const subscriptionUserId = normalizeValue(subscription.userId);
-    const therapistId = normalizeValue(subscription.therapistId);
+  const subscriptionDoc = await findSubscriptionByBasketId(normalized.basketId);
+  if (!subscriptionDoc) {
+    throw new Error(`Subscription not found for basket ${normalized.basketId}`);
+  }
+  const subscription = subscriptionDoc.data() || {};
+  const subscriptionUserId = normalizeValue(subscription.userId);
+  const therapistId = normalizeValue(subscription.therapistId);
 
-    const amount = parseAmount(subscription.amount);
-    const gatewayVerification = payfastConfig.strictWebhookVerification
-      ? await verifyTransactionWithGateway(normalized, amount)
-      : {
-          verified: false,
-          status: '',
-          responseCode: '',
-          reason: 'Skipped gateway inquiry verification (strict mode disabled).',
-        };
-    const hashVerification = verifyPayFastValidationHash(normalized);
-    const webhookSuccess = isSuccessStatus(normalized.status, normalized.responseCode);
-    const isSuccess = payfastConfig.strictWebhookVerification
-      ? gatewayVerification.verified && hashVerification.verified
-      : webhookSuccess;
+  const amount = parseAmount(subscription.amount);
+  const gatewayVerification = payfastConfig.strictWebhookVerification
+    ? await verifyTransactionWithGateway(normalized, amount)
+    : {
+        verified: false,
+        status: '',
+        responseCode: '',
+        reason: 'Skipped gateway inquiry verification (strict mode disabled).',
+      };
+  const hashVerification = verifyPayFastValidationHash(normalized);
+  const webhookSuccess = isSuccessStatus(normalized.status, normalized.responseCode);
+  const isSuccess = payfastConfig.strictWebhookVerification
+    ? gatewayVerification.verified && hashVerification.verified
+    : webhookSuccess;
 
-    if (isSuccess) {
-      await subscriptionDoc.ref.set(
-        {
-          provider: 'payfast_pk',
-          providerTransactionId: normalized.transactionId,
-          lastPaymentRef: normalized.transactionId || normalized.basketId,
-          status: 'active',
-          isActive: true,
-          cancelAtPeriodEnd: false,
-          currentPeriodEnd: admin.firestore.Timestamp.fromDate(addDays(new Date(), 30)),
-          verification: {
-            verifiedByGateway: gatewayVerification.verified,
-            verifiedByHash: hashVerification.verified,
-            responseCode: gatewayVerification.responseCode || normalized.responseCode,
-            status: gatewayVerification.status || normalized.status,
-            hashErrorCode: hashVerification.errorCode || normalized.responseCode,
-            hashProvided: hashVerification.providedHash || '',
-            hashComputed: hashVerification.computedHash || '',
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
-
-      // Fetch user profile for display name
-      const userSnap = await db.collection('users').doc(subscriptionUserId).get();
-      const parentName = userSnap.exists ? (userSnap.data().displayName || userSnap.data().email || 'Parent') : 'Parent';
-
-      // Record therapist earnings
-      const earningsId = `earn_${normalized.basketId}`;
-      await db.collection('therapist_earnings').doc(earningsId).set({
-        therapistId,
-        userId: subscriptionUserId,
-        parentName,
-        subscriptionId: subscriptionDoc.id,
-        amount,
-        basketId: normalized.basketId,
-        transactionId: normalized.transactionId,
-        status: 'completed',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      // Update therapist profile balance
-      await db.collection('therapist_profiles').doc(therapistId).set(
-        {
-          walletBalance: admin.firestore.FieldValue.increment(amount),
-          totalEarnings: admin.firestore.FieldValue.increment(amount),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-
-      if (subscriptionUserId && therapistId) {
-        await updateTherapistThreadAccess(subscriptionUserId, therapistId, true);
-      }
-      if (subscriptionUserId) {
-        await syncUserSubscriptionEntitlements(subscriptionUserId);
-      }
-      
-      const checkoutSessionSnapshot = await db
-        .collection('checkout_sessions')
-        .where('basketId', '==', normalized.basketId)
-        .limit(1)
-        .get();
-      if (!checkoutSessionSnapshot.empty) {
-        await checkoutSessionSnapshot.docs[0].ref.set(
-          {
-            status: 'completed',
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true },
-        );
-      }
-
-      return res.status(200).json({ received: true, status: 'active' });
-    }
-
+  if (isSuccess) {
     await subscriptionDoc.ref.set(
       {
-        status: 'payment_failed',
-        isActive: false,
-        cancelAtPeriodEnd: true,
+        provider: 'payfast_pk',
+        providerTransactionId: normalized.transactionId,
+        lastPaymentRef: normalized.transactionId || normalized.basketId,
+        status: 'active',
+        isActive: true,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: admin.firestore.Timestamp.fromDate(addDays(new Date(), 30)),
         verification: {
           verifiedByGateway: gatewayVerification.verified,
           verifiedByHash: hashVerification.verified,
@@ -1227,36 +1147,133 @@ app.post('/api/v1/payment/webhook', async (req, res) => {
           hashErrorCode: hashVerification.errorCode || normalized.responseCode,
           hashProvided: hashVerification.providedHash || '',
           hashComputed: hashVerification.computedHash || '',
-          reason:
-            (payfastConfig.strictWebhookVerification &&
-              ((!gatewayVerification.verified && gatewayVerification.reason) ||
-                (!hashVerification.verified && hashVerification.reason))) ||
-            'Transaction failed',
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true },
     );
+
+    // Fetch user profile for display name
+    const userSnap = await db.collection('users').doc(subscriptionUserId).get();
+    const parentName = userSnap.exists ? (userSnap.data().displayName || userSnap.data().email || 'Parent') : 'Parent';
+
+    // Record therapist earnings
+    const earningsId = `earn_${normalized.basketId}`;
+    await db.collection('therapist_earnings').doc(earningsId).set({
+      therapistId,
+      userId: subscriptionUserId,
+      parentName,
+      subscriptionId: subscriptionDoc.id,
+      amount,
+      basketId: normalized.basketId,
+      transactionId: normalized.transactionId,
+      status: 'completed',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Update therapist profile balance
+    await db.collection('therapist_profiles').doc(therapistId).set(
+      {
+        walletBalance: admin.firestore.FieldValue.increment(amount),
+        totalEarnings: admin.firestore.FieldValue.increment(amount),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
     if (subscriptionUserId && therapistId) {
-      await updateTherapistThreadAccess(subscriptionUserId, therapistId, false);
+      await updateTherapistThreadAccess(subscriptionUserId, therapistId, true);
     }
     if (subscriptionUserId) {
       await syncUserSubscriptionEntitlements(subscriptionUserId);
     }
+    
+    const checkoutSessionSnapshot = await db
+      .collection('checkout_sessions')
+      .where('basketId', '==', normalized.basketId)
+      .limit(1)
+      .get();
+    if (!checkoutSessionSnapshot.empty) {
+      await checkoutSessionSnapshot.docs[0].ref.set(
+        {
+          status: 'completed',
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
 
-    return res.status(200).json({ received: true, status: 'failed' });
+    return { received: true, status: 'active' };
+  }
+
+  await subscriptionDoc.ref.set(
+    {
+      status: 'payment_failed',
+      isActive: false,
+      cancelAtPeriodEnd: true,
+      verification: {
+        verifiedByGateway: gatewayVerification.verified,
+        verifiedByHash: hashVerification.verified,
+        responseCode: gatewayVerification.responseCode || normalized.responseCode,
+        status: gatewayVerification.status || normalized.status,
+        hashErrorCode: hashVerification.errorCode || normalized.responseCode,
+        hashProvided: hashVerification.providedHash || '',
+        hashComputed: hashVerification.computedHash || '',
+        reason:
+          (payfastConfig.strictWebhookVerification &&
+            ((!gatewayVerification.verified && gatewayVerification.reason) ||
+              (!hashVerification.verified && hashVerification.reason))) ||
+          'Transaction failed',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  if (subscriptionUserId && therapistId) {
+    await updateTherapistThreadAccess(subscriptionUserId, therapistId, false);
+  }
+  if (subscriptionUserId) {
+    await syncUserSubscriptionEntitlements(subscriptionUserId);
+  }
+
+  return { received: true, status: 'failed', reason: gatewayVerification.reason || hashVerification.reason || 'Transaction failed' };
+}
+
+app.post('/api/v1/payment/webhook', async (req, res) => {
+  try {
+    const result = await processTransactionResult(req.body || {});
+    return res.status(200).json(result);
   } catch (error) {
     console.error('Payment webhook processing failed:', error?.message || error);
     return jsonError(res, 500, 'Unable to process payment webhook');
   }
 });
 
-app.get('/api/v1/payment/return/success', (_req, res) => {
+app.get('/api/v1/payment/return/success', async (req, res) => {
+  try {
+    const payload = req.query || {};
+    if (payload.basket_id || payload.BASKET_ID) {
+      await processTransactionResult(payload);
+      console.log(`Successfully verified and processed success redirect for basket ${payload.basket_id || payload.BASKET_ID}`);
+    }
+  } catch (error) {
+    console.warn('Redirect success verification failed:', error?.message || error);
+  }
   res.status(200).send(buildStatusPageHtml(true, 'Your checkout payment was completed successfully. You can close this browser page and return to the AutiEase app to start chatting with your therapist.'));
 });
 
-app.get('/api/v1/payment/return/failure', (_req, res) => {
+app.get('/api/v1/payment/return/failure', async (req, res) => {
+  try {
+    const payload = req.query || {};
+    if (payload.basket_id || payload.BASKET_ID) {
+      await processTransactionResult(payload);
+      console.log(`Processed failure redirect for basket ${payload.basket_id || payload.BASKET_ID}`);
+    }
+  } catch (error) {
+    console.warn('Redirect failure verification failed:', error?.message || error);
+  }
   res.status(200).send(buildStatusPageHtml(false, 'Your checkout payment was not completed or failed. If money was deducted, please wait a few minutes and tap Refresh Status in the app. Otherwise, please try again.'));
 });
 
