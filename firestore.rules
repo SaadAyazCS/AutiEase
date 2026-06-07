@@ -120,6 +120,8 @@ service cloud.firestore {
             (isParent() && request.resource.data.senderRole == 'parent') ||
             (isTherapist() && request.resource.data.senderRole == 'therapist')
           );
+        allow delete: if isParent() &&
+          get(/databases/$(database)/documents/therapist_threads/$(threadId)).data.parentId == request.auth.uid;
       }
     }
 

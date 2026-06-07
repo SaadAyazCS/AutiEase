@@ -133,6 +133,9 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
     }
   }
 
+  Future<void> _refreshState() async {
+    await _loadPersistedTherapistState();
+  }
 
   Future<void> _loadPersistedTherapistState() async {
     try {
@@ -560,7 +563,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
     );
   }
 
-  Future<bool> _openCheckoutForTherapist(TherapistProfile therapist) async {
+  Future<bool> _openCheckoutForTherapist(TherapistProfile therapist, {int packageIndex = 0}) async {
     final confirmed = await _showSubscriptionWarningDialog(context, therapist);
     if (confirmed != true) {
       return false;
@@ -629,6 +632,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
     try {
       final success = await AppRepositories.billing.purchaseTherapistSubscription(
         therapist.id,
+        packageIndex: packageIndex,
         isCancelledCheck: () => _isCheckoutCancelled,
       );
 
@@ -704,255 +708,68 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
     }
   }
 
-  Future<void> _cancelTherapistSubscription(TherapistProfile therapist) async {
-    // Step 1: Warning Dialog (Yes, Cancel vs Keep Subscription)
-    final confirmCancel = await showDialog<bool>(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFF3040),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      color: Colors.white,
-                      size: 46,
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Cancel Subscription?',
-                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-                child: Column(
-                  children: [
-                    Text(
-                      'Are you sure you want to cancel your subscription for ${therapist.displayName}?',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Color(0xFF374151), fontWeight: FontWeight.w500),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFF5DD),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Text(
-                        'Please note: You will lose active messaging access to this therapist. '
-                        'Your chat history will be handled in the next step.',
-                        style: TextStyle(
-                          height: 1.4,
-                          fontSize: 12,
-                          color: Color(0xFF4B5563),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: Color(0xFFD1D5DB)),
-                              foregroundColor: const Color(0xFF374151),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                            child: const Text('Keep Subscription'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () => Navigator.pop(context, true),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFFF3040),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                            child: const Text('Yes, Cancel'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (confirmCancel != true) return;
-
-    // Step 2: Chat History Option Dialog (Keep & Lock vs Delete All)
-    if (!mounted) return;
-    final keepAndLock = await showDialog<bool?>(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF2563EB),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(
-                      Icons.chat_bubble_outline_rounded,
-                      color: Colors.white,
-                      size: 46,
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Conversation History',
-                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-                child: Column(
-                  children: [
-                    const Text(
-                      'How would you like to handle your past conversation history with this therapist?',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Color(0xFF374151), fontWeight: FontWeight.w500),
-                    ),
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () => Navigator.pop(context, true), // Keep & Lock
-                        icon: const Icon(Icons.lock_outline, size: 16),
-                        label: const Text('Keep & Lock (Recommended)'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF00C853),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () => Navigator.pop(context, false), // Delete All
-                        icon: const Icon(Icons.delete_forever, size: 16),
-                        label: const Text('Delete All Chat History'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFFFF3040),
-                          side: const BorderSide(color: Color(0xFFFCA5A5)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, null),
-                      child: const Text('Go Back', style: TextStyle(color: Color(0xFF6B7280))),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (keepAndLock == null) return;
-
-    if (!mounted) return;
-    showDialog<void>(
+  Future<bool> _cancelTherapistSubscription(TherapistProfile therapist) async {
+    // 1. Show the Warning Dialog
+    final confirm = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
-        return const PopScope(
-          canPop: false,
-          child: AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(color: Color(0xFF00C853)),
-                SizedBox(width: 20),
-                Expanded(
-                  child: Text(
-                    'Cancelling subscription...',
-                    style: TextStyle(fontSize: 14),
-                  ),
-                ),
-              ],
-            ),
-          ),
+      builder: (dialogCtx) {
+        return CancelSubscriptionDialog(
+          therapistName: therapist.displayName,
+          onConfirmCancel: () => Navigator.pop(dialogCtx, true),
         );
       },
     );
 
-    try {
-      await AppRepositories.billing.cancelSubscriptionInStore(
-        therapist.id,
-        keepAndLockChats: keepAndLock,
-      );
-      if (mounted) {
-        Navigator.pop(context); // Close loading dialog
-        setState(() {
-          _subscribedTherapistIds.remove(therapist.id);
+    if (confirm != true) return false;
+
+    // 2. Show the Chat History Choices Dialog
+    if (!mounted) return false;
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return ChatHistoryChoicesDialog(
+          therapistId: therapist.id,
+          onComplete: (choice) {
+            // Handled inside choices dialog State
+          },
+        );
+      },
+    );
+
+    if (choice == null) return false;
+
+    // 3. Post-Cancellation Updates
+    if (mounted) {
+      setState(() {
+        _subscribedTherapistIds.remove(therapist.id);
+        if (choice == 'delete') {
           _hiddenTherapistIds.add(therapist.id);
-        });
-        await _persistTherapistState();
-        ScaffoldMessenger.of(context).showSnackBar(
+        }
+      });
+      await _persistTherapistState();
+      
+      final messenger = ScaffoldMessenger.of(context);
+      if (choice == 'delete') {
+        messenger.showSnackBar(
           SnackBar(
-            content: Text('Subscription cancelled for ${therapist.displayName}.'),
+            content: Text('Subscription cancelled and chat history deleted.'),
             backgroundColor: AppColors.errorRed,
           ),
         );
+      } else {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Subscription cancelled. Chat locked to read-only.'),
+            backgroundColor: Color(0xFF3B82F6),
+          ),
+        );
       }
+      
       _showReviewDialog(context, therapist);
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Close loading dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to cancel subscription: $e'),
-            backgroundColor: AppColors.errorRed,
-          ),
-        );
-      }
     }
+    return true;
   }
 
   void _showReviewDialog(BuildContext context, TherapistProfile therapist) {
@@ -1156,7 +973,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
             : 'local-bypass',
       );
       if (!mounted) return;
-      Navigator.push(
+      await Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => TherapistChatScreen(
@@ -1167,6 +984,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
           ),
         ),
       );
+      await _refreshState();
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1186,12 +1004,12 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (_) => _SupportTherapistDetailsScreen(
+        builder: (_) => SupportTherapistDetailsScreen(
           therapist: therapist,
           initiallySubscribed: isSubscribed,
           chatEnabled: featureFlags.chatEnabled,
           paymentsEnabled: featureFlags.paymentsEnabled,
-          onSubscribe: () => _openCheckoutForTherapist(therapist),
+          onSubscribe: (packageIndex) => _openCheckoutForTherapist(therapist, packageIndex: packageIndex),
           onCancelSubscription: () => _cancelTherapistSubscription(therapist),
           onOpenMessages: () => _openTherapistChat(
             therapist,
@@ -1200,6 +1018,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
         ),
       ),
     );
+    await _refreshState();
   }
 
   @override
@@ -1269,12 +1088,15 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                         showAdd: !_showFindTherapist,
                         onAdd: () => setState(() => _showFindTherapist = true),
                         showHistory: !_showFindTherapist,
-                        onHistory: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const ParentSubscriptionsHistoryScreen(),
-                          ),
-                        ),
+                        onHistory: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ParentSubscriptionsHistoryScreen(),
+                            ),
+                          );
+                          await _refreshState();
+                        },
                       ),
                       Expanded(
                         child: _showFindTherapist
@@ -1814,8 +1636,8 @@ class _MessageHomeCard extends StatelessWidget {
   }
 }
 
-class _SupportTherapistDetailsScreen extends StatefulWidget {
-  const _SupportTherapistDetailsScreen({
+class SupportTherapistDetailsScreen extends StatefulWidget {
+  const SupportTherapistDetailsScreen({
     required this.therapist,
     required this.initiallySubscribed,
     required this.chatEnabled,
@@ -1829,17 +1651,17 @@ class _SupportTherapistDetailsScreen extends StatefulWidget {
   final bool initiallySubscribed;
   final bool chatEnabled;
   final bool paymentsEnabled;
-  final Future<bool> Function() onSubscribe;
-  final Future<void> Function() onCancelSubscription;
+  final Future<bool> Function(int packageIndex) onSubscribe;
+  final Future<bool> Function() onCancelSubscription;
   final Future<void> Function() onOpenMessages;
 
   @override
-  State<_SupportTherapistDetailsScreen> createState() =>
-      _SupportTherapistDetailsScreenState();
+  State<SupportTherapistDetailsScreen> createState() =>
+      SupportTherapistDetailsScreenState();
 }
 
-class _SupportTherapistDetailsScreenState
-    extends State<_SupportTherapistDetailsScreen> {
+class SupportTherapistDetailsScreenState
+    extends State<SupportTherapistDetailsScreen> {
   late bool _isSubscribed;
   bool _isSubscribing = false;
   bool _loadingTherapistMeta = true;
@@ -1949,7 +1771,9 @@ class _SupportTherapistDetailsScreenState
       return;
     }
     setState(() => _isSubscribing = true);
-    final subscribed = await widget.onSubscribe();
+    final visiblePackages = _visiblePackages(widget.therapist);
+    final safePackageIndex = _selectedPackageIndexWithin(visiblePackages.length);
+    final subscribed = await widget.onSubscribe(safePackageIndex);
     if (!mounted) return;
     setState(() {
       _isSubscribing = false;
@@ -2276,13 +2100,15 @@ class _SupportTherapistDetailsScreenState
                               child: OutlinedButton(
                                 onPressed: widget.paymentsEnabled
                                     ? () async {
-                                        await widget.onCancelSubscription();
+                                        final success = await widget.onCancelSubscription();
                                         if (!mounted) {
                                           return;
                                         }
-                                        setState(() {
-                                          _isSubscribed = false;
-                                        });
+                                        if (success) {
+                                          if (mounted) {
+                                            Navigator.pop(context);
+                                          }
+                                        }
                                       }
                                     : () {
                                         ScaffoldMessenger.of(
@@ -3071,242 +2897,54 @@ class _ParentSubscriptionsHistoryScreenState
   }
 
   Future<void> _cancelSubscription(TherapistProfile therapist) async {
-    final confirmCancel = await showDialog<bool>(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFF3040),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      color: Colors.white,
-                      size: 46,
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Cancel Subscription?',
-                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-                child: Column(
-                  children: [
-                    Text(
-                      'Are you sure you want to cancel your subscription for ${therapist.displayName}?',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Color(0xFF374151), fontWeight: FontWeight.w500),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFF5DD),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Text(
-                        'Please note: You will lose active messaging access. Your chat history will be handled in the next step.',
-                        style: TextStyle(
-                          height: 1.4,
-                          fontSize: 12,
-                          color: Color(0xFF4B5563),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: Color(0xFFD1D5DB)),
-                              foregroundColor: const Color(0xFF374151),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                            child: const Text('Keep Subscription'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () => Navigator.pop(context, true),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFFF3040),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                            child: const Text('Yes, Cancel'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (confirmCancel != true) return;
-
-    if (!mounted) return;
-    final keepAndLock = await showDialog<bool?>(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF2563EB),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(
-                      Icons.chat_bubble_outline_rounded,
-                      color: Colors.white,
-                      size: 46,
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Conversation History',
-                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-                child: Column(
-                  children: [
-                    const Text(
-                      'How would you like to handle your past conversation history with this therapist?',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Color(0xFF374151), fontWeight: FontWeight.w500),
-                    ),
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () => Navigator.pop(context, true), // Keep & Lock
-                        icon: const Icon(Icons.lock_outline, size: 16),
-                        label: const Text('Keep & Lock (Recommended)'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF00C853),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () => Navigator.pop(context, false), // Delete All
-                        icon: const Icon(Icons.delete_forever, size: 16),
-                        label: const Text('Delete All Chat History'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFFFF3040),
-                          side: const BorderSide(color: Color(0xFFFCA5A5)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, null),
-                      child: const Text('Go Back', style: TextStyle(color: Color(0xFF6B7280))),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (keepAndLock == null) return;
-
-    if (!mounted) return;
-    showDialog<void>(
+    // 1. Show the Warning Dialog
+    final confirm = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
-        return const PopScope(
-          canPop: false,
-          child: AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(color: Color(0xFF00C853)),
-                SizedBox(width: 20),
-                Expanded(
-                  child: Text(
-                    'Cancelling subscription...',
-                    style: TextStyle(fontSize: 14),
-                  ),
-                ),
-              ],
-            ),
-          ),
+      builder: (dialogCtx) {
+        return CancelSubscriptionDialog(
+          therapistName: therapist.displayName,
+          onConfirmCancel: () => Navigator.pop(dialogCtx, true),
         );
       },
     );
 
-    try {
-      await AppRepositories.billing.cancelSubscriptionInStore(
-        therapist.id,
-        keepAndLockChats: keepAndLock,
-      );
-      if (mounted) {
-        Navigator.pop(context); // Close loading dialog
-        setState(() {}); // Re-load
-        ScaffoldMessenger.of(context).showSnackBar(
+    if (confirm != true) return;
+
+    // 2. Show the Chat History Choices Dialog
+    if (!mounted) return;
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return ChatHistoryChoicesDialog(
+          therapistId: therapist.id,
+          onComplete: (choice) {
+            // Handled inside choices dialog State
+          },
+        );
+      },
+    );
+
+    if (choice == null) return;
+
+    // 3. Post-Cancellation Updates
+    if (mounted) {
+      setState(() {}); // Reload history screen list
+      
+      final messenger = ScaffoldMessenger.of(context);
+      if (choice == 'delete') {
+        messenger.showSnackBar(
           SnackBar(
-            content: Text('Subscription cancelled for ${therapist.displayName}.'),
+            content: Text('Subscription cancelled and chat history deleted.'),
             backgroundColor: AppColors.errorRed,
           ),
         );
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Close loading dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to cancel subscription: $e'),
-            backgroundColor: AppColors.errorRed,
+      } else {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Subscription cancelled. Chat locked to read-only.'),
+            backgroundColor: Color(0xFF3B82F6),
           ),
         );
       }
@@ -3584,7 +3222,6 @@ class _ParentSubscriptionsHistoryScreenState
     final date = dateTimeFromFirestore(txn['createdAt']) ?? DateTime.now();
     final dateStr = '${date.day}/${date.month}/${date.year} at ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
     final txnId = (txn['transactionId'] ?? txn['id'] ?? 'N/A').toString();
-    final basketId = (txn['basketId'] ?? 'N/A').toString();
 
     showDialog<void>(
       context: context,
@@ -3625,8 +3262,6 @@ class _ParentSubscriptionsHistoryScreenState
                     _buildModalDetailRow('Status', 'SUCCESSFUL', valueColor: const Color(0xFF00C853), isBoldValue: true),
                     const Divider(),
                     _buildModalDetailRow('Transaction ID', txnId),
-                    const Divider(),
-                    _buildModalDetailRow('Basket Order ID', basketId),
                     const Divider(),
                     _buildModalDetailRow('Payment Date', dateStr),
                     const Divider(),

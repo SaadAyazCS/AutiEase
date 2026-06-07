@@ -19,13 +19,25 @@ class AdminDashboardScreen extends StatefulWidget {
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final List<String> _tabs = ['Overview', 'Verification', 'Reports', 'Parents', 'Therapists', 'Feedback', 'Audit Logs'];
+  final List<String> _tabs = ['Overview', 'Verification', 'Reports', 'Subscriptions', 'Parents', 'Therapists', 'Feedback', 'Audit Logs'];
   bool _loading = false;
   Map<String, dynamic> _stats = {};
   
+  // Cache maps for resolving UIDs to human-readable names and emails
+  Map<String, String> _userNames = {};
+  Map<String, String> _userEmails = {};
+  Map<String, String> _therapistNames = {};
+
   // Stream subscription for reports badge count
   StreamSubscription<List<UserReport>>? _reportsSubscription;
+  StreamSubscription<QuerySnapshot>? _usersSubscription;
+  StreamSubscription<QuerySnapshot>? _subscriptionsSubscription;
   int _pendingReportsCount = 0;
+
+  // Subscriptions search/filter state
+  final TextEditingController _subSearchController = TextEditingController();
+  String _subSearchQuery = '';
+  String _subFilterStatus = 'All';
 
   // Audit Logs search/filter state
   Future<List<AdminAuditLog>>? _auditLogsFuture;
@@ -49,29 +61,98 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       }
     });
 
+    _subSearchController.addListener(() {
+      setState(() {
+        _subSearchQuery = _subSearchController.text;
+      });
+    });
+
     _auditSearchController.addListener(() {
       setState(() {
         _auditSearchQuery = _auditSearchController.text;
       });
     });
+
+    _usersSubscription = FirebaseFirestore.instance
+        .collection('users')
+        .snapshots()
+        .listen((_) => _silentReloadStats());
+
+    _subscriptionsSubscription = FirebaseFirestore.instance
+        .collection('subscriptions')
+        .snapshots()
+        .listen((_) => _silentReloadStats());
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _subSearchController.dispose();
     _auditSearchController.dispose();
     _reportsSubscription?.cancel();
+    _usersSubscription?.cancel();
+    _subscriptionsSubscription?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadUserAndTherapistNames() async {
+    try {
+      final usersSnap = await FirebaseFirestore.instance.collection('users').get();
+      final therapistsSnap = await FirebaseFirestore.instance.collection('therapist_profiles').get();
+      
+      final Map<String, String> userNames = {};
+      final Map<String, String> userEmails = {};
+      for (var doc in usersSnap.docs) {
+        final data = doc.data();
+        final firstName = data['firstName'] ?? '';
+        final lastName = data['lastName'] ?? '';
+        final fullName = data['fullName'] ?? '$firstName $lastName'.trim();
+        userNames[doc.id] = fullName.isNotEmpty ? fullName : (data['email'] ?? 'Unknown User');
+        userEmails[doc.id] = data['email'] ?? '';
+      }
+      
+      final Map<String, String> therapistNames = {};
+      for (var doc in therapistsSnap.docs) {
+        final data = doc.data();
+        therapistNames[doc.id] = data['displayName'] ?? 'Unknown Therapist';
+      }
+      
+      if (mounted) {
+        setState(() {
+          _userNames = userNames;
+          _userEmails = userEmails;
+          _therapistNames = therapistNames;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading names for subscriptions: $e');
+    }
+  }
+
+  Future<void> _silentReloadStats() async {
+    try {
+      final data = await AppRepositories.admin.getAnalyticsStats();
+      await _loadUserAndTherapistNames();
+      if (mounted) {
+        setState(() {
+          _stats = data;
+        });
+      }
+    } catch (e) {
+      debugPrint('Silent stats reload failed: $e');
+    }
   }
 
   Future<void> _loadStats() async {
     setState(() {
       _loading = true;
       _auditLogsFuture = null;
+      _subSearchController.clear();
       _auditSearchController.clear();
     });
     try {
       final data = await AppRepositories.admin.getAnalyticsStats();
+      await _loadUserAndTherapistNames();
       setState(() {
         _stats = data;
         _loading = false;
@@ -200,6 +281,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   _buildOverviewTab(),
                   _buildVerificationTab(),
                   _buildReportsTab(),
+                  _buildSubscriptionsTab(),
                   _buildParentsTab(),
                   _buildTherapistsTab(),
                   _buildFeedbackTab(),
@@ -340,7 +422,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               _buildOverviewCard('Verified Therapists', '${_stats['approvedTherapists'] ?? 0}', Icons.verified_outlined, const Color(0xFF10B981)),
               _buildOverviewCard('Pending Verifications', '${_stats['pendingTherapists'] ?? 0}', Icons.hourglass_empty, const Color(0xFFF59E0B)),
               _buildOverviewCard('Suspended Therapists', '${_stats['suspendedTherapists'] ?? 0}', Icons.block_outlined, const Color(0xFFEF4444)),
-              _buildOverviewCard('Active Subscriptions', '${_stats['activeSubscriptions'] ?? 0}', Icons.card_membership, const Color(0xFF8B5CF6)),
+              _buildOverviewCard('Subscriptions', '${_stats['activeSubscriptions'] ?? 0}', Icons.card_membership, const Color(0xFF8B5CF6)),
               _buildOverviewCard('Avg Rating', '${double.tryParse(_stats['averageTherapistRating']?.toString() ?? '0.0')?.toStringAsFixed(1) ?? "0.0"} ★', Icons.star, const Color(0xFFF59E0B)),
               _buildOverviewCard('Total Reports', '${_stats['totalReports'] ?? 0}', Icons.gavel, const Color(0xFFEF4444)),
               _buildOverviewCard('Reviews & Feedback', '${_stats['totalFeedback'] ?? 0}', Icons.feedback_outlined, const Color(0xFF0D9488)),
@@ -2786,6 +2868,590 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSubscriptionsTab() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('subscriptions').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              'Error loading subscriptions: ${snapshot.error}',
+              style: const TextStyle(color: Color(0xFFEF4444)),
+            ),
+          );
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+        final allSubs = docs.map((doc) {
+          final data = doc.data() as Map<String, dynamic>? ?? {};
+          return UserSubscription.fromMap(doc.id, data);
+        }).toList();
+
+        // Sort in memory by createdAt descending
+        allSubs.sort((a, b) {
+          final docA = docs.firstWhere((d) => d.id == a.id);
+          final docB = docs.firstWhere((d) => d.id == b.id);
+          final dataA = docA.data() as Map<String, dynamic>? ?? {};
+          final dataB = docB.data() as Map<String, dynamic>? ?? {};
+          final tsA = dataA['createdAt'] as Timestamp?;
+          final tsB = dataB['createdAt'] as Timestamp?;
+          if (tsA != null && tsB != null) {
+            return tsB.compareTo(tsA);
+          }
+          if (tsA != null) return -1;
+          if (tsB != null) return 1;
+          return b.id.compareTo(a.id);
+        });
+
+        // Filter by search query & status chip
+        final filteredSubs = allSubs.where((sub) {
+          final status = sub.status.toLowerCase().trim();
+          bool matchesStatus = true;
+          if (_subFilterStatus == 'Active') {
+            matchesStatus = sub.isActive || status == 'active' || status == 'trialing';
+          } else if (_subFilterStatus == 'Pending') {
+            matchesStatus = status == 'pending';
+          } else if (_subFilterStatus == 'Canceled') {
+            matchesStatus = status == 'canceled' || status == 'cancels soon' || status == 'cancels_soon';
+          } else if (_subFilterStatus == 'Expired') {
+            matchesStatus = status == 'expired';
+          } else if (_subFilterStatus == 'Payment Failed') {
+            matchesStatus = status == 'payment_failed';
+          }
+
+          if (!matchesStatus) return false;
+
+          final query = _subSearchQuery.trim().toLowerCase();
+          if (query.isEmpty) return true;
+
+          final parentName = _userNames[sub.userId]?.toLowerCase() ?? '';
+          final parentEmail = _userEmails[sub.userId]?.toLowerCase() ?? '';
+          final therapistName = _therapistNames[sub.therapistId]?.toLowerCase() ?? '';
+          final plan = sub.productId.toLowerCase();
+          final subId = sub.id.toLowerCase();
+
+          return parentName.contains(query) ||
+              parentEmail.contains(query) ||
+              therapistName.contains(query) ||
+              plan.contains(query) ||
+              subId.contains(query);
+        }).toList();
+
+        return Column(
+          children: [
+            // Search and Status Filters
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+              ),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _subSearchController,
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF64748B), size: 20),
+                      hintText: 'Search by parent, email, therapist, or plan...',
+                      hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13.5),
+                      fillColor: const Color(0xFFF8FAFC),
+                      filled: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFF3B82F6), width: 1.5),
+                      ),
+                      suffixIcon: _subSearchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear_rounded, color: Color(0xFF64748B), size: 18),
+                              onPressed: () => _subSearchController.clear(),
+                            )
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: ['All', 'Active', 'Pending', 'Canceled', 'Expired', 'Payment Failed'].map((status) {
+                        final isSelected = _subFilterStatus == status;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(
+                              status,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: isSelected ? Colors.white : const Color(0xFF475569),
+                              ),
+                            ),
+                            selected: isSelected,
+                            selectedColor: const Color(0xFF1E293B),
+                            backgroundColor: const Color(0xFFF1F5F9),
+                            onSelected: (selected) {
+                              if (selected) {
+                                setState(() {
+                                  _subFilterStatus = status;
+                                });
+                              }
+                            },
+                            checkmarkColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                              side: BorderSide(
+                                color: isSelected ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Subscriptions List
+            Expanded(
+              child: filteredSubs.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.receipt_long_outlined, size: 48, color: Color(0xFF94A3B8)),
+                          const SizedBox(height: 12),
+                          Text(
+                            allSubs.isEmpty ? 'No subscriptions registered.' : 'No matching subscriptions found.',
+                            style: const TextStyle(color: Color(0xFF64748B), fontSize: 14),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: filteredSubs.length,
+                      itemBuilder: (context, index) {
+                        final sub = filteredSubs[index];
+                        final doc = docs.firstWhere((d) => d.id == sub.id);
+                        final rawData = doc.data() as Map<String, dynamic>? ?? {};
+
+                        final parentName = _userNames[sub.userId] ?? 'Unknown Parent';
+                        final parentEmail = _userEmails[sub.userId] ?? '';
+                        final therapistName = _therapistNames[sub.therapistId] ?? 'Unknown Therapist';
+
+                        // Status styling
+                        final statusStr = sub.status.toLowerCase().trim();
+                        Color sideColor = const Color(0xFF64748B);
+                        Color badgeBg = const Color(0xFFF1F5F9);
+                        Color badgeText = const Color(0xFF475569);
+
+                        if (sub.isActive || statusStr == 'active' || statusStr == 'trialing') {
+                          sideColor = const Color(0xFF10B981);
+                          badgeBg = const Color(0xFFECFDF5);
+                          badgeText = const Color(0xFF047857);
+                        } else if (statusStr == 'pending') {
+                          sideColor = const Color(0xFFF59E0B);
+                          badgeBg = const Color(0xFFFFFBEB);
+                          badgeText = const Color(0xFFB45309);
+                        } else if (statusStr == 'canceled' || statusStr == 'cancels soon' || statusStr == 'cancels_soon') {
+                          sideColor = const Color(0xFFF97316);
+                          badgeBg = const Color(0xFFFFF7ED);
+                          badgeText = const Color(0xFFC2410C);
+                        } else if (statusStr == 'expired') {
+                          sideColor = const Color(0xFFEF4444);
+                          badgeBg = const Color(0xFFFEF2F2);
+                          badgeText = const Color(0xFFB91C1C);
+                        } else if (statusStr == 'payment_failed') {
+                          sideColor = const Color(0xFF991B1B);
+                          badgeBg = const Color(0xFFFFF5F5);
+                          badgeText = const Color(0xFF7F1D1D);
+                        }
+
+                        final formattedAmount = _getSubscriptionAmount(rawData);
+                        final expiry = sub.currentPeriodEnd;
+                        final expiryStr = expiry != null
+                            ? '${expiry.day}/${expiry.month}/${expiry.year}'
+                            : 'N/A';
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.02),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: IntrinsicHeight(
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    color: sideColor,
+                                  ),
+                                  Expanded(
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: () => _showSubscriptionDetailsDialog(sub, rawData),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(16),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      parentName,
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        fontWeight: FontWeight.bold,
+                                                        fontSize: 15,
+                                                        color: Color(0xFF1E293B),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                    decoration: BoxDecoration(
+                                                      color: badgeBg,
+                                                      borderRadius: BorderRadius.circular(6),
+                                                    ),
+                                                    child: Text(
+                                                      sub.status.toUpperCase(),
+                                                      style: TextStyle(
+                                                        fontSize: 9,
+                                                        fontWeight: FontWeight.bold,
+                                                        color: badgeText,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              if (parentEmail.isNotEmpty) ...[
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  parentEmail,
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    color: Color(0xFF64748B),
+                                                  ),
+                                                ),
+                                              ],
+                                              const SizedBox(height: 12),
+                                              const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                                              const SizedBox(height: 12),
+                                              Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        const Text(
+                                                          'Therapist',
+                                                          style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold),
+                                                        ),
+                                                        const SizedBox(height: 2),
+                                                        Text(
+                                                          therapistName,
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow.ellipsis,
+                                                          style: const TextStyle(fontSize: 13, color: Color(0xFF334155), fontWeight: FontWeight.w600),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  Expanded(
+                                                    child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        const Text(
+                                                          'Plan / Amount',
+                                                          style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold),
+                                                        ),
+                                                        const SizedBox(height: 2),
+                                                        Text(
+                                                          '${sub.productId} ($formattedAmount)',
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow.ellipsis,
+                                                          style: const TextStyle(fontSize: 13, color: Color(0xFF334155), fontWeight: FontWeight.w600),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 10),
+                                              Row(
+                                                children: [
+                                                  const Icon(Icons.calendar_today_rounded, size: 12, color: Color(0xFF64748B)),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    'Period End: $expiryStr',
+                                                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _getSubscriptionAmount(Map<String, dynamic> data) {
+    final amt = data['amount'];
+    if (amt == null) return 'N/A';
+    if (amt is num) {
+      return formatPrice(amt.toDouble());
+    }
+    return amt.toString();
+  }
+
+  void _showSubscriptionDetailsDialog(UserSubscription sub, Map<String, dynamic> rawData) {
+    final parentName = _userNames[sub.userId] ?? 'Unknown Parent';
+    final parentEmail = _userEmails[sub.userId] ?? 'N/A';
+    final therapistName = _therapistNames[sub.therapistId] ?? 'Unknown Therapist';
+    
+    final created = rawData['createdAt'];
+    final createdDate = dateTimeFromFirestore(created);
+    final createdStr = createdDate != null
+        ? '${createdDate.day}/${createdDate.month}/${createdDate.year} ${createdDate.hour.toString().padLeft(2, '0')}:${createdDate.minute.toString().padLeft(2, '0')}'
+        : 'N/A';
+    
+    final expiry = sub.currentPeriodEnd;
+    final expiryStr = expiry != null
+        ? '${expiry.day}/${expiry.month}/${expiry.year} ${expiry.hour.toString().padLeft(2, '0')}:${expiry.minute.toString().padLeft(2, '0')}'
+        : 'N/A';
+
+    final amountStr = _getSubscriptionAmount(rawData);
+    final statusStr = sub.status.toUpperCase();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          clipBehavior: Clip.hardEdge,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header Banner
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF0F172A), Color(0xFF1E3A5F)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const CircleAvatar(
+                      backgroundColor: Color(0xFFEFF6FF),
+                      child: Icon(Icons.receipt_long_rounded, color: Color(0xFF2563EB)),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Subscription Info',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'STATUS: $statusStr',
+                            style: const TextStyle(fontSize: 13, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white54, size: 22),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Content Details
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Sub IDs & General
+                      _dialogSectionHeader(Icons.info_outline_rounded, 'Overview & Dates'),
+                      const SizedBox(height: 10),
+                      _infoCard([
+                        _infoTile(Icons.vpn_key_outlined, 'Doc ID', sub.id, mono: true),
+                        _infoTile(Icons.calendar_month_outlined, 'Started At', createdStr),
+                        _infoTile(Icons.event_busy_rounded, 'Period End', expiryStr),
+                        _infoTile(Icons.shopping_bag_outlined, 'Package/Plan', sub.productId),
+                        _infoTile(Icons.payments_outlined, 'Amount', amountStr),
+                        _infoTile(Icons.toggle_off_outlined, 'Auto-Renew Cancelled', sub.cancelAtPeriodEnd ? 'YES' : 'NO'),
+                      ]),
+
+                      const SizedBox(height: 16),
+                      _dialogSectionHeader(Icons.people_outline_rounded, 'Related Profiles'),
+                      const SizedBox(height: 10),
+                      _infoCard([
+                        _infoTile(Icons.person_outline_rounded, 'Parent Name', parentName),
+                        _infoTile(Icons.email_outlined, 'Parent Email', parentEmail),
+                        _infoTile(Icons.badge_outlined, 'Parent UID', sub.userId, mono: true),
+                        _infoTile(Icons.medical_services_outlined, 'Therapist Name', therapistName),
+                        _infoTile(Icons.badge_outlined, 'Therapist UID', sub.therapistId ?? 'N/A', mono: true),
+                      ]),
+
+                      const SizedBox(height: 16),
+                      _dialogSectionHeader(Icons.payment_rounded, 'Provider Details'),
+                      const SizedBox(height: 10),
+                      _infoCard([
+                        _infoTile(Icons.business_outlined, 'Provider', (rawData['provider'] ?? 'N/A').toString()),
+                        _infoTile(Icons.pin_outlined, 'Transaction ID', (rawData['providerTransactionId'] ?? 'N/A').toString(), mono: true),
+                        _infoTile(Icons.contact_mail_outlined, 'Customer Ref', (rawData['providerCustomerRef'] ?? 'N/A').toString()),
+                        _infoTile(Icons.receipt_outlined, 'Last Payment Ref', (rawData['lastPaymentRef'] ?? 'N/A').toString(), mono: true),
+                        _infoTile(Icons.shopping_cart_outlined, 'Basket ID', (rawData['basketId'] ?? 'N/A').toString(), mono: true),
+                      ]),
+
+                      const SizedBox(height: 20),
+                      _dialogSectionHeader(Icons.message_rounded, 'Contact Support'),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () async {
+                                final scaffoldMessenger = ScaffoldMessenger.of(context);
+                                try {
+                                  final children = await AppRepositories.users.getChildrenForParent(sub.userId);
+                                  if (context.mounted) {
+                                    Navigator.pop(ctx);
+                                    _showParentDetailsDialog(
+                                      UserProfile(
+                                        uid: sub.userId,
+                                        firstName: parentName.split(' ').first,
+                                        lastName: parentName.contains(' ') ? parentName.split(' ').last : '',
+                                        email: parentEmail,
+                                        phone: '',
+                                        photoUrl: '',
+                                        role: 'parent',
+                                        status: 'active',
+                                        subscriptionTier: 'free',
+                                        entitlements: const {},
+                                        notificationPreferences: const {},
+                                        playSettings: const {},
+                                        createdAt: createdDate,
+                                        updatedAt: DateTime.now(),
+                                      ),
+                                      children,
+                                    );
+                                  }
+                                } catch (e) {
+                                  scaffoldMessenger.showSnackBar(
+                                    SnackBar(content: Text('Error loading parent details: $e')),
+                                  );
+                                }
+                              },
+                              icon: const Icon(Icons.send_rounded, size: 16),
+                              label: const Text('Message Parent', style: TextStyle(fontSize: 12)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF3B82F6),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (sub.therapistId != null)
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () async {
+                                  Navigator.pop(ctx);
+                                  // Fetch therapist details first
+                                  try {
+                                    final doc = await FirebaseFirestore.instance.collection('therapist_profiles').doc(sub.therapistId).get();
+                                    if (doc.exists && doc.data() != null) {
+                                      final therapist = TherapistProfile.fromMap(doc.id, doc.data()!);
+                                      if (mounted) {
+                                        _showTherapistAdminDialog(therapist);
+                                      }
+                                    }
+                                  } catch (_) {}
+                                },
+                                icon: const Icon(Icons.medical_information_rounded, size: 16),
+                                label: const Text('Message Therapist', style: TextStyle(fontSize: 12)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF10B981),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

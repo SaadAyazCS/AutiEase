@@ -423,12 +423,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                     },
                   ),
-                  _SettingsRow(
-                    icon: Icons.person_outline_rounded,
-                    title: 'Logout',
-                    trailing: const Icon(Icons.logout_rounded, size: 22),
-                    onTap: _logout,
-                  ),
                   if (_isParent) ...[
                     _SettingsRow(
                       icon: Icons.receipt_long_rounded,
@@ -443,6 +437,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                       },
                     ),
+                  ],
+                  _SettingsRow(
+                    icon: Icons.person_outline_rounded,
+                    title: 'Logout',
+                    trailing: const Icon(Icons.logout_rounded, size: 22),
+                    onTap: _logout,
+                  ),
+                  if (_isParent) ...[
                     _SettingsRow(
                       icon: Icons.delete_forever_outlined,
                       title: 'Delete account',

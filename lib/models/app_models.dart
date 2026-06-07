@@ -1298,6 +1298,7 @@ class UserSubscription {
   const UserSubscription({
     required this.id,
     required this.userId,
+    this.therapistId,
     required this.productId,
     required this.status,
     required this.cancelAtPeriodEnd,
@@ -1306,6 +1307,7 @@ class UserSubscription {
 
   final String id;
   final String userId;
+  final String? therapistId;
   final String productId;
   final String status;
   final bool cancelAtPeriodEnd;
@@ -1317,6 +1319,7 @@ class UserSubscription {
     return UserSubscription(
       id: id,
       userId: (data['userId'] ?? '').toString(),
+      therapistId: data['therapistId']?.toString(),
       productId: (data['productId'] ?? '').toString(),
       status: (data['status'] ?? 'inactive').toString(),
       cancelAtPeriodEnd: data['cancelAtPeriodEnd'] == true,

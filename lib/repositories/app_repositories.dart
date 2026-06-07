@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:convert';
 
 
 import '../config/app_runtime_config.dart';
@@ -185,8 +186,8 @@ abstract class BillingRepository {
   Future<List<SubscriptionProduct>> listProducts();
   Future<UserSubscription?> getSubscriptionForTherapist(String therapistId);
   Stream<UserSubscription?> watchSubscriptionForTherapist(String therapistId);
-  Future<bool> purchaseTherapistSubscription(String therapistId, {bool Function()? isCancelledCheck});
-  Future<String?> prepareCheckoutUrl(String therapistId);
+  Future<bool> purchaseTherapistSubscription(String therapistId, {int packageIndex = 0, bool Function()? isCancelledCheck, void Function()? onUrlLaunched});
+  Future<String?> prepareCheckoutUrl(String therapistId, {int packageIndex = 0});
   Future<void> deletePendingSubscription(String therapistId);
   Future<void> cancelSubscriptionInStore(String therapistId, {required bool keepAndLockChats});
   Future<void> reactivateSubscriptionInStore(String therapistId);
@@ -1781,6 +1782,7 @@ class FirebaseBillingRepository implements BillingRepository {
     return UserSubscription(
       id: _subscriptionDocId(userId, therapistId),
       userId: userId,
+      therapistId: therapistId,
       productId: 'bypass-plan',
       status: 'active',
       cancelAtPeriodEnd: false,
@@ -1796,41 +1798,46 @@ class FirebaseBillingRepository implements BillingRepository {
     return userId;
   }
 
-  Future<String> _resolveProductIdForTherapist(String therapistId) async {
+  Future<String> _resolveProductIdForTherapist(String therapistId, {int packageIndex = 0}) async {
     final therapistSnapshot = await _firestore
         .collection(FirestoreCollections.therapistProfiles)
         .doc(therapistId)
         .get();
     final therapistData =
         therapistSnapshot.data() ?? const <String, dynamic>{};
-    final existingProductId =
-        (therapistData['subscriptionProductId'] ?? '').toString().trim();
-
-    // If a product ID is already set, use it directly.
-    // The backend will validate the product exists when creating the checkout.
-    if (existingProductId.isNotEmpty) {
-      return existingProductId;
-    }
 
     // ── Derive a deterministic product ID from servicePackages ────────
-    // The backend will auto-create the subscription_products document
-    // if it does not exist yet (using Admin SDK which bypasses rules).
     final rawPackages = therapistData['servicePackages'];
     if (rawPackages is List && rawPackages.isNotEmpty) {
       final visiblePackages = rawPackages
           .whereType<Map>()
           .where((p) => p['visible'] != false)
           .toList();
-      if (visiblePackages.isNotEmpty) {
+      if (packageIndex >= 0 && packageIndex < visiblePackages.length) {
+        final pkg = visiblePackages[packageIndex];
+        final rawPrice = pkg['price'];
+        final price = rawPrice is num
+            ? rawPrice.toDouble()
+            : double.tryParse(rawPrice?.toString() ?? '') ?? 0;
+        if (price > 0) {
+          return 'auto_${therapistId}_$packageIndex';
+        }
+      } else if (visiblePackages.isNotEmpty) {
         final pkg = visiblePackages.first;
         final rawPrice = pkg['price'];
         final price = rawPrice is num
             ? rawPrice.toDouble()
             : double.tryParse(rawPrice?.toString() ?? '') ?? 0;
         if (price > 0) {
-          return 'auto_$therapistId';
+          return 'auto_${therapistId}_0';
         }
       }
+    }
+
+    final existingProductId =
+        (therapistData['subscriptionProductId'] ?? '').toString().trim();
+    if (existingProductId.isNotEmpty) {
+      return existingProductId;
     }
 
     throw StateError(
@@ -1843,7 +1850,7 @@ class FirebaseBillingRepository implements BillingRepository {
     required String userId,
     required String therapistId,
     bool Function()? isCancelledCheck,
-    Duration timeout = const Duration(minutes: 2),
+    Duration timeout = const Duration(minutes: 3),
   }) async {
     final docId = _subscriptionDocId(userId, therapistId);
     final startedAt = DateTime.now();
@@ -1857,18 +1864,18 @@ class FirebaseBillingRepository implements BillingRepository {
           .get();
       if (snapshot.exists && snapshot.data() != null) {
         final subscription = UserSubscription.fromMap(snapshot.id, snapshot.data()!);
-        if (subscription.isActive) {
+        if (subscription.isActive || subscription.status.trim().toLowerCase() == 'active') {
           return true;
         }
+        // Exit immediately on any terminal failure state.
+        // 'payment_failed' = PayFast sent user to FAILURE_URL (no point waiting further).
+        // 'canceled'/'expired' = admin-set terminal states.
         final status = subscription.status.trim().toLowerCase();
-        if (status == 'payment_failed' ||
-            status == 'failed' ||
-            status == 'canceled' ||
-            status == 'expired') {
+        if (status == 'canceled' || status == 'expired' || status == 'payment_failed') {
           return false;
         }
       }
-      await Future<void>.delayed(const Duration(seconds: 5));
+      await Future<void>.delayed(const Duration(seconds: 3));
     }
     return false;
   }
@@ -1936,6 +1943,7 @@ class FirebaseBillingRepository implements BillingRepository {
         return UserSubscription(
           id: docId,
           userId: userId,
+          therapistId: therapistId,
           productId: 'cached-offline',
           status: 'active',
           cancelAtPeriodEnd: false,
@@ -2011,7 +2019,7 @@ class FirebaseBillingRepository implements BillingRepository {
   }
 
   @override
-  Future<String?> prepareCheckoutUrl(String therapistId) async {
+  Future<String?> prepareCheckoutUrl(String therapistId, {int packageIndex = 0}) async {
     final normalizedTherapistId = therapistId.trim();
     if (normalizedTherapistId.isEmpty) {
       throw StateError('Missing therapist id.');
@@ -2026,7 +2034,7 @@ class FirebaseBillingRepository implements BillingRepository {
         '--dart-define=PAYMENT_BACKEND_BASE_URL=https://your-backend-url',
       );
     }
-    final productId = await _resolveProductIdForTherapist(normalizedTherapistId);
+    final productId = await _resolveProductIdForTherapist(normalizedTherapistId, packageIndex: packageIndex);
 
     final checkoutUrl = await _paymentBackend.createCheckoutSession(
       therapistId: normalizedTherapistId,
@@ -2040,7 +2048,9 @@ class FirebaseBillingRepository implements BillingRepository {
   @override
   Future<bool> purchaseTherapistSubscription(
     String therapistId, {
+    int packageIndex = 0,
     bool Function()? isCancelledCheck,
+    void Function()? onUrlLaunched,
   }) async {
     final normalizedTherapistId = therapistId.trim();
     if (normalizedTherapistId.isEmpty) {
@@ -2055,7 +2065,7 @@ class FirebaseBillingRepository implements BillingRepository {
       return false;
     }
 
-    final checkoutUrl = await prepareCheckoutUrl(normalizedTherapistId);
+    final checkoutUrl = await prepareCheckoutUrl(normalizedTherapistId, packageIndex: packageIndex);
     if (checkoutUrl == null || checkoutUrl.trim().isEmpty) {
       if (AppRuntimeConfig.bypassProSupportPaywall) {
         return true;
@@ -2073,6 +2083,10 @@ class FirebaseBillingRepository implements BillingRepository {
     );
     if (!launched) {
       throw StateError('Unable to open payment checkout.');
+    }
+
+    if (onUrlLaunched != null) {
+      onUrlLaunched();
     }
 
     if (isCancelledCheck != null && isCancelledCheck()) {
@@ -2122,28 +2136,24 @@ class FirebaseBillingRepository implements BillingRepository {
       throw StateError('Missing therapist id.');
     }
     final userId = _requireAuthenticatedUser(action: 'manage subscriptions');
-    if (AppRuntimeConfig.bypassProSupportPaywall) {
-      return;
-    }
-    if (!_paymentBackend.isConfigured) {
-      throw StateError(
-        'Payment backend is not configured. Start app with '
-        '--dart-define=PAYMENT_BACKEND_BASE_URL=https://your-backend-url',
-      );
-    }
-
     final docId = _subscriptionDocId(userId, normalizedTherapistId);
-    await _paymentBackend.cancelSubscription(docId);
-    
-    final subscriptionRef = _firestore
-        .collection(FirestoreCollections.subscriptions)
-        .doc(docId);
-    final snapshot = await subscriptionRef.get();
-    if (snapshot.exists) {
-      await subscriptionRef.set({
+
+    if (AppRuntimeConfig.bypassProSupportPaywall) {
+      // In bypass mode, update Firestore directly to cancel
+      await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set({
+        'status': 'canceled',
+        'isActive': false,
         'cancelAtPeriodEnd': true,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+    } else {
+      if (!_paymentBackend.isConfigured) {
+        throw StateError(
+          'Payment backend is not configured. Start app with '
+          '--dart-define=PAYMENT_BACKEND_BASE_URL=https://your-backend-url',
+        );
+      }
+      await _paymentBackend.cancelSubscription(docId);
     }
     
     // Handle chat history deletion vs lock
@@ -2188,28 +2198,24 @@ class FirebaseBillingRepository implements BillingRepository {
       throw StateError('Missing therapist id.');
     }
     final userId = _requireAuthenticatedUser(action: 'manage subscriptions');
-    if (AppRuntimeConfig.bypassProSupportPaywall) {
-      return;
-    }
-    if (!_paymentBackend.isConfigured) {
-      throw StateError(
-        'Payment backend is not configured. Start app with '
-        '--dart-define=PAYMENT_BACKEND_BASE_URL=https://your-backend-url',
-      );
-    }
-
     final docId = _subscriptionDocId(userId, normalizedTherapistId);
-    await _paymentBackend.reactivateSubscription(docId);
-    
-    final subscriptionRef = _firestore
-        .collection(FirestoreCollections.subscriptions)
-        .doc(docId);
-    final snapshot = await subscriptionRef.get();
-    if (snapshot.exists) {
-      await subscriptionRef.set({
+
+    if (AppRuntimeConfig.bypassProSupportPaywall) {
+      // In bypass mode, update Firestore directly to active
+      await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set({
+        'status': 'active',
+        'isActive': true,
         'cancelAtPeriodEnd': false,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+    } else {
+      if (!_paymentBackend.isConfigured) {
+        throw StateError(
+          'Payment backend is not configured. Start app with '
+          '--dart-define=PAYMENT_BACKEND_BASE_URL=https://your-backend-url',
+        );
+      }
+      await _paymentBackend.reactivateSubscription(docId);
     }
 
     // Set thread status back to active if it was locked
@@ -2253,8 +2259,37 @@ class FirebaseBillingRepository implements BillingRepository {
     String accountDetails,
   ) async {
     if (AppRuntimeConfig.bypassProSupportPaywall) {
+      final normalizedId = therapistId.trim();
+      try {
+        // 1. Deduct wallet balance directly in Firestore since rules allow therapist updates
+        await _firestore.collection(FirestoreCollections.therapistProfiles).doc(normalizedId).set({
+          'walletBalance': FieldValue.increment(-amount),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        // 2. Save a mock withdrawal transaction in SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        final key = 'mock_transactions_$normalizedId';
+        final mockTxnsJson = prefs.getString(key) ?? '[]';
+        final List<dynamic> list = jsonDecode(mockTxnsJson);
+        list.add({
+          'id': 'mock_withdraw_${DateTime.now().millisecondsSinceEpoch}',
+          'therapistId': normalizedId,
+          'amount': amount,
+          'type': 'withdrawal',
+          'paymentMethod': paymentMethod,
+          'accountDetails': accountDetails,
+          'status': 'pending',
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        });
+        await prefs.setString(key, jsonEncode(list));
+      } catch (e) {
+        debugPrint('Failed to perform mock withdrawal: $e');
+        throw StateError('Mock withdrawal failed: $e');
+      }
       return;
     }
+
     if (!_paymentBackend.isConfigured) {
       throw StateError('Payment backend is not configured.');
     }
@@ -2270,9 +2305,36 @@ class FirebaseBillingRepository implements BillingRepository {
     final snapshot = await _firestore
         .collection('therapist_earnings')
         .where('therapistId', isEqualTo: therapistId.trim())
-        .orderBy('createdAt', descending: true)
         .get();
-    return snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+    final docs = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+
+    // If bypass paywall is enabled, load mock transactions from shared preferences
+    if (AppRuntimeConfig.bypassProSupportPaywall) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final mockTxnsJson = prefs.getString('mock_transactions_$therapistId') ?? '[]';
+        final List<dynamic> parsed = jsonDecode(mockTxnsJson);
+        for (final item in parsed) {
+          final map = Map<String, dynamic>.from(item);
+          if (map['createdAt'] != null) {
+            map['createdAt'] = Timestamp.fromMillisecondsSinceEpoch(map['createdAt'] as int);
+          }
+          docs.add(map);
+        }
+      } catch (e) {
+        debugPrint('Failed to load mock transactions: $e');
+      }
+    }
+
+    docs.sort((a, b) {
+      final aTime = a['createdAt'] as Timestamp?;
+      final bTime = b['createdAt'] as Timestamp?;
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      return bTime.compareTo(aTime);
+    });
+    return docs;
   }
 
   @override
@@ -2284,9 +2346,17 @@ class FirebaseBillingRepository implements BillingRepository {
     final snapshot = await _firestore
         .collection('therapist_earnings')
         .where('userId', isEqualTo: userId)
-        .orderBy('createdAt', descending: true)
         .get();
-    return snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+    final docs = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+    docs.sort((a, b) {
+      final aTime = a['createdAt'] as Timestamp?;
+      final bTime = b['createdAt'] as Timestamp?;
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      return bTime.compareTo(aTime);
+    });
+    return docs;
   }
 }
 

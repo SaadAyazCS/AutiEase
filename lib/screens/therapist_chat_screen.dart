@@ -12,6 +12,7 @@ import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../utils/app_colors.dart';
 import '../widgets/session_guard.dart';
+import 'professional_support_screen.dart';
 
 class _TherapistPlaceholderAvatar extends StatelessWidget {
   const _TherapistPlaceholderAvatar({
@@ -118,9 +119,13 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   // Loaded peer profiles for visual headers
   UserProfile? _peerUserProfile;
   TherapistProfile? _peerTherapistProfile;
+  TherapistThread? _lastSeenThread;
 
   String? _activeCheckoutTherapistId;
   bool _isCheckoutCancelled = false;
+  bool _isPaymentFailed = false;
+  bool _isCheckoutUrlLaunched = false;
+  bool _isProgrammaticPop = false;
 
   @override
   void initState() {
@@ -142,19 +147,27 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _activeCheckoutTherapistId != null) {
+    if (state == AppLifecycleState.resumed && _activeCheckoutTherapistId != null && _isCheckoutUrlLaunched) {
       final therapistId = _activeCheckoutTherapistId!;
-      Future.delayed(const Duration(milliseconds: 1000), () async {
+      Future.delayed(const Duration(milliseconds: 800), () async {
         if (_activeCheckoutTherapistId == therapistId && !_isCheckoutCancelled) {
           try {
             await AppRepositories.billing.syncSubscriptionStatus(therapistId);
           } catch (e) {
             debugPrint('Error syncing checkout status on resume: $e');
           }
+          // After user returns from browser, check the current subscription status.
+          // 'payment_failed' means PayFast redirected to FAILURE_URL — treat as terminal
+          // so the polling loop exits immediately and shows the error snackbar fast.
+          // 'pending' is NOT terminal — user may still be in the browser.
           final sub = await AppRepositories.billing.getSubscriptionForTherapist(therapistId);
-          if (sub == null || !sub.isActive) {
+          final status = sub?.status.trim().toLowerCase() ?? '';
+          final isPaymentFailed = status == 'payment_failed';
+          final isTerminalFailure = const ['canceled', 'expired', 'payment_failed'].contains(status);
+          if (isTerminalFailure) {
             if (mounted) {
               setState(() {
+                _isPaymentFailed = isPaymentFailed;
                 _isCheckoutCancelled = true;
               });
             }
@@ -566,18 +579,34 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         : _peerUserProfile?.photoUrl;
 
     if (isTherapist) {
-      showDialog<void>(
-        context: context,
-        builder: (context) {
-          return _TherapistProfileDialog(
-            therapist: _peerTherapistProfile,
-            photoUrlBase64: photoUrlBase64,
-            onCancelSubscription: () {
-              Navigator.pop(context); // Close profile dialog
-              _showCancelSubscriptionFlow(context); // Start cancel flow
+      if (_peerTherapistProfile == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Loading therapist details... Please try again.')),
+        );
+        return;
+      }
+      final initiallySubscribed = (_lastSeenThread?.status == 'active') || (widget.thread.status == 'active');
+      Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (routeContext) => SupportTherapistDetailsScreen(
+            therapist: _peerTherapistProfile!,
+            initiallySubscribed: initiallySubscribed,
+            chatEnabled: true,
+            paymentsEnabled: true,
+            onSubscribe: (packageIndex) => AppRepositories.billing.purchaseTherapistSubscription(
+              _peerTherapistProfile!.id,
+              packageIndex: packageIndex,
+            ),
+            onCancelSubscription: () async {
+              final result = await _showCancelSubscriptionFlow(routeContext);
+              return result;
             },
-          );
-        },
+            onOpenMessages: () async {
+              Navigator.pop(routeContext);
+            },
+          ),
+        ),
       );
     } else {
       showModalBottomSheet<void>(
@@ -637,51 +666,62 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     }
   }
 
-  void _showCancelSubscriptionFlow(BuildContext parentDialogContext) {
-    showDialog<void>(
-      context: parentDialogContext,
+  Future<bool> _showCancelSubscriptionFlow(BuildContext dialogContext) async {
+    final confirm = await showDialog<bool>(
+      context: dialogContext,
       barrierDismissible: false,
       builder: (dialogCtx) {
-        return _CancelSubscriptionDialog(
+        return CancelSubscriptionDialog(
           therapistName: widget.participantName,
           onConfirmCancel: () {
-            Navigator.pop(dialogCtx);
-            _showChatHistoryChoicesDialog(parentDialogContext);
+            Navigator.pop(dialogCtx, true);
           },
         );
       },
     );
+
+    if (confirm == true) {
+      if (!dialogContext.mounted) return false;
+      final choice = await _showChatHistoryChoicesDialog(dialogContext);
+      if (choice != null) {
+        if (dialogContext.mounted) {
+          Navigator.pop(dialogContext); // Close details screen
+        }
+        if (context.mounted) {
+          final messenger = ScaffoldMessenger.of(context);
+          if (choice == 'delete') {
+            Navigator.pop(context); // Close chat screen itself
+            messenger.showSnackBar(
+              const SnackBar(
+                content: Text('Subscription cancelled and chat history deleted.'),
+                backgroundColor: Color(0xFFEF4444),
+              ),
+            );
+          } else {
+            messenger.showSnackBar(
+              const SnackBar(
+                content: Text('Subscription cancelled. Chat locked to read-only.'),
+                backgroundColor: Color(0xFF3B82F6),
+              ),
+            );
+          }
+        }
+        return true;
+      }
+    }
+    return false;
   }
 
-  void _showChatHistoryChoicesDialog(BuildContext parentCtx) {
-    showDialog<void>(
+  Future<String?> _showChatHistoryChoicesDialog(BuildContext parentCtx) async {
+    return showDialog<String>(
       context: parentCtx,
       barrierDismissible: false,
       builder: (dialogCtx) {
-        return _ChatHistoryChoicesDialog(
+        return ChatHistoryChoicesDialog(
           threadId: widget.thread.id,
           therapistId: widget.thread.therapistId,
-          onComplete: (choice) async {
-            if (choice == 'delete') {
-              if (parentCtx.mounted) {
-                Navigator.pop(parentCtx);
-                ScaffoldMessenger.of(parentCtx).showSnackBar(
-                  const SnackBar(
-                    content: Text('Subscription cancelled and chat history deleted.'),
-                    backgroundColor: Color(0xFFEF4444),
-                  ),
-                );
-              }
-            } else {
-              if (parentCtx.mounted) {
-                ScaffoldMessenger.of(parentCtx).showSnackBar(
-                  const SnackBar(
-                    content: Text('Subscription cancelled. Chat locked to read-only.'),
-                    backgroundColor: Color(0xFF3B82F6),
-                  ),
-                );
-              }
-            }
+          onComplete: (choice) {
+            // Handled inside choices dialog State
           },
         );
       },
@@ -874,6 +914,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
           stream: AppRepositories.support.watchThread(widget.thread.id),
           builder: (context, threadSnapshot) {
             final thread = threadSnapshot.data ?? widget.thread;
+            _lastSeenThread = thread;
             _syncResolvedBanner(thread);
             final canSendMessage = _canSendMessage(thread);
             return LayoutBuilder(
@@ -1243,6 +1284,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                           onPressed: () async {
                                             _activeCheckoutTherapistId = widget.thread.therapistId;
                                             _isCheckoutCancelled = false;
+                                            _isPaymentFailed = false;
+                                            _isCheckoutUrlLaunched = false;
+                                            _isProgrammaticPop = false;
 
                                             showDialog<void>(
                                               context: context,
@@ -1251,7 +1295,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                 return PopScope(
                                                   canPop: true,
                                                   onPopInvokedWithResult: (didPop, _) {
-                                                    if (didPop) {
+                                                    if (didPop && !_isProgrammaticPop) {
                                                       setState(() {
                                                         _isCheckoutCancelled = true;
                                                       });
@@ -1299,20 +1343,40 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                   .purchaseTherapistSubscription(
                                                     widget.thread.therapistId,
                                                     isCancelledCheck: () => _isCheckoutCancelled,
+                                                    onUrlLaunched: () {
+                                                      if (mounted) {
+                                                        setState(() {
+                                                          _isCheckoutUrlLaunched = true;
+                                                        });
+                                                      }
+                                                    },
                                                   );
                                               if (context.mounted && Navigator.canPop(context)) {
+                                                setState(() {
+                                                  _isProgrammaticPop = true;
+                                                });
                                                 Navigator.pop(context);
                                               }
                                               if (_isCheckoutCancelled) {
                                                 AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
                                                 if (context.mounted) {
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text('Payment cancelled. You can renew anytime.'),
-                                                      backgroundColor: Color(0xFF64748B),
-                                                      duration: Duration(seconds: 4),
-                                                    ),
-                                                  );
+                                                  if (_isPaymentFailed) {
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text('Payment failed. Please check your card details and try again.'),
+                                                        backgroundColor: AppColors.errorRed,
+                                                        duration: Duration(seconds: 5),
+                                                      ),
+                                                    );
+                                                  } else {
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text('Payment cancelled. You can renew anytime.'),
+                                                        backgroundColor: Color(0xFF64748B),
+                                                        duration: Duration(seconds: 4),
+                                                      ),
+                                                    );
+                                                  }
                                                 }
                                               } else if (success) {
                                                 if (context.mounted) {
@@ -1328,7 +1392,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                 if (context.mounted) {
                                                   ScaffoldMessenger.of(context).showSnackBar(
                                                     const SnackBar(
-                                                      content: Text('Payment not completed. Please try again.'),
+                                                      content: Text('Payment timed out. Please try again.'),
                                                       backgroundColor: AppColors.errorRed,
                                                       duration: Duration(seconds: 5),
                                                     ),
@@ -1338,6 +1402,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                             } catch (e) {
                                               setState(() {
                                                 _isCheckoutCancelled = true;
+                                                _isProgrammaticPop = true;
                                               });
                                               if (context.mounted && Navigator.canPop(context)) {
                                                 Navigator.pop(context);
@@ -1781,8 +1846,9 @@ class _TherapistProfileDialog extends StatelessWidget {
   }
 }
 
-class _CancelSubscriptionDialog extends StatelessWidget {
-  const _CancelSubscriptionDialog({
+class CancelSubscriptionDialog extends StatelessWidget {
+  const CancelSubscriptionDialog({
+    super.key,
     required this.therapistName,
     required this.onConfirmCancel,
   });
@@ -1923,22 +1989,23 @@ class _CancelSubscriptionDialog extends StatelessWidget {
   }
 }
 
-class _ChatHistoryChoicesDialog extends StatefulWidget {
-  const _ChatHistoryChoicesDialog({
-    required this.threadId,
+class ChatHistoryChoicesDialog extends StatefulWidget {
+  const ChatHistoryChoicesDialog({
+    super.key,
+    this.threadId,
     required this.therapistId,
     required this.onComplete,
   });
 
-  final String threadId;
+  final String? threadId;
   final String therapistId;
   final Function(String choice) onComplete;
 
   @override
-  State<_ChatHistoryChoicesDialog> createState() => _ChatHistoryChoicesDialogState();
+  State<ChatHistoryChoicesDialog> createState() => _ChatHistoryChoicesDialogState();
 }
 
-class _ChatHistoryChoicesDialogState extends State<_ChatHistoryChoicesDialog> {
+class _ChatHistoryChoicesDialogState extends State<ChatHistoryChoicesDialog> {
   bool _isLoading = false;
 
   Future<void> _handleChoice(String choice) async {
@@ -1950,7 +2017,13 @@ class _ChatHistoryChoicesDialogState extends State<_ChatHistoryChoicesDialog> {
     if (parentId == null) return;
 
     try {
-      // 1. Remove from subscribed list and add to hidden list (if deleting)
+      // 1. Call Billing Repository to cancel on the gateway and update database subscriptions & threads
+      await AppRepositories.billing.cancelSubscriptionInStore(
+        widget.therapistId,
+        keepAndLockChats: choice == 'keep',
+      );
+
+      // 2. Remove from subscribed list and add to hidden list (if deleting)
       final userDoc = await FirebaseFirestore.instance
           .collection(FirestoreCollections.users)
           .doc(parentId)
@@ -1979,34 +2052,25 @@ class _ChatHistoryChoicesDialogState extends State<_ChatHistoryChoicesDialog> {
             'proSupportUpdatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
 
-      // 2. Perform thread action
-      if (choice == 'delete') {
-        await FirebaseFirestore.instance
-            .collection(FirestoreCollections.therapistThreads)
-            .doc(widget.threadId)
-            .delete();
-      } else {
-        await FirebaseFirestore.instance
-            .collection(FirestoreCollections.therapistThreads)
-            .doc(widget.threadId)
-            .update({
-              'status': 'cancelled',
-              'postCancelVisible': true,
-            });
-      }
-
       // Smooth transition delay
       await Future.delayed(const Duration(seconds: 1));
       
       if (mounted) {
-        Navigator.pop(context); // Close the dialog
+        Navigator.pop(context, choice); // Close the dialog
         widget.onComplete(choice);
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Error cancelling subscription: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to cancel subscription: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
       }
     }
   }
