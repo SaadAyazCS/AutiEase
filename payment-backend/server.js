@@ -441,6 +441,115 @@ function buildStatusPageHtml(isSuccess, message) {
 </html>`;
 }
 
+/**
+ * Build an HTML page that opens the AutiEase app via a custom-scheme deep link.
+ *
+ * WHY: Chrome on Android IGNORES server-side HTTP redirects to custom schemes (autiease://).
+ * The only reliable approach is an HTML page that triggers window.location.href via JavaScript
+ * and also shows a visible "Return to AutiEase" button as a manual fallback.
+ *
+ * @param {boolean} isSuccess - Whether the payment was successful
+ * @param {string}  deepLink  - The full autiease:// URL to open (e.g. autiease://payment-result?status=success&basket_id=...)
+ * @param {string}  message   - Human-readable message to show on the page
+ * @param {string}  title     - Page/card title
+ */
+function buildDeepLinkPage(isSuccess, deepLink, message, title) {
+  const color      = isSuccess ? '#00c853' : '#ef4444';
+  const bgColor    = isSuccess ? '#f0fdf4' : '#fef2f2';
+  const borderColor = isSuccess ? '#bbf7d0' : '#fecaca';
+  const icon = isSuccess
+    ? `<svg width="48" height="48" fill="none" stroke="${color}" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/></svg>`
+    : `<svg width="48" height="48" fill="none" stroke="${color}" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 9l-6 6M9 9l6 6"/></svg>`;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${title} — AutiEase</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: ${bgColor};
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .card {
+      background: white;
+      border: 1.5px solid ${borderColor};
+      border-radius: 20px;
+      padding: 40px 32px;
+      max-width: 400px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+    }
+    .icon { margin-bottom: 20px; }
+    h2 { font-size: 22px; font-weight: 700; color: #111827; margin-bottom: 10px; }
+    p  { font-size: 14px; color: #6b7280; line-height: 1.6; margin-bottom: 28px; }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 14px 24px;
+      background: ${color};
+      color: white;
+      font-size: 16px;
+      font-weight: 600;
+      text-decoration: none;
+      border-radius: 12px;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .hint { margin-top: 16px; font-size: 12px; color: #9ca3af; }
+    .countdown { font-weight: 600; color: ${color}; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${icon}</div>
+    <h2>${title}</h2>
+    <p>${message}</p>
+    <a class="btn" href="${deepLink}" id="returnBtn">Return to AutiEase</a>
+    <p class="hint">Auto-opening in <span class="countdown" id="countdown">3</span>s...</p>
+  </div>
+  <script>
+    var deepLink = ${JSON.stringify(deepLink)};
+    var attempts = 0;
+
+    function openApp() {
+      window.location.href = deepLink;
+    }
+
+    // Auto-trigger with countdown
+    var secs = 3;
+    var timer = setInterval(function() {
+      secs--;
+      var el = document.getElementById('countdown');
+      if (el) el.textContent = secs;
+      if (secs <= 0) {
+        clearInterval(timer);
+        openApp();
+      }
+    }, 1000);
+
+    // Also trigger immediately on button tap
+    document.getElementById('returnBtn').addEventListener('click', function(e) {
+      e.preventDefault();
+      clearInterval(timer);
+      openApp();
+    });
+  </script>
+</body>
+</html>`;
+}
+
 // ---------------------------------------------------------------------------
 // SafePay Configuration
 // ---------------------------------------------------------------------------
@@ -814,7 +923,7 @@ app.use((req, _res, next) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.0.8-safepay-redirect-fix' });
+  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.0.9-deeplink-html-fix' });
 });
 
 app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
@@ -1522,7 +1631,12 @@ app.get('/api/v1/payment/return/success', async (req, res) => {
     }
   }
 
-  res.redirect(`autiease://payment-result?status=success&basket_id=${encodeURIComponent(basketId || '')}`);
+  // Chrome on Android ignores server-side redirects to custom schemes (autiease://).
+  // Must serve an HTML page that uses JavaScript window.location.href to trigger the deep link.
+  const deepLink = `autiease://payment-result?status=success&basket_id=${encodeURIComponent(basketId || '')}`;
+  res.send(buildDeepLinkPage(true, deepLink,
+    'Your payment was successful! Returning you to AutiEase now...',
+    'Payment Successful'));
 });
 
 app.get('/api/v1/payment/return/failure', async (req, res) => {
@@ -1568,7 +1682,12 @@ app.get('/api/v1/payment/return/failure', async (req, res) => {
     }
   }
 
-  res.redirect(`autiease://payment-result?status=failure&basket_id=${encodeURIComponent(basketId || '')}`);
+  // Chrome on Android ignores server-side redirects to custom schemes (autiease://).
+  // Must serve an HTML page that uses JavaScript window.location.href to trigger the deep link.
+  const deepLink = `autiease://payment-result?status=failure&basket_id=${encodeURIComponent(basketId || '')}`;
+  res.send(buildDeepLinkPage(false, deepLink,
+    'Your payment was not completed. Tap below to return to AutiEase.',
+    'Payment Not Completed'));
 });
 
 app.post('/api/v1/subscription/cancel', requireAuth, async (req, res) => {
