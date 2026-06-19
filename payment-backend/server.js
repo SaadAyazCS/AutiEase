@@ -1221,8 +1221,8 @@ app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
         currency: 'PKR',
         order_id: basketId,
         source: 'app',
-        cancel_url: `${baseUrl}/api/v1/payment/return/failure?basket_id=${encodeURIComponent(basketId)}`,
-        redirect_url: `${baseUrl}/api/v1/payment/return/success?basket_id=${encodeURIComponent(basketId)}`,
+        cancel_url: `${baseUrl}/api/v1/payment/return/failure/${encodeURIComponent(basketId)}`,
+        redirect_url: `${baseUrl}/api/v1/payment/return/success/${encodeURIComponent(basketId)}`,
       }),
     });
 
@@ -1239,8 +1239,8 @@ app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
       return jsonError(res, 502, 'SafePay did not return a checkout token.');
     }
 
-    const successRedirectUrl = `${baseUrl}/api/v1/payment/return/success?basket_id=${encodeURIComponent(basketId)}`;
-    const cancelRedirectUrl = `${baseUrl}/api/v1/payment/return/failure?basket_id=${encodeURIComponent(basketId)}`;
+    const successRedirectUrl = `${baseUrl}/api/v1/payment/return/success/${encodeURIComponent(basketId)}`;
+    const cancelRedirectUrl = `${baseUrl}/api/v1/payment/return/failure/${encodeURIComponent(basketId)}`;
 
     const checkoutUrl = `${safepayConfig.checkoutBaseUrl}/checkout/pay?` +
       `env=${safepayConfig.environment}` +
@@ -1479,9 +1479,9 @@ app.post('/api/v1/payment/webhook', async (req, res) => {
   }
 });
 
-app.get('/api/v1/payment/return/success', async (req, res) => {
+app.get('/api/v1/payment/return/success/:basket_id?', async (req, res) => {
   const payload = req.query || {};
-  const basketId = normalizeValue(payload.basket_id || payload.BASKET_ID);
+  const basketId = normalizeValue(req.params.basket_id || payload.basket_id || payload.BASKET_ID);
 
   if (basketId) {
     try {
@@ -1500,9 +1500,9 @@ app.get('/api/v1/payment/return/success', async (req, res) => {
     'Payment Successful'));
 });
 
-app.get('/api/v1/payment/return/failure', async (req, res) => {
+app.get('/api/v1/payment/return/failure/:basket_id?', async (req, res) => {
   const payload = req.query || {};
-  const basketId = normalizeValue(payload.basket_id || payload.BASKET_ID);
+  const basketId = normalizeValue(req.params.basket_id || payload.basket_id || payload.BASKET_ID);
 
   if (basketId) {
     try {
