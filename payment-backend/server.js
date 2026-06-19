@@ -486,7 +486,12 @@ function verifySafepayWebhook(req) {
   }
 
   try {
-    const keyBytes = Buffer.from(secret, 'base64');
+    let keyBytes;
+    if (/^[0-9a-fA-F]{64}$/.test(secret)) {
+      keyBytes = Buffer.from(secret, 'hex');
+    } else {
+      keyBytes = Buffer.from(secret, 'base64');
+    }
     const signingPayload = `${timestamp}.${rawBody}`;
     const computedHmac = crypto
       .createHmac('sha256', keyBytes)
