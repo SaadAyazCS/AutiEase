@@ -1041,7 +1041,17 @@ app.use((req, _res, next) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.1.0-safepay-doublecheck-fix' });
+  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.1.1-safepay-test-endpoint' });
+});
+
+app.get('/api/v1/test-tracker/:tracker_token', async (req, res) => {
+  const token = req.params.tracker_token;
+  try {
+    const gatewayVerification = await verifyTransactionWithGateway(token);
+    res.status(200).json(gatewayVerification);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
