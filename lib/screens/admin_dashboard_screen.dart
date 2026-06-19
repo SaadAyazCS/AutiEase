@@ -3682,18 +3682,144 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
         context: context,
         builder: (ctx) {
           final ctrl = TextEditingController();
+          final formKey = GlobalKey<FormState>();
           return AlertDialog(
-            title: const Text('Mark as Paid'),
-            content: TextField(
-              controller: ctrl,
-              decoration: const InputDecoration(
-                labelText: 'Transaction Reference (optional)',
-                hintText: 'e.g. TXN123456',
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD1FAE5),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.check_circle_rounded,
+                    color: Color(0xFF059669),
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Mark as Paid',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1E293B),
+                  ),
+                ),
+              ],
+            ),
+            content: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Please enter the official payment transaction reference ID. This is mandatory for auditing and record-keeping.',
+                    style: TextStyle(
+                      color: Color(0xFF64748B),
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  TextFormField(
+                    controller: ctrl,
+                    autofocus: true,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      color: Color(0xFF1E293B),
+                      fontWeight: FontWeight.w500,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Transaction Reference ID',
+                      labelStyle: const TextStyle(
+                        color: Color(0xFF059669),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                      hintText: 'e.g. TXN987654321',
+                      hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                      prefixIcon: const Icon(
+                        Icons.receipt_long_rounded,
+                        color: Color(0xFF64748B),
+                      ),
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFF059669), width: 2),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFE2E8F0), width: 1),
+                      ),
+                      errorBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFEF4444), width: 1),
+                      ),
+                      focusedErrorBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFEF4444), width: 2),
+                      ),
+                      errorStyle: const TextStyle(
+                        color: Color(0xFFEF4444),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    validator: (val) {
+                      if (val == null || val.trim().isEmpty) {
+                        return 'Transaction reference is required';
+                      }
+                      if (val.trim().length < 4) {
+                        return 'Please enter a valid reference ID';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
               ),
             ),
+            actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-              FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Confirm')),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF059669),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                ),
+                onPressed: () {
+                  if (formKey.currentState?.validate() == true) {
+                    Navigator.pop(ctx, ctrl.text.trim());
+                  }
+                },
+                child: const Text(
+                  'Confirm',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
             ],
           );
         },

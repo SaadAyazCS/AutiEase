@@ -1756,6 +1756,9 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, async (req, res) => {
     const amount = parseAmount(requestData.amount);
 
     await db.runTransaction(async (txn) => {
+      // Perform all reads first (Firestore transactions require all reads to precede writes)
+      const earningsSnap = await txn.get(db.collection('therapist_earnings').doc(requestId));
+
       // Update withdrawal request
       txn.set(requestRef, {
         status,
@@ -1765,8 +1768,7 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, async (req, res) => {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
 
-      // Update therapist_earnings matching document
-      const earningsSnap = await txn.get(db.collection('therapist_earnings').doc(requestId));
+      // Update therapist_earnings matching document if it exists
       if (earningsSnap.exists) {
         txn.set(earningsSnap.ref, {
           status,
