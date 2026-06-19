@@ -515,18 +515,72 @@ function verifySafepayWebhook(req) {
 }
 
 /**
- * Calculate dynamic SafePay fees and platform revenue.
- * SafePay fee: 2.9% + Rs.30 (applies to all payment methods in v1)
- * Platform fee: 7% of (gross - safepayFee)
+ * Calculate dynamic SafePay fees and platform revenue based on payment channel/method.
+ * - Local card: 2.9% + Rs.30
+ * - International card: 3.5% + Rs.30
+ * - Mobile wallets (EasyPaisa/JazzCash): 2.5% (no flat fee)
+ * - Bank Account / Raast: 1.8% (no flat fee)
+ * Can be overridden via SAFEPAY_GATEWAY_RATE and SAFEPAY_GATEWAY_FLAT environment variables.
  *
  * @param {number} grossAmount - Full subscription amount paid by parent
+ * @param {object} rawPayload - Webhook payload or Reporter API transaction data
  * @returns {{ safepayFee: number, platformFee: number, netAmount: number }}
  */
-function calculateFees(grossAmount) {
-  const safepayFee = parseFloat(((grossAmount * 0.029) + 30).toFixed(2));
+function calculateFees(grossAmount, rawPayload = {}) {
+  // Default to standard local card rate
+  let gatewayRate = 0.029;
+  let gatewayFlat = 30;
+
+  const payload = rawPayload || {};
+  const data = payload.data || payload;
+
+  const channel = normalizeValue(
+    data.channel ||
+      data.payment_method?.channel ||
+      data.payment_method?.type ||
+      payload.payment_method ||
+      payload.channel ||
+      ''
+  ).toLowerCase();
+
+  const isInternational = isTruthy(
+    data.payment_method?.card?.international ||
+      payload.is_international ||
+      false
+  );
+
+  // Determine rate based on payment channel
+  if (channel === 'wallet' || channel === 'easypaisa' || channel === 'jazzcash' || channel === 'mobile_wallet') {
+    gatewayRate = 0.025;
+    gatewayFlat = 0;
+  } else if (channel === 'bank' || channel === 'raast' || channel === 'direct_debit' || channel === 'bank_account') {
+    gatewayRate = 0.018;
+    gatewayFlat = 0;
+  } else if (channel === 'card') {
+    if (isInternational) {
+      gatewayRate = 0.035;
+      gatewayFlat = 30;
+    } else {
+      gatewayRate = 0.029;
+      gatewayFlat = 30;
+    }
+  }
+
+  // Allow manual overrides via env variables
+  const envRate = parseFloat(process.env.SAFEPAY_GATEWAY_RATE);
+  const envFlat = parseFloat(process.env.SAFEPAY_GATEWAY_FLAT);
+  if (!isNaN(envRate)) {
+    gatewayRate = envRate;
+  }
+  if (!isNaN(envFlat)) {
+    gatewayFlat = envFlat;
+  }
+
+  const safepayFee = parseFloat(((grossAmount * gatewayRate) + gatewayFlat).toFixed(2));
   const afterGateway = parseFloat((grossAmount - safepayFee).toFixed(2));
   const platformFee = parseFloat((afterGateway * 0.07).toFixed(2));
   const netAmount = parseFloat((afterGateway - platformFee).toFixed(2));
+
   return { safepayFee, platformFee, netAmount };
 }
 
@@ -839,7 +893,7 @@ app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
     const transactionAmount = toAmountString(amount);
 
     if (mockPaymentsEnabled) {
-      const { safepayFee, platformFee, netAmount } = calculateFees(amount);
+      const { safepayFee, platformFee, netAmount } = calculateFees(amount, { channel: 'card', is_international: false });
       const mockTxnId = `mock_txn_${Date.now()}`;
       const batch = db.batch();
 
@@ -1050,7 +1104,7 @@ app.post('/api/v1/checkout/status', requireAuth, async (req, res) => {
       const wasInserted = await markPaymentEventProcessed(eventId, gatewayVerification.payload || {});
       
       if (wasInserted) {
-        const { safepayFee, platformFee, netAmount } = calculateFees(amount);
+        const { safepayFee, platformFee, netAmount } = calculateFees(amount, gatewayVerification.payload);
         const batch = db.batch();
 
         batch.set(subscriptionDoc.ref, {
@@ -1178,7 +1232,7 @@ async function processTransactionResult(rawPayload) {
   const isSuccess = ['payment.captured', 'payment.success', 'success', 'completed', 'paid'].includes(eventType.toLowerCase());
 
   if (isSuccess) {
-    const { safepayFee, platformFee, netAmount } = calculateFees(amount);
+    const { safepayFee, platformFee, netAmount } = calculateFees(amount, webhookEvent);
     const batch = db.batch();
 
     batch.set(subscriptionDoc.ref, {
@@ -1348,7 +1402,7 @@ app.get('/api/v1/payment/return/success', async (req, res) => {
             // SafePay passes tracker/order_ref in query params
             const transactionId = normalizeValue(payload.tracker || payload.transaction_id || payload.order_ref || '');
             const amount = parseAmount(subscription.amount);
-            const { safepayFee, platformFee, netAmount } = calculateFees(amount);
+            const { safepayFee, platformFee, netAmount } = calculateFees(amount, payload);
             const batch = db.batch();
 
             batch.set(subscriptionDoc.ref, {
