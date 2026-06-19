@@ -269,20 +269,20 @@ function verifyPayFastValidationHash(normalizedPayload) {
   const payload = normalizedPayload.raw || {};
   const providedHash = normalizeValue(
     payload.VALIDATION_HASH ||
-      payload.validation_hash ||
-      payload.HASH ||
-      payload.hash ||
-      payload.SECURE_HASH ||
-      payload.secure_hash,
+    payload.validation_hash ||
+    payload.HASH ||
+    payload.hash ||
+    payload.SECURE_HASH ||
+    payload.secure_hash,
   ).toLowerCase();
   const errorCode = normalizeValue(
     payload.ERR_CODE ||
-      payload.err_code ||
-      payload.ERROR_CODE ||
-      payload.error_code ||
-      payload.RESPONSE_CODE ||
-      payload.response_code ||
-      normalizedPayload.responseCode,
+    payload.err_code ||
+    payload.ERROR_CODE ||
+    payload.error_code ||
+    payload.RESPONSE_CODE ||
+    payload.response_code ||
+    normalizedPayload.responseCode,
   );
 
   if (!providedHash) {
@@ -355,7 +355,7 @@ function buildStatusPageHtml(isSuccess, message) {
   const title = isSuccess ? 'Payment Successful' : 'Payment Failed';
   const color = isSuccess ? '#00c853' : '#dc2626';
   const bgLight = isSuccess ? '#edfdf2' : '#fef2f2';
-  const icon = isSuccess 
+  const icon = isSuccess
     ? `<div style="width:72px;height:72px;border-radius:50%;background:#dcfce7;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;"><svg width="36" height="36" fill="none" stroke="${color}" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg></div>`
     : `<div style="width:72px;height:72px;border-radius:50%;background:#fee2e2;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;"><svg width="36" height="36" fill="none" stroke="${color}" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></div>`;
 
@@ -517,9 +517,9 @@ function verifySafepayWebhook(req) {
 /**
  * Calculate dynamic SafePay fees and platform revenue based on payment channel/method.
  * - Local card: 2.9% + Rs.30
- * - International card: 3.5% + Rs.30
- * - Mobile wallets (EasyPaisa/JazzCash): 2.5% (no flat fee)
- * - Bank Account / Raast: 1.8% (no flat fee)
+ * - International card: 3.2% + Rs.30
+ * - Mobile wallets (EasyPaisa/JazzCash): 1.5% (no flat fee)
+ * - Bank Account / Raast: 1.5% (no flat fee)
  * Can be overridden via SAFEPAY_GATEWAY_RATE and SAFEPAY_GATEWAY_FLAT environment variables.
  *
  * @param {number} grossAmount - Full subscription amount paid by parent
@@ -536,17 +536,17 @@ function calculateFees(grossAmount, rawPayload = {}) {
 
   const channel = normalizeValue(
     data.channel ||
-      data.payment_method?.channel ||
-      data.payment_method?.type ||
-      payload.payment_method ||
-      payload.channel ||
-      ''
+    data.payment_method?.channel ||
+    data.payment_method?.type ||
+    payload.payment_method ||
+    payload.channel ||
+    ''
   ).toLowerCase();
 
   const isInternational = isTruthy(
     data.payment_method?.card?.international ||
-      payload.is_international ||
-      false
+    payload.is_international ||
+    false
   );
 
   // Determine rate based on payment channel
@@ -1048,7 +1048,7 @@ app.post('/api/v1/checkout/status', requireAuth, async (req, res) => {
     const normalizedTherapistId = normalizeValue(therapistId);
     const subscriptionId = normalizeSubscriptionDocId(uid, normalizedTherapistId);
     const subscriptionDoc = await db.collection('subscriptions').doc(subscriptionId).get();
-    
+
     if (!subscriptionDoc.exists) {
       return res.status(200).json({ status: 'not_found', message: 'Subscription not found' });
     }
@@ -1096,13 +1096,13 @@ app.post('/api/v1/checkout/status', requireAuth, async (req, res) => {
       console.warn(`Gateway verification threw for tracker ${trackerToken}: ${verifyError?.message}`);
       gatewayVerification = { verified: false, reason: verifyError?.message || 'Gateway inquiry error' };
     }
-    
+
     if (gatewayVerification.verified) {
       const transactionId = gatewayVerification.payload?.data?.token || trackerToken;
-      
+
       const eventId = crypto.createHash('sha256').update(`refresh:${basketId}:${transactionId}`).digest('hex');
       const wasInserted = await markPaymentEventProcessed(eventId, gatewayVerification.payload || {});
-      
+
       if (wasInserted) {
         const { safepayFee, platformFee, netAmount } = calculateFees(amount, gatewayVerification.payload);
         const batch = db.batch();
@@ -1190,9 +1190,9 @@ app.post('/api/v1/checkout/status', requireAuth, async (req, res) => {
       // asynchronously and activate it. Only report what Firestore currently shows.
       const currentStatus = normalizeValue(subscription.status) || 'pending';
       console.log(`Gateway verification not confirmed for tracker ${trackerToken}: ${gatewayVerification.reason}. Current Firestore status: ${currentStatus}`);
-      return res.status(200).json({ 
-        status: currentStatus, 
-        message: `Payment pending confirmation. ${gatewayVerification.reason || 'Webhook may still arrive.'}` 
+      return res.status(200).json({
+        status: currentStatus,
+        message: `Payment pending confirmation. ${gatewayVerification.reason || 'Webhook may still arrive.'}`
       });
     }
   } catch (error) {
@@ -1296,7 +1296,7 @@ async function processTransactionResult(rawPayload) {
     if (subscriptionUserId) {
       await syncUserSubscriptionEntitlements(subscriptionUserId);
     }
-    
+
     const checkoutSessionSnapshot = await db
       .collection('checkout_sessions')
       .where('basketId', '==', normalized.basketId)
@@ -1380,7 +1380,7 @@ app.post('/api/v1/payment/webhook', async (req, res) => {
 app.get('/api/v1/payment/return/success', async (req, res) => {
   const payload = req.query || {};
   const basketId = normalizeValue(payload.basket_id || payload.BASKET_ID);
-  
+
   if (basketId) {
     try {
       // PayFast only redirects to SUCCESS_URL on successful payment.
