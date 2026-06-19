@@ -454,7 +454,7 @@ const safepayConfig = {
     ? 'https://api.getsafepay.com'
     : 'https://sandbox.api.getsafepay.com',
   checkoutBaseUrl: SAFEPAY_ENV === 'production'
-    ? 'https://www.getsafepay.com'
+    ? 'https://api.getsafepay.com'
     : 'https://sandbox.api.getsafepay.com',
 };
 
@@ -796,7 +796,7 @@ app.use((req, _res, next) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.0.5-safepay-url-fix' });
+  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.0.6-safepay-hosted-redirect' });
 });
 
 app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
@@ -994,7 +994,17 @@ app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
       return jsonError(res, 502, 'SafePay did not return a checkout token.');
     }
 
-    const checkoutUrl = `${safepayConfig.checkoutBaseUrl}/components?beacon=${encodeURIComponent(beacon)}`;
+    const successRedirectUrl = `${baseUrl}/api/v1/payment/return/success?basket_id=${encodeURIComponent(basketId)}`;
+    const cancelRedirectUrl = `${baseUrl}/api/v1/payment/return/failure?basket_id=${encodeURIComponent(basketId)}`;
+
+    const checkoutUrl = `${safepayConfig.checkoutBaseUrl}/checkout/pay?` +
+      `env=${safepayConfig.environment}` +
+      `&beacon=${encodeURIComponent(beacon)}` +
+      `&client=${safepayConfig.apiKey}` +
+      `&order_id=${basketId}` +
+      `&redirect_url=${encodeURIComponent(successRedirectUrl)}` +
+      `&cancel_url=${encodeURIComponent(cancelRedirectUrl)}` +
+      `&source=custom`;
 
     // Save checkout session to Firestore
     await db.collection('checkout_sessions').doc(basketId).set({
