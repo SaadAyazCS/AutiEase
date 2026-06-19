@@ -21,7 +21,7 @@ class PaymentBackendClient {
     if (base.isEmpty) {
       throw StateError(
         'Payment backend is not configured. Launch the app with '
-        '--dart-define=PAYMENT_BACKEND_BASE_URL=https://your-backend-url',
+        '--dart-define=PAYMENT_BACKEND_BASE_URL=https://autiease.onrender.com',
       );
     }
     final normalizedBase = base.endsWith('/')
