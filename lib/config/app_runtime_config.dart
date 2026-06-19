@@ -1,19 +1,19 @@
 class AppRuntimeConfig {
   AppRuntimeConfig._();
 
-  static const stripeBackendBaseUrl = String.fromEnvironment(
-    'STRIPE_BACKEND_BASE_URL',
+  static const paymentBackendBaseUrl = String.fromEnvironment(
+    'PAYMENT_BACKEND_BASE_URL',
     defaultValue: '',
   );
 
-  static const stripeSuccessUrl = String.fromEnvironment(
-    'STRIPE_SUCCESS_URL',
-    defaultValue: 'https://autiease.app/success',
+  static const paymentSuccessUrl = String.fromEnvironment(
+    'PAYMENT_SUCCESS_URL',
+    defaultValue: 'https://autiease.app/payment/success',
   );
 
-  static const stripeCancelUrl = String.fromEnvironment(
-    'STRIPE_CANCEL_URL',
-    defaultValue: 'https://autiease.app/cancel',
+  static const paymentCancelUrl = String.fromEnvironment(
+    'PAYMENT_CANCEL_URL',
+    defaultValue: 'https://autiease.app/payment/cancel',
   );
 
   static const bypassProSupportPaywall = bool.fromEnvironment(

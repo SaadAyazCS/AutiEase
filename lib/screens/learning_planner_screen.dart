@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../config/communication_figma_catalog.dart';
 import '../models/app_models.dart';
+import '../navigation/app_route_observer.dart';
 import '../repositories/app_repositories.dart';
 import '../utils/duration_utils.dart';
+import '../utils/parent_support_areas.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
-import 'communication_info_screen.dart';
-import 'learning_play_info_screen.dart';
 
 class LearningPlannerScreen extends StatefulWidget {
   const LearningPlannerScreen({super.key});
@@ -18,7 +18,10 @@ class LearningPlannerScreen extends StatefulWidget {
 
 enum _PlannerView { home, communication, learn, dailyActivities }
 
-class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
+class _LearningPlannerScreenState extends State<LearningPlannerScreen>
+    with RouteAware {
+  PageRoute<dynamic>? _observedRoute;
+
   final Set<String> _selectedCategoryIds = <String>{};
   final Set<String> _selectedModuleIds = <String>{};
   final Set<String> _selectedActivityIds = <String>{};
@@ -46,9 +49,44 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<dynamic>) {
+      if (_observedRoute != route) {
+        if (_observedRoute != null) {
+          appRouteObserver.unsubscribe(this);
+        }
+        _observedRoute = route;
+        appRouteObserver.subscribe(this, route);
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
     _activityNameController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    _loadPlannerState();
+  }
+
+  void _enforceSupportAreasForCurrentView() {
+    final child = _child;
+    if (child == null) {
+      return;
+    }
+    if (!childHasCommunicationSupport(child) &&
+        _view == _PlannerView.communication) {
+      _view = _PlannerView.home;
+    }
+    if (!childHasLearningPlaySupport(child) && _view == _PlannerView.learn) {
+      _view = _PlannerView.home;
+    }
   }
 
   Future<void> _loadPlannerState() async {
@@ -116,6 +154,7 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
       _modules = modules;
       _dailyActivities = dailyActivities;
       _isLoading = false;
+      _enforceSupportAreasForCurrentView();
     });
   }
 
@@ -366,6 +405,10 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
             itemId: current.id,
             moduleId: current.id,
             score: 1,
+            metadata: {
+              'source': 'daily_activity',
+              'gameName': current.title,
+            },
           )
         : AppRepositories.planner.undoActivityCompletion(
             childId: _child!.id,
@@ -659,6 +702,27 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
     };
   }
 
+  void _showPlannerInfoDialog({
+    required String title,
+    required String message,
+  }) {
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   VoidCallback get _onBack {
     return () {
       if (_view == _PlannerView.home) {
@@ -677,11 +741,11 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
       case _PlannerView.communication:
         return IconButton(
           onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const CommunicationInfoScreen(),
-              ),
+            _showPlannerInfoDialog(
+              title: 'Communication',
+              message:
+                  'Helps with expression, requests, and social interaction.\n\n'
+                  'If you want to customize or edit the sentences shown in the Child Profile Communication tab, you can do so by tapping the pencil/edit icon that appears at the top-right corner when the child opens a sentence card.',
             );
           },
           icon: const Icon(Icons.info_outline, color: Color(0xFF0F1E38)),
@@ -689,9 +753,10 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
       case _PlannerView.learn:
         return IconButton(
           onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const LearningPlayInfoScreen()),
+            _showPlannerInfoDialog(
+              title: 'Learning & Play',
+              message:
+                  'Includes attention games, tracing, speak & learn, and focus activities.',
             );
           },
           icon: const Icon(Icons.info_outline, color: Color(0xFF0F1E38)),
@@ -745,6 +810,8 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
   }
 
   Widget _buildPlannerHome() {
+    final commOk = childHasCommunicationSupport(_child);
+    final learnOk = childHasLearningPlaySupport(_child);
     return ListView(
       padding: const EdgeInsets.fromLTRB(8, 12, 8, 170),
       children: [
@@ -754,6 +821,8 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
             title: 'Communication',
             imagePath: 'assets/images/Communication.png',
             color: const Color(0xFFD7B6B8),
+            locked: !commOk,
+            lockedAreaLabel: 'Communication',
             onTap: () => setState(() => _view = _PlannerView.communication),
           ),
         ),
@@ -763,6 +832,8 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen> {
             title: 'Learn',
             imagePath: 'assets/images/Learn.png',
             color: const Color(0xFF86D34A),
+            locked: !learnOk,
+            lockedAreaLabel: 'Learning & Play',
             onTap: () => setState(() => _view = _PlannerView.learn),
           ),
         ),
@@ -1391,60 +1462,96 @@ class _PlannerHomeCard extends StatelessWidget {
     required this.imagePath,
     required this.color,
     required this.onTap,
+    this.locked = false,
+    this.lockedAreaLabel = '',
   });
 
   final String title;
   final String imagePath;
   final Color color;
   final VoidCallback onTap;
+  final bool locked;
+  final String lockedAreaLabel;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cardWidth = constraints.maxWidth.clamp(240.0, 330.0).toDouble();
-        return Align(
-          alignment: Alignment.center,
-          child: SizedBox(
-            width: cardWidth,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: onTap,
-                borderRadius: BorderRadius.circular(14),
-                child: Ink(
-                  height: 124,
-                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+    return Center(
+      child: Container(
+        width: 220,
+        height: 140,
+        margin: const EdgeInsets.only(bottom: 24),
+        child: Material(
+          color: color,
+          borderRadius: BorderRadius.circular(28),
+          child: InkWell(
+            onTap: () {
+              if (locked) {
+                showLockedParentSupportAreaDialog(
+                  context,
+                  areaLabel: lockedAreaLabel,
+                );
+              } else {
+                onTap();
+              }
+            },
+            borderRadius: BorderRadius.circular(28),
+            child: Stack(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Text(
                         title,
+                        textAlign: TextAlign.center,
                         style: const TextStyle(
-                          fontSize: 21,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF121D32),
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.black,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Image.asset(
-                        imagePath,
-                        width: 36,
-                        height: 36,
-                        fit: BoxFit.contain,
+                      const SizedBox(height: 12),
+                      Center(
+                        child: Image.asset(
+                          imagePath,
+                          width: 54,
+                          height: 54,
+                          fit: BoxFit.contain,
+                        ),
                       ),
                     ],
                   ),
                 ),
-              ),
+                if (locked)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.94),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.lock_rounded,
+                            size: 28,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

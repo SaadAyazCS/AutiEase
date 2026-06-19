@@ -6,6 +6,8 @@ import '../utils/app_colors.dart';
 import '../utils/responsive.dart';
 import '../widgets/wave_background.dart';
 import '../services/firebase_service.dart';
+import '../widgets/phone_input_field.dart';
+import '../widgets/password_input_field.dart';
 import 'therapist_terms_screen.dart';
 import 'login_screen.dart';
 import 'email_verification_screen.dart';
@@ -35,6 +37,8 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
   late TextEditingController _emailController;
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmPasswordController = TextEditingController();
+  PhoneCountry _selectedCountry = kSupportedCountries.first;
 
   bool _agreeTerms = false;
   bool _isLoading = false;
@@ -54,6 +58,7 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
     _emailController.dispose();
     _phoneController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -88,12 +93,15 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
       return;
     }
 
+    final fullPhone = buildFullPhoneNumber(_selectedCountry, _phoneController.text.trim());
+
     // Basic empty validation
     if (_firstNameController.text.isEmpty ||
         _lastNameController.text.isEmpty ||
         _emailController.text.isEmpty ||
         _phoneController.text.isEmpty ||
-        _passwordController.text.isEmpty) {
+        _passwordController.text.isEmpty ||
+        _confirmPasswordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please fill all fields'),
@@ -114,11 +122,11 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
       return;
     }
 
-    // Validate phone number format
-    if (!_isValidPhoneNumber(_phoneController.text.trim())) {
+    // Validate phone number format (validating fullPhone which has dial code + local part)
+    if (!_isValidPhoneNumber(fullPhone)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please enter a valid phone number (10-15 digits)'),
+          content: Text('Please enter a valid phone number'),
           backgroundColor: AppColors.errorRed,
         ),
       );
@@ -131,6 +139,17 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(passwordError),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+      return;
+    }
+
+    // Confirm password check
+    if (_passwordController.text != _confirmPasswordController.text) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Passwords do not match'),
           backgroundColor: AppColors.errorRed,
         ),
       );
@@ -154,7 +173,7 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
         firstName: _firstNameController.text.trim(),
         lastName: _lastNameController.text.trim(),
         email: _emailController.text.trim(),
-        phone: _phoneController.text.trim(),
+        phone: fullPhone,
         password: _passwordController.text,
       );
 
@@ -381,15 +400,30 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
 
                         _buildLabel('Therapist Phone Number'),
                         SizedBox(height: r.h(8)),
-                        _buildTextField(
-                          _phoneController,
-                          keyboardType: TextInputType.phone,
+                        PhoneInputField(
+                          localController: _phoneController,
+                          initialCountry: _selectedCountry,
+                          onCountryChanged: (country) {
+                            setState(() => _selectedCountry = country);
+                          },
                         ),
                         SizedBox(height: r.h(16)),
 
                         _buildLabel('Password'),
                         SizedBox(height: r.h(8)),
-                        _buildTextField(_passwordController, obscureText: true),
+                        PasswordInputField(
+                          controller: _passwordController,
+                          showStrength: true,
+                        ),
+                        SizedBox(height: r.h(16)),
+
+                        _buildLabel('Confirm Password'),
+                        SizedBox(height: r.h(8)),
+                        PasswordInputField(
+                          controller: _confirmPasswordController,
+                          hintText: 'Confirm Password',
+                          matchController: _passwordController,
+                        ),
                         SizedBox(height: r.h(16)),
 
                         Row(

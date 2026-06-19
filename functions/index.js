@@ -1,7 +1,7 @@
 const admin = require('firebase-admin');
 const stripe = require('stripe');
 const { onCall, HttpsError, onRequest } = require('firebase-functions/v2/https');
-const { onDocumentDeleted } = require('firebase-functions/v2/firestore');
+const { onDocumentDeleted, onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { onUserDeleted } = require('firebase-functions/v2/identity');
 
 admin.initializeApp();
@@ -280,6 +280,14 @@ exports.stripeWebhook = onRequest(async (req, res) => {
           },
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
+        await db.collection('notifications').add({
+          userId,
+          title: 'Subscription Activated! 🎉',
+          message: 'Your Professional Support subscription is now active.',
+          category: 'subscription',
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          isRead: false,
+        });
       }
     }
 
@@ -303,6 +311,28 @@ exports.stripeWebhook = onRequest(async (req, res) => {
 
       if (userId) {
         const active = subscription.status === 'active' || subscription.status === 'trialing';
+        const cancelAtPeriodEnd = subscription.cancel_at_period_end;
+
+        if (event.type === 'customer.subscription.deleted' || subscription.status === 'canceled' || subscription.status === 'incomplete_expired') {
+          await db.collection('notifications').add({
+            userId,
+            title: 'Subscription Expired',
+            message: 'Your professional support subscription has expired.',
+            category: 'subscription',
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            isRead: false,
+          });
+        } else if (cancelAtPeriodEnd) {
+          await db.collection('notifications').add({
+            userId,
+            title: 'Subscription Cancelled',
+            message: 'Your subscription will cancel at the end of the current billing period.',
+            category: 'subscription',
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            isRead: false,
+          });
+        }
+
         await db.collection('users').doc(userId).set({
           entitlements: {
             professionalSupport: active,
@@ -385,3 +415,50 @@ exports.checkAccountExistsByEmail = onCall(async (request) => {
     exists: existsInAuth || existsInUsers,
   };
 });
+
+exports.sendPushNotificationOnNewNotification = onDocumentCreated(
+  'notifications/{notificationId}',
+  async (event) => {
+    const data = event.data.data();
+    if (!data) return;
+
+    const userId = data.userId;
+    const title = data.title || 'AutiEase';
+    const message = data.message || '';
+    const route = data.navigationTarget?.route || '';
+
+    if (!userId) return;
+
+    try {
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (!userDoc.exists) return;
+
+      const tokens = userDoc.data()?.fcmTokens || [];
+      if (tokens.length === 0) {
+        console.log(`No FCM tokens found for user: ${userId}`);
+        return;
+      }
+
+      const payload = {
+        notification: {
+          title: title,
+          body: message,
+        },
+        data: {
+          route: route,
+        },
+      };
+
+      // Send to all registered devices for this user
+      const messages = tokens.map((token) => ({
+        token: token,
+        ...payload,
+      }));
+
+      const response = await admin.messaging().sendEach(messages);
+      console.log(`Successfully sent ${response.successCount} push notifications; failed ${response.failureCount} for user ${userId}.`);
+    } catch (error) {
+      console.error('Error sending push notification:', error);
+    }
+  }
+);

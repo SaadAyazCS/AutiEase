@@ -9,6 +9,8 @@ import '../utils/app_colors.dart';
 import '../widgets/session_guard.dart';
 import 'therapist_chat_screen.dart';
 import 'certificate_viewer_screen.dart';
+import '../utils/currency_utils.dart';
+
 
 class _TherapistPlaceholderAvatar extends StatelessWidget {
   const _TherapistPlaceholderAvatar({
@@ -27,17 +29,27 @@ class _TherapistPlaceholderAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget imageWidget;
     if (photoBase64 != null && photoBase64!.isNotEmpty) {
-      try {
-        final imageBytes = base64Decode(photoBase64!);
-        imageWidget = Image.memory(
-          imageBytes,
+      if (photoBase64!.startsWith('http://') || photoBase64!.startsWith('https://')) {
+        imageWidget = Image.network(
+          photoBase64!,
           fit: BoxFit.cover,
           errorBuilder: (context, error, stackTrace) {
             return Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
           },
         );
-      } catch (e) {
-        imageWidget = Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
+      } else {
+        try {
+          final imageBytes = base64Decode(photoBase64!.trim());
+          imageWidget = Image.memory(
+            imageBytes,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
+            },
+          );
+        } catch (e) {
+          imageWidget = Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
+        }
       }
     } else {
       imageWidget = Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
@@ -63,7 +75,7 @@ class ProfessionalSupportScreen extends StatefulWidget {
       _ProfessionalSupportScreenState();
 }
 
-class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
+class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> with WidgetsBindingObserver {
   static final Set<String> _sessionSubscribedTherapistIds = <String>{};
   static final Set<String> _sessionHiddenTherapistIds = <String>{};
 
@@ -81,10 +93,57 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
     ).showSnackBar(const SnackBar(content: Text('Coming soon')));
   }
 
+  String? _activeCheckoutTherapistId;
+  bool _isCheckoutCancelled = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadPersistedTherapistState();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _activeCheckoutTherapistId != null) {
+      final therapistId = _activeCheckoutTherapistId!;
+      Future.delayed(const Duration(milliseconds: 1000), () async {
+        if (_activeCheckoutTherapistId == therapistId && !_isCheckoutCancelled) {
+          try {
+            await AppRepositories.billing.syncSubscriptionStatus(therapistId);
+          } catch (e) {
+            debugPrint('Error syncing checkout status on resume: $e');
+          }
+          final sub = await AppRepositories.billing.getSubscriptionForTherapist(therapistId);
+          if (sub != null) {
+            final status = sub.status.trim().toLowerCase();
+            if (status == 'payment_failed' || status == 'canceled' || status == 'expired') {
+              if (mounted) {
+                setState(() {
+                  _isCheckoutCancelled = true;
+                });
+              }
+            }
+          } else {
+            if (mounted) {
+              setState(() {
+                _isCheckoutCancelled = true;
+              });
+            }
+          }
+        }
+      });
+    }
+  }
+
+  Future<void> _refreshState() async {
+    await _loadPersistedTherapistState();
   }
 
   Future<void> _loadPersistedTherapistState() async {
@@ -118,10 +177,35 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
     } catch (_) {
       // Keep session state fallback even if persistence read fails.
     } finally {
+      await _syncSubscribedTherapistsFromBackend();
       if (mounted) {
         setState(() => _stateLoaded = true);
       }
     }
+  }
+
+  Future<Set<String>> _loadActiveSubscribedTherapistIds() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      return <String>{};
+    }
+    final snapshot = await FirebaseFirestore.instance
+        .collection(FirestoreCollections.subscriptions)
+        .where('userId', isEqualTo: uid)
+        .where('isActive', isEqualTo: true)
+        .get();
+    return snapshot.docs
+        .map((doc) => (doc.data()['therapistId'] ?? '').toString().trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+  }
+
+  Future<void> _syncSubscribedTherapistsFromBackend() async {
+    final activeIds = await _loadActiveSubscribedTherapistIds();
+    _subscribedTherapistIds
+      ..clear()
+      ..addAll(activeIds);
+    await _persistTherapistState();
   }
 
   Future<void> _persistTherapistState() async {
@@ -164,49 +248,680 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
 
   bool _isTherapistSubscribed(
     TherapistProfile therapist,
-    int index,
-    bool hasBackendSubscription,
   ) {
-    if (_subscribedTherapistIds.contains(therapist.id)) {
-      return true;
-    }
-    return hasBackendSubscription &&
-        _subscribedTherapistIds.isEmpty &&
-        index == 0;
+    return _subscribedTherapistIds.contains(therapist.id);
   }
 
-  Future<bool> _openCheckoutForTherapist(TherapistProfile therapist) async {
-    setState(() {
-      _subscribedTherapistIds.add(therapist.id);
-      _hiddenTherapistIds.remove(therapist.id);
-    });
-    await _persistTherapistState();
-    if (!mounted) {
-      return false;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Subscription activated for ${therapist.displayName}.'),
-        backgroundColor: const Color(0xFF00C853),
+  Widget _buildChecklistItem(IconData icon, String text) {
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: const Color(0xFF4B5563)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF4B5563),
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  Future<bool?> _showSubscriptionWarningDialog(
+    BuildContext context,
+    TherapistProfile therapist,
+  ) async {
+    bool isChecked = false;
+
+    // Fetch latest therapist profile to ensure we have credentials and certificate base64
+    String certificateBase64 = therapist.certificateBase64;
+    String licenseNumber = therapist.licenseNumber;
+    String registrationNumber = therapist.registrationNumber;
+    String credentials = therapist.credentials;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection(FirestoreCollections.therapistProfiles)
+          .doc(therapist.id)
+          .get();
+      final data = doc.data();
+      if (data != null) {
+        certificateBase64 = (data['certificateBase64'] ?? '').toString();
+        licenseNumber = (data['licenseNumber'] ?? data['license_number'] ?? '').toString();
+        registrationNumber = (data['registrationNumber'] ?? data['registration_number'] ?? '').toString();
+        credentials = (data['credentials'] ?? '').toString();
+      }
+    } catch (_) {}
+
+    if (!context.mounted) return false;
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              titlePadding: EdgeInsets.zero,
+              title: Container(
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFF3CD),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Color(0xFFD97706),
+                      size: 28,
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Verification Consent',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF92400E),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'AutiEase has verified this therapist\'s documentation. However, just for backup, you must also individually and independently verify them before subscribing.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1F2937),
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Independent Verification Checklist:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF374151),
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildChecklistItem(
+                      Icons.assignment_ind_outlined,
+                      'Check their certificates and ensure their profile is aligned with their documents.',
+                    ),
+                    _buildChecklistItem(
+                      Icons.star_border,
+                      'Check ratings and reviews from other parents.',
+                    ),
+                    _buildChecklistItem(
+                      Icons.search,
+                      'Verify registry status online via professional websites (e.g. PMC, AHPC or field-related registers).',
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF9FAFB),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFE5E7EB)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            therapist.displayName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: Color(0xFF1F2937),
+                            ),
+                          ),
+                          if (credentials.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Credentials: $credentials',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF4B5563)),
+                            ),
+                          ],
+                          if (licenseNumber.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'License Number: $licenseNumber',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF4B5563)),
+                            ),
+                          ],
+                          if (registrationNumber.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'Registration ID: $registrationNumber',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF4B5563)),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (certificateBase64.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            try {
+                              final pdfBytes = base64Decode(certificateBase64);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => CertificateViewerScreen(
+                                    pdfBytes: pdfBytes,
+                                    title: '${therapist.displayName} - Certificate',
+                                  ),
+                                ),
+                              );
+                            } catch (_) {}
+                          },
+                          icon: const Icon(Icons.description_outlined, size: 16),
+                          label: const Text(
+                            'View Therapist Certificate',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF11B5CF),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    // Liability Warning Box
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFFCA5A5)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.gavel_rounded,
+                            color: Color(0xFFDC2626),
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Liability Alert: AutiEase is not responsible for any issues. You must also independently verify before subscribing.',
+                              style: TextStyle(
+                                color: Color(0xFF991B1B),
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w500,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    // Checkbox Consent row
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: Checkbox(
+                            value: isChecked,
+                            onChanged: (bool? val) {
+                              setState(() {
+                                isChecked = val ?? false;
+                              });
+                            },
+                            activeColor: const Color(0xFF00C853),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                isChecked = !isChecked;
+                              });
+                            },
+                            child: const Text(
+                              'I verified therapist and I read the warning and consent to subscribe',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: Color(0xFF374151),
+                                fontWeight: FontWeight.w500,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: isChecked
+                      ? () => Navigator.pop(dialogContext, true)
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00C853),
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey[300],
+                    disabledForegroundColor: Colors.grey[500],
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  ),
+                  child: const Text(
+                    'Subscribe',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<bool> _openCheckoutForTherapist(TherapistProfile therapist, {int packageIndex = 0}) async {
+    final confirmed = await _showSubscriptionWarningDialog(context, therapist);
+    if (confirmed != true) {
+      return false;
+    }
+
+    if (!mounted) return false;
+
+    // Set class-level active checkout context
+    _activeCheckoutTherapistId = therapist.id;
+    _isCheckoutCancelled = false;
+
+    // Show a dismissible checkout dialog with a Cancel button
+    bool isDialogOpen = false;
+    BuildContext? dialogContext;
+    if (mounted) {
+      isDialogOpen = true;
+      showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        builder: (BuildContext dialogCtx) {
+          dialogContext = dialogCtx;
+          return PopScope(
+            canPop: true,
+            onPopInvokedWithResult: (didPop, _) {
+              if (didPop) {
+                isDialogOpen = false;
+                setState(() {
+                  _isCheckoutCancelled = true;
+                });
+              }
+            },
+            child: AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(color: Color(0xFF00C853)),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Checkout opened in browser',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Complete your payment in the browser. This screen will update automatically when payment is confirmed.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    isDialogOpen = false;
+                    setState(() {
+                      _isCheckoutCancelled = true;
+                    });
+                    if (dialogContext != null) {
+                      Navigator.pop(dialogContext!);
+                    }
+                  },
+                  style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
+                  child: const Text('Cancel Payment'),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+
+    try {
+      final success = await AppRepositories.billing.purchaseTherapistSubscription(
+        therapist.id,
+        packageIndex: packageIndex,
+        isCancelledCheck: () => _isCheckoutCancelled,
+      );
+
+      // Close the dialog if still open
+      if (isDialogOpen && dialogContext != null) {
+        isDialogOpen = false;
+        Navigator.pop(dialogContext!);
+      }
+
+      if (_isCheckoutCancelled) {
+        // User dismissed — clean up the pending subscription silently
+        AppRepositories.billing.deletePendingSubscription(therapist.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Payment cancelled. You can subscribe again anytime.'),
+              backgroundColor: Color(0xFF64748B),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return false;
+      }
+
+      if (success) {
+        setState(() {
+          _subscribedTherapistIds.add(therapist.id);
+          _hiddenTherapistIds.remove(therapist.id);
+        });
+        await _persistTherapistState();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Subscription activated for ${therapist.displayName}.'),
+              backgroundColor: const Color(0xFF00C853),
+            ),
+          );
+        }
+        return true;
+      } else {
+        // Payment timed out or failed — clean up pending record so user can retry
+        AppRepositories.billing.deletePendingSubscription(therapist.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Payment not completed. Please try subscribing again.'),
+              backgroundColor: AppColors.errorRed,
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+        return false;
+      }
+    } catch (e) {
+      setState(() {
+        _isCheckoutCancelled = true;
+      });
+      if (isDialogOpen && dialogContext != null) {
+        isDialogOpen = false;
+        Navigator.pop(dialogContext!);
+      }
+      // Clean up any pending subscription created before the error
+      AppRepositories.billing.deletePendingSubscription(therapist.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Checkout failed: $e'),
+            backgroundColor: AppColors.errorRed,
+          ),
+        );
+      }
+      return false;
+    } finally {
+      _activeCheckoutTherapistId = null;
+    }
+  }
+
+  Future<bool> _cancelTherapistSubscription(TherapistProfile therapist) async {
+    // 1. Show the Warning Dialog
+    final confirm = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return CancelSubscriptionDialog(
+          therapistName: therapist.displayName,
+          onConfirmCancel: () => Navigator.pop(dialogCtx, true),
+        );
+      },
+    );
+
+    if (confirm != true) return false;
+
+    // 2. Show the Chat History Choices Dialog
+    if (!mounted) return false;
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return ChatHistoryChoicesDialog(
+          therapistId: therapist.id,
+          onComplete: (choice) {
+            // Handled inside choices dialog State
+          },
+        );
+      },
+    );
+
+    if (choice == null) return false;
+
+    // 3. Post-Cancellation Updates
+    if (mounted) {
+      setState(() {
+        _subscribedTherapistIds.remove(therapist.id);
+        if (choice == 'delete') {
+          _hiddenTherapistIds.add(therapist.id);
+        }
+      });
+      await _persistTherapistState();
+      
+      final messenger = ScaffoldMessenger.of(context);
+      if (choice == 'delete') {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Subscription cancelled and chat history deleted.'),
+            backgroundColor: AppColors.errorRed,
+          ),
+        );
+      } else {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Subscription cancelled. Chat locked to read-only.'),
+            backgroundColor: Color(0xFF3B82F6),
+          ),
+        );
+      }
+      
+      _showReviewDialog(context, therapist);
+    }
     return true;
   }
 
-  Future<void> _cancelTherapistSubscription(TherapistProfile therapist) async {
-    setState(() {
-      _subscribedTherapistIds.remove(therapist.id);
-      _hiddenTherapistIds.add(therapist.id);
-    });
-    await _persistTherapistState();
-    if (!mounted) {
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Subscription cancelled for ${therapist.displayName}.'),
-        backgroundColor: AppColors.errorRed,
-      ),
+  void _showReviewDialog(BuildContext context, TherapistProfile therapist) {
+    int selectedRating = 5;
+    final publicController = TextEditingController();
+    final privateController = TextEditingController();
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: Text(
+                'Rate & Review\n${therapist.displayName}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1F2937),
+                ),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'How was your experience with this therapist?',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, color: Color(0xFF4B5563)),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(5, (index) {
+                        final starValue = index + 1;
+                        return IconButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              selectedRating = starValue;
+                            });
+                          },
+                          icon: Icon(
+                            starValue <= selectedRating
+                                ? Icons.star
+                                : Icons.star_border,
+                            color: Colors.amber,
+                            size: 32,
+                          ),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: publicController,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: 'Written Feedback (Optional)',
+                        hintText: 'Share your experience with other parents...',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: privateController,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: 'Private Notes (Optional)',
+                        hintText: 'Feedback visible only to admin/platform...',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Maybe Later', style: TextStyle(color: Color(0xFF6B7280))),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    try {
+                      await AppRepositories.support.submitReview(
+                        therapistId: therapist.id,
+                        rating: selectedRating,
+                        feedback: publicController.text.trim(),
+                        privateFeedback: privateController.text.trim(),
+                      );
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(
+                            content: Text('Thank you! Your review has been submitted.'),
+                            backgroundColor: Color(0xFF00C853),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(
+                            content: Text('Failed to submit review: $e'),
+                            backgroundColor: AppColors.errorRed,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00C853),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text('Submit'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -244,7 +959,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
       final child = await AppRepositories.users
           .getActiveChildForCurrentParent();
       final subscription = await AppRepositories.billing
-          .getCurrentSubscription();
+          .getSubscriptionForTherapist(therapist.id);
       if (!mounted) return;
 
       if (child == null) {
@@ -277,7 +992,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
             : 'local-bypass',
       );
       if (!mounted) return;
-      Navigator.push(
+      await Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => TherapistChatScreen(
@@ -288,6 +1003,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
           ),
         ),
       );
+      await _refreshState();
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -307,12 +1023,12 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (_) => _SupportTherapistDetailsScreen(
+        builder: (_) => SupportTherapistDetailsScreen(
           therapist: therapist,
           initiallySubscribed: isSubscribed,
           chatEnabled: featureFlags.chatEnabled,
           paymentsEnabled: featureFlags.paymentsEnabled,
-          onSubscribe: () => _openCheckoutForTherapist(therapist),
+          onSubscribe: (packageIndex) => _openCheckoutForTherapist(therapist, packageIndex: packageIndex),
           onCancelSubscription: () => _cancelTherapistSubscription(therapist),
           onOpenMessages: () => _openTherapistChat(
             therapist,
@@ -321,6 +1037,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
         ),
       ),
     );
+    await _refreshState();
   }
 
   @override
@@ -344,7 +1061,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
               return FutureBuilder<List<Object?>>(
                 future: Future.wait<Object?>([
                   AppRepositories.support.listTherapists(),
-                  AppRepositories.billing.getCurrentSubscription(),
+                  _loadActiveSubscribedTherapistIds(),
                   _loadSubscribedTherapistsIncludingInactive(),
                 ]),
                 builder: (context, snapshot) {
@@ -354,11 +1071,16 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
 
                   final activeTherapists =
                       snapshot.data?[0] as List<TherapistProfile>? ?? const [];
-                  final subscription = snapshot.data?[1] as UserSubscription?;
+                  final activeSubscribedIds = snapshot.data?[1] as Set<String>? ?? const <String>{};
                   final subscribedTherapists =
                       snapshot.data?[2] as Map<String, TherapistProfile>? ??
                       const <String, TherapistProfile>{};
-                  final hasBackendSubscription = subscription?.isActive == true;
+
+                  // Keep local state set in sync
+                  _subscribedTherapistIds
+                    ..clear()
+                    ..addAll(activeSubscribedIds);
+
                   final therapistById = <String, TherapistProfile>{
                     for (final therapist in activeTherapists)
                       therapist.id: therapist,
@@ -384,12 +1106,21 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
                         },
                         showAdd: !_showFindTherapist,
                         onAdd: () => setState(() => _showFindTherapist = true),
+                        showHistory: !_showFindTherapist,
+                        onHistory: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ParentSubscriptionsHistoryScreen(),
+                            ),
+                          );
+                          await _refreshState();
+                        },
                       ),
                       Expanded(
                         child: _showFindTherapist
                             ? _buildFindTherapists(
                                 activeTherapists,
-                                hasBackendSubscription,
                                 featureFlags,
                               )
                             : _buildMessagesHome(
@@ -411,7 +1142,6 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
 
   Widget _buildFindTherapists(
     List<TherapistProfile> therapists,
-    bool hasBackendSubscription,
     ProfessionalSupportFeatureFlags featureFlags,
   ) {
     if (therapists.isEmpty) {
@@ -419,7 +1149,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 24),
           child: Text(
-            'No therapists available yet. Add therapist profiles in Firestore to continue.',
+            'No therapists available yet. Please check back soon for updates.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Color(0xFF4B5563)),
           ),
@@ -433,8 +1163,6 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
         final therapist = therapists[index];
         final isSubscribed = _isTherapistSubscribed(
           therapist,
-          index,
-          hasBackendSubscription,
         );
         return _TherapistListCard(
           therapist: therapist,
@@ -521,6 +1249,9 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
                     ? "I'd recommend continuing with the communication exercises at home."
                     : thread.lastMessagePreview,
                 timeLabel: _formatTime(thread.lastMessageAt),
+                photoBase64: therapistById[thread.therapistId]?.photoUrlBase64.isNotEmpty == true
+                    ? therapistById[thread.therapistId]?.photoUrlBase64
+                    : therapistById[thread.therapistId]?.photoUrl,
                 onTap: () {
                   final therapist = therapistById[thread.therapistId];
                   if (therapist == null) {
@@ -539,6 +1270,9 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> {
                 preview:
                     "I'd recommend continuing with the communication exercises at home.",
                 timeLabel: '10:40 AM',
+                photoBase64: therapist.photoUrlBase64.isNotEmpty
+                    ? therapist.photoUrlBase64
+                    : therapist.photoUrl,
                 onTap: () =>
                     _openTherapistChat(therapist, chatEnabled: chatEnabled),
               ),
@@ -566,6 +1300,8 @@ class _SupportHeaderCard extends StatelessWidget {
     this.onBack,
     this.showAdd = false,
     this.onAdd,
+    this.showHistory = false,
+    this.onHistory,
   });
 
   final String title;
@@ -573,6 +1309,8 @@ class _SupportHeaderCard extends StatelessWidget {
   final VoidCallback? onBack;
   final bool showAdd;
   final VoidCallback? onAdd;
+  final bool showHistory;
+  final VoidCallback? onHistory;
 
   @override
   Widget build(BuildContext context) {
@@ -625,6 +1363,18 @@ class _SupportHeaderCard extends StatelessWidget {
               ],
             ),
           ),
+          if (showHistory) ...[
+            IconButton(
+              onPressed: onHistory,
+              icon: const Icon(Icons.receipt_long, color: Color(0xFF00C853), size: 20),
+              style: IconButton.styleFrom(
+                backgroundColor: const Color(0xFFF1F5F3),
+                minimumSize: const Size(34, 34),
+                shape: const CircleBorder(),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
           if (showAdd)
             IconButton(
               onPressed: onAdd,
@@ -667,23 +1417,10 @@ class _TherapistListCard extends StatelessWidget {
     return 'Specialization not set';
   }
 
-  int _yearsExp(TherapistProfile profile, int fallback) {
-    if (profile.yearsOfExperience > 0) {
-      return profile.yearsOfExperience;
-    }
-    final source = '${profile.availability} ${profile.bio}';
-    final match = RegExp(r'(\d{1,2})\s*\+?\s*years?').firstMatch(source);
-    if (match != null) {
-      return int.tryParse(match.group(1) ?? '') ?? fallback;
-    }
-    return fallback;
-  }
-
 
   @override
   Widget build(BuildContext context) {
     final specialization = _specialization(therapist);
-    final years = _yearsExp(therapist, 0);
 
     return InkWell(
       onTap: onTap,
@@ -717,13 +1454,21 @@ class _TherapistListCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        therapist.displayName,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF1F2937),
-                        ),
+                      Row(
+                        children: [
+                          Text(
+                            therapist.displayName,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF1F2937),
+                            ),
+                          ),
+                          if (therapist.verifiedBadge || therapist.verificationStatus == 'approved') ...[
+                            const SizedBox(width: 4),
+                            const Icon(Icons.verified, color: Colors.blue, size: 16),
+                          ],
+                        ],
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -737,11 +1482,23 @@ class _TherapistListCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          // Hardcoded rating fallback removed for now.
+                          if (therapist.totalReviews > 0) ...[
+                            const Icon(Icons.star, color: Colors.amber, size: 14),
+                            const SizedBox(width: 2),
+                            Text(
+                              '${therapist.rating.toStringAsFixed(1)} (${therapist.totalReviews})',
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                color: Color(0xFF1F2937),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text('|', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                            const SizedBox(width: 8),
+                          ],
                           Text(
-                            years > 0
-                                ? '$years years exp'
-                                : 'Experience not set',
+                            therapist.formattedExperience,
                             style: const TextStyle(
                               fontSize: 12.5,
                               color: Color(0xFF6B7280),
@@ -813,12 +1570,14 @@ class _MessageHomeCard extends StatelessWidget {
     required this.preview,
     required this.timeLabel,
     required this.onTap,
+    this.photoBase64,
   });
 
   final String therapistName;
   final String preview;
   final String timeLabel;
   final VoidCallback onTap;
+  final String? photoBase64;
 
   @override
   Widget build(BuildContext context) {
@@ -841,7 +1600,7 @@ class _MessageHomeCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const _TherapistPlaceholderAvatar(size: 44),
+            _TherapistPlaceholderAvatar(size: 44, photoBase64: photoBase64),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -896,8 +1655,8 @@ class _MessageHomeCard extends StatelessWidget {
   }
 }
 
-class _SupportTherapistDetailsScreen extends StatefulWidget {
-  const _SupportTherapistDetailsScreen({
+class SupportTherapistDetailsScreen extends StatefulWidget {
+  const SupportTherapistDetailsScreen({
     required this.therapist,
     required this.initiallySubscribed,
     required this.chatEnabled,
@@ -911,25 +1670,34 @@ class _SupportTherapistDetailsScreen extends StatefulWidget {
   final bool initiallySubscribed;
   final bool chatEnabled;
   final bool paymentsEnabled;
-  final Future<bool> Function() onSubscribe;
-  final Future<void> Function() onCancelSubscription;
+  final Future<bool> Function(int packageIndex) onSubscribe;
+  final Future<bool> Function() onCancelSubscription;
   final Future<void> Function() onOpenMessages;
 
   @override
-  State<_SupportTherapistDetailsScreen> createState() =>
-      _SupportTherapistDetailsScreenState();
+  State<SupportTherapistDetailsScreen> createState() =>
+      SupportTherapistDetailsScreenState();
 }
 
-class _SupportTherapistDetailsScreenState
-    extends State<_SupportTherapistDetailsScreen> {
+class SupportTherapistDetailsScreenState
+    extends State<SupportTherapistDetailsScreen> {
   late bool _isSubscribed;
   bool _isSubscribing = false;
   bool _loadingTherapistMeta = true;
   int _yearsFromProfile = 0;
+  int _monthsFromProfile = 0;
   String _credentialsFromProfile = '';
   String? _certificateBase64;
   List<_SupportServicePackage> _packages = const <_SupportServicePackage>[];
   int _activePackageIndex = 0;
+
+  String get _formattedExperience {
+    if (_yearsFromProfile == 0 && _monthsFromProfile == 0) {
+      return widget.therapist.formattedExperience;
+    }
+    if (_monthsFromProfile == 0) return '$_yearsFromProfile Years';
+    return '$_yearsFromProfile.$_monthsFromProfile Years (approx)';
+  }
 
   @override
   void initState() {
@@ -950,7 +1718,8 @@ class _SupportTherapistDetailsScreenState
         return;
       }
       setState(() {
-        _yearsFromProfile = intFrom(data['yearsOfExperience']);
+        _yearsFromProfile = intFrom(data['experience_years'] ?? data['yearsOfExperience']);
+        _monthsFromProfile = intFrom(data['experience_months']);
         _credentialsFromProfile = (data['credentials'] ?? '').toString();
         _certificateBase64 = (data['certificateBase64'] ?? '').toString();
         _packages = parsed;
@@ -1011,21 +1780,6 @@ class _SupportTherapistDetailsScreenState
     return 'Specialization not set';
   }
 
-  int _yearsExp(TherapistProfile profile) {
-    if (_yearsFromProfile > 0) {
-      return _yearsFromProfile;
-    }
-    if (profile.yearsOfExperience > 0) {
-      return profile.yearsOfExperience;
-    }
-    final source = '${profile.availability} ${profile.bio}';
-    final match = RegExp(r'(\d{1,2})\s*\+?\s*years?').firstMatch(source);
-    if (match != null) {
-      return int.tryParse(match.group(1) ?? '') ?? 8;
-    }
-    return 0;
-  }
-
 
 
   Future<void> _subscribe() async {
@@ -1036,7 +1790,9 @@ class _SupportTherapistDetailsScreenState
       return;
     }
     setState(() => _isSubscribing = true);
-    final subscribed = await widget.onSubscribe();
+    final visiblePackages = _visiblePackages(widget.therapist);
+    final safePackageIndex = _selectedPackageIndexWithin(visiblePackages.length);
+    final subscribed = await widget.onSubscribe(safePackageIndex);
     if (!mounted) return;
     setState(() {
       _isSubscribing = false;
@@ -1079,7 +1835,6 @@ class _SupportTherapistDetailsScreenState
     final visiblePackages = _visiblePackages(therapist);
     final safePackageIndex = _selectedPackageIndexWithin(visiblePackages.length);
     final selectedPackage = visiblePackages.isNotEmpty ? visiblePackages[safePackageIndex] : null;
-    final years = _yearsExp(therapist);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F3),
@@ -1103,14 +1858,22 @@ class _SupportTherapistDetailsScreenState
                           photoBase64: therapist.photoUrlBase64,
                         ),
                         const SizedBox(height: 12),
-                        Text(
-                          therapist.displayName,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 16.9,
-                            color: Color(0xFF1F2937),
-                            fontWeight: FontWeight.w500,
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              therapist.displayName,
+                              style: const TextStyle(
+                                fontSize: 16.9,
+                                color: Color(0xFF1F2937),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            if (therapist.verifiedBadge || therapist.verificationStatus == 'approved') ...[
+                              const SizedBox(width: 4),
+                              const Icon(Icons.verified, color: Colors.blue, size: 18),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -1203,9 +1966,7 @@ class _SupportTherapistDetailsScreenState
                         _DetailLine(
                           icon: Icons.access_time_rounded,
                           title: 'Experience',
-                          value: years > 0
-                              ? '$years years of practice'
-                              : 'Experience not set',
+                          value: _formattedExperience,
                         ),
                         const SizedBox(height: 10),
                         _DetailLine(
@@ -1258,6 +2019,8 @@ class _SupportTherapistDetailsScreenState
                       ],
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  _SupportTherapistReviewsSection(therapistId: therapist.id),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
@@ -1356,13 +2119,15 @@ class _SupportTherapistDetailsScreenState
                               child: OutlinedButton(
                                 onPressed: widget.paymentsEnabled
                                     ? () async {
-                                        await widget.onCancelSubscription();
+                                        final success = await widget.onCancelSubscription();
                                         if (!mounted) {
                                           return;
                                         }
-                                        setState(() {
-                                          _isSubscribed = false;
-                                        });
+                                        if (success) {
+                                          if (mounted) {
+                                            Navigator.pop(context);
+                                          }
+                                        }
                                       }
                                     : () {
                                         ScaffoldMessenger.of(
@@ -1430,7 +2195,7 @@ class _SupportTherapistDetailsScreenState
                           const SizedBox(height: 10),
                           Text(
                             widget.paymentsEnabled
-                                ? 'Secure payment powered by Stripe. Cancel your subscription anytime from your account settings.'
+                                ? 'Secure payment powered by SafePay. Cancel your subscription anytime from your account settings.'
                                 : 'Coming soon',
                             textAlign: TextAlign.center,
                             style: const TextStyle(
@@ -1582,7 +2347,7 @@ class _SupportServicePackage {
   final String description;
   final bool visible;
 
-  String get priceLabel => '\$${price.toStringAsFixed(price % 1 == 0 ? 0 : 2)}';
+  String get priceLabel => formatPrice(price);
 
   factory _SupportServicePackage.fromMap(Map<String, dynamic> data) {
     final rawPrice = data['price'];
@@ -1711,10 +2476,13 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
                       Align(
                         child: Column(
                           children: [
-                            const _TherapistPlaceholderAvatar(
+                            _TherapistPlaceholderAvatar(
                               size: 70,
-                              backgroundColor: Color(0xFF3ACB6D),
+                              backgroundColor: const Color(0xFF3ACB6D),
                               padding: 5,
+                              photoBase64: therapist.photoUrlBase64.isNotEmpty
+                                  ? therapist.photoUrlBase64
+                                  : therapist.photoUrl,
                             ),
                             const SizedBox(height: 10),
                             Text(
@@ -1972,10 +2740,13 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
                     onTap: _showTherapistProfileSheet,
                     child: Row(
                       children: [
-                        const _TherapistPlaceholderAvatar(
+                        _TherapistPlaceholderAvatar(
                           size: 38,
-                          backgroundColor: Color(0xFF00C853),
+                          backgroundColor: const Color(0xFF00C853),
                           padding: 3,
+                          photoBase64: therapist.photoUrlBase64.isNotEmpty
+                              ? therapist.photoUrlBase64
+                              : therapist.photoUrl,
                         ),
                         const SizedBox(width: 10),
                         Column(
@@ -2103,297 +2874,621 @@ class _DemoChatMessage {
   final bool isMine;
 }
 
-class _SupportCheckoutScreen extends StatefulWidget {
-  const _SupportCheckoutScreen({required this.therapist});
-
-  final TherapistProfile therapist;
+class ParentSubscriptionsHistoryScreen extends StatefulWidget {
+  const ParentSubscriptionsHistoryScreen({super.key});
 
   @override
-  State<_SupportCheckoutScreen> createState() => _SupportCheckoutScreenState();
+  State<ParentSubscriptionsHistoryScreen> createState() =>
+      _ParentSubscriptionsHistoryScreenState();
 }
 
-class _SupportCheckoutScreenState extends State<_SupportCheckoutScreen> {
-  final _cardController = TextEditingController(text: '1234 5678 9012 3456');
-  final _expiryController = TextEditingController(text: 'MM/YY');
-  final _cvcController = TextEditingController(text: '123');
-  final _nameController = TextEditingController(text: 'John Doe');
+class _ParentSubscriptionsHistoryScreenState
+    extends State<ParentSubscriptionsHistoryScreen> {
+  final _firestore = FirebaseFirestore.instance;
+  final _auth = FirebaseAuth.instance;
 
-  bool _processing = false;
+  Future<List<Map<String, dynamic>>> _loadSubscriptionsWithTherapists() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) {
+      return [];
+    }
+    final snapshot = await _firestore
+        .collection(FirestoreCollections.subscriptions)
+        .where('userId', isEqualTo: uid)
+        .get();
 
-  String _priceOnly(TherapistProfile profile) {
-    final raw = profile.pricing.trim();
-    final parsed = RegExp(r'(\d+[.,]?\d*)').firstMatch(raw)?.group(1);
-    if (parsed == null) return '\$49.99';
-    return '\$${parsed.replaceAll(',', '')}';
+    final list = <Map<String, dynamic>>[];
+    for (final doc in snapshot.docs) {
+      final subData = doc.data();
+      final therapistId = subData['therapistId']?.toString() ?? '';
+      TherapistProfile? therapist;
+      if (therapistId.isNotEmpty) {
+        try {
+          therapist = await AppRepositories.support.getTherapistById(therapistId);
+        } catch (_) {}
+      }
+      list.add({
+        'subscription': UserSubscription.fromMap(doc.id, subData),
+        'therapist': therapist,
+      });
+    }
+    return list;
   }
 
-  Future<void> _submit() async {
-    if (_cardController.text.trim().isEmpty ||
-        _expiryController.text.trim().isEmpty ||
-        _cvcController.text.trim().isEmpty ||
-        _nameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please complete all payment fields.'),
-          backgroundColor: AppColors.errorRed,
-        ),
-      );
-      return;
+  Future<void> _cancelSubscription(TherapistProfile therapist) async {
+    // 1. Show the Warning Dialog
+    final confirm = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return CancelSubscriptionDialog(
+          therapistName: therapist.displayName,
+          onConfirmCancel: () => Navigator.pop(dialogCtx, true),
+        );
+      },
+    );
+
+    if (confirm != true) return;
+
+    // 2. Show the Chat History Choices Dialog
+    if (!mounted) return;
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return ChatHistoryChoicesDialog(
+          therapistId: therapist.id,
+          onComplete: (choice) {
+            // Handled inside choices dialog State
+          },
+        );
+      },
+    );
+
+    if (choice == null) return;
+
+    // 3. Post-Cancellation Updates
+    if (mounted) {
+      setState(() {}); // Reload history screen list
+      
+      final messenger = ScaffoldMessenger.of(context);
+      if (choice == 'delete') {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Subscription cancelled and chat history deleted.'),
+            backgroundColor: AppColors.errorRed,
+          ),
+        );
+      } else {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Subscription cancelled. Chat locked to read-only.'),
+            backgroundColor: Color(0xFF3B82F6),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _reactivateSubscription(TherapistProfile therapist) async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const PopScope(
+          canPop: false,
+          child: AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(color: Color(0xFF00C853)),
+                SizedBox(width: 20),
+                Expanded(
+                  child: Text(
+                    'Reactivating subscription...',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    try {
+      await AppRepositories.billing.reactivateSubscriptionInStore(therapist.id);
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+        setState(() {}); // Re-load
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Subscription reactivated successfully.'),
+            backgroundColor: Color(0xFF00C853),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to reactivate subscription: $e'),
+            backgroundColor: AppColors.errorRed,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildSubscriptionCard(Map<String, dynamic> item) {
+    final UserSubscription sub = item['subscription'] as UserSubscription;
+    final TherapistProfile? therapist = item['therapist'] as TherapistProfile?;
+
+    if (therapist == null) {
+      return const SizedBox.shrink();
     }
 
-    setState(() => _processing = true);
-    await Future<void>.delayed(const Duration(milliseconds: 900));
-    if (!mounted) return;
-    Navigator.pop(context, true);
-  }
+    final priceLabel = therapist.pricing.isNotEmpty 
+        ? formatPriceString(therapist.pricing) 
+        : 'Rs. 4,999 PKR/month';
 
-  @override
-  void dispose() {
-    _cardController.dispose();
-    _expiryController.dispose();
-    _cvcController.dispose();
-    _nameController.dispose();
-    super.dispose();
-  }
+    Color statusColor;
+    String statusText;
+    if (sub.status == 'active') {
+      statusColor = sub.cancelAtPeriodEnd ? Colors.amber : const Color(0xFF00C853);
+      statusText = sub.cancelAtPeriodEnd ? 'Cancels soon' : 'Active';
+    } else if (sub.status == 'pending') {
+      statusColor = Colors.orange;
+      statusText = 'Pending Verification';
+    } else if (sub.status == 'payment_failed') {
+      statusColor = Colors.redAccent;
+      statusText = 'Payment Failed';
+    } else {
+      statusColor = Colors.red;
+      statusText = sub.status.toUpperCase();
+    }
 
-  @override
-  Widget build(BuildContext context) {
-    final therapist = widget.therapist;
-    final price = _priceOnly(therapist);
+    final dateStr = sub.currentPeriodEnd != null
+        ? '${sub.currentPeriodEnd!.day}/${sub.currentPeriodEnd!.month}/${sub.currentPeriodEnd!.year}'
+        : 'N/A';
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF1F5F3),
-      body: SafeArea(
-        child: Column(
-          children: [
-            const _SupportHeaderCard(
-              title: 'Secure Checkout',
-              subtitle: 'Complete your subscription',
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 18),
-                children: [
-                  _SupportDetailCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Order Summary',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Color(0xFF1F2937),
-                            fontWeight: FontWeight.w500,
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _TherapistPlaceholderAvatar(
+                size: 44,
+                photoBase64: therapist.photoUrlBase64.isNotEmpty ? therapist.photoUrlBase64 : therapist.photoUrl,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      therapist.displayName,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1E293B)),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      therapist.specializations.isNotEmpty ? therapist.specializations.first : 'Therapist',
+                      style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  statusText,
+                  style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 11),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          const Divider(),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Price: $priceLabel/mo',
+                style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF475569), fontSize: 13),
+              ),
+              Text(
+                'Expiry: $dateStr',
+                style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+              ),
+            ],
+          ),
+          if (sub.isActive) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: sub.cancelAtPeriodEnd
+                      ? ElevatedButton.icon(
+                          onPressed: () => _reactivateSubscription(therapist),
+                          icon: const Icon(Icons.refresh_rounded, size: 14),
+                          label: const Text('Reactivate', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF00C853),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        )
+                      : OutlinedButton.icon(
+                          onPressed: () => _cancelSubscription(therapist),
+                          icon: const Icon(Icons.cancel_outlined, size: 14),
+                          label: const Text('Cancel Subscription', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Color(0xFFFCA5A5)),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            const _TherapistPlaceholderAvatar(
-                              size: 36,
-                              padding: 3,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ],
+            ),
+          ],
+          if (sub.status == 'pending' || sub.status == 'payment_failed') ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      showDialog<void>(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (BuildContext context) {
+                          return const PopScope(
+                            canPop: false,
+                            child: AlertDialog(
+                              content: Row(
                                 children: [
-                                  Text(
-                                    therapist.displayName,
-                                    style: const TextStyle(
-                                      fontSize: 15,
-                                      color: Color(0xFF374151),
-                                    ),
-                                  ),
-                                  const Text(
-                                    'Monthly Subscription',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Color(0xFF6B7280),
+                                  CircularProgressIndicator(color: Color(0xFF00C853)),
+                                  SizedBox(width: 20),
+                                  Expanded(
+                                    child: Text(
+                                      'Reconciling payment status. Please wait...',
+                                      style: TextStyle(fontSize: 13),
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                            Text(
-                              price,
-                              style: const TextStyle(
-                                fontSize: 16.9,
-                                fontWeight: FontWeight.w500,
-                                color: Color(0xFF111827),
-                              ),
+                          );
+                        },
+                      );
+                      try {
+                        await AppRepositories.billing.syncSubscriptionStatus(therapist.id);
+                        final latest = await AppRepositories.billing.getSubscriptionForTherapist(therapist.id);
+                        bool cleanedUp = false;
+                        if (latest == null || !latest.isActive) {
+                          await AppRepositories.billing.deletePendingSubscription(therapist.id);
+                          cleanedUp = true;
+                        }
+                        if (mounted) {
+                          Navigator.pop(context); // Close loading dialog
+                          setState(() {}); // Reload history screen
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(cleanedUp
+                                  ? 'No completed payment found. Cleaned up pending request.'
+                                  : 'Payment verified and subscription activated!'),
+                              backgroundColor: cleanedUp ? const Color(0xFF64748B) : const Color(0xFF00C853),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        const Divider(height: 1),
-                        const SizedBox(height: 10),
-                        _summaryRow('Subtotal', price),
-                        const SizedBox(height: 6),
-                        _summaryRow('Total (monthly)', price, emphasized: true),
-                      ],
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Verification update: $e'),
+                              backgroundColor: AppColors.errorRed,
+                            ),
+                          );
+                        }
+                      }
+                    },
+                    icon: const Icon(Icons.sync_rounded, size: 14),
+                    label: const Text('Refresh Payment Status', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0284C7),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  _SupportDetailCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(
-                              Icons.lock_outline_rounded,
-                              color: Color(0xFF00A63E),
-                              size: 18,
-                            ),
-                            SizedBox(width: 6),
-                            Text(
-                              'Payment Details',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Color(0xFF1F2937),
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        _labeledField('Card Number', _cardController),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _labeledField(
-                                'Expiry Date',
-                                _expiryController,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _labeledField('CVC', _cvcController),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        _labeledField('Cardholder Name', _nameController),
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: _processing ? null : _submit,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF00C853),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              padding: const EdgeInsets.symmetric(vertical: 13),
-                            ),
-                            child: _processing
-                                ? const SizedBox(
-                                    height: 16,
-                                    width: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : Text('Pay $price/month'),
-                          ),
-                        ),
-                      ],
-                    ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showReceiptModal(BuildContext context, Map<String, dynamic> txn) {
+    final amountStr = formatPrice((txn['amount'] ?? 0.0).toDouble());
+    final date = dateTimeFromFirestore(txn['createdAt']) ?? DateTime.now();
+    final dateStr = '${date.day}/${date.month}/${date.year} at ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    final txnId = (txn['transactionId'] ?? txn['id'] ?? 'N/A').toString();
+
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFE0F2FE),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: Center(
+                  child: Column(
+                    children: [
+                      const Icon(Icons.receipt_long_rounded, color: Color(0xFF0284C7), size: 48),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Payment Receipt',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        amountStr,
+                        style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Color(0xFF0284C7)),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE8F8ED),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    _buildModalDetailRow('Status', 'SUCCESSFUL', valueColor: const Color(0xFF00C853), isBoldValue: true),
+                    const Divider(),
+                    _buildModalDetailRow('Transaction ID', txnId),
+                    const Divider(),
+                    _buildModalDetailRow('Payment Date', dateStr),
+                    const Divider(),
+                    _buildModalDetailRow('Payment Provider', 'SafePay Pakistan'),
+                    const SizedBox(height: 20),
+                    Row(
                       children: [
-                        Icon(
-                          Icons.lock_outline_rounded,
-                          size: 18,
-                          color: Color(0xFF00A63E),
-                        ),
-                        SizedBox(width: 8),
                         Expanded(
-                          child: Text(
-                            'Secure Payment\nYour payment information is encrypted and secure. This is a demo - no real charges will be made.',
-                            style: TextStyle(
-                              color: Color(0xFF4B5563),
-                              fontSize: 11.5,
-                              height: 1.35,
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFFCBD5E1)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
+                            child: const Text('Close', style: TextStyle(color: Color(0xFF475569))),
                           ),
                         ),
                       ],
                     ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildModalDetailRow(String label, String value, {Color? valueColor, bool isBoldValue = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                fontSize: 13,
+                color: valueColor ?? const Color(0xFF1E293B),
+                fontWeight: isBoldValue ? FontWeight.bold : FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTransactionRow(Map<String, dynamic> txn) {
+    final amountStr = formatPrice((txn['amount'] ?? 0.0).toDouble());
+    final date = dateTimeFromFirestore(txn['createdAt']) ?? DateTime.now();
+    final dateStr = '${date.day}/${date.month}/${date.year}';
+    final txnId = (txn['transactionId'] ?? txn['id'] ?? '').toString();
+    final shortTxnId = txnId.length > 12 ? '${txnId.substring(0, 12)}...' : txnId;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => _showReceiptModal(context, txn),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'ID: $shortTxnId',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF475569)),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      dateStr,
+                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    amountStr,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Paid',
+                    style: TextStyle(color: Color(0xFF00C853), fontSize: 11, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _summaryRow(String label, String value, {bool emphasized = false}) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: const Color(0xFF374151),
-              fontSize: emphasized ? 15 : 14.5,
-              fontWeight: emphasized ? FontWeight.w500 : FontWeight.w400,
-            ),
-          ),
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF1F5F3),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFBDF1D0),
+        elevation: 0,
+        title: const Text(
+          'Billing & Subscriptions',
+          style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E293B), fontSize: 18),
         ),
-        Text(
-          value,
-          style: TextStyle(
-            color: const Color(0xFF1F2937),
-            fontSize: emphasized ? 15 : 14.5,
-            fontWeight: emphasized ? FontWeight.w600 : FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
+        iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
+      ),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _loadSubscriptionsWithTherapists(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator(color: Color(0xFF00C853)));
+          }
 
-  Widget _labeledField(String label, TextEditingController controller) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12.5, color: Color(0xFF4B5563)),
-        ),
-        const SizedBox(height: 4),
-        TextField(
-          controller: controller,
-          style: const TextStyle(fontSize: 13.5),
-          decoration: InputDecoration(
-            isDense: true,
-            filled: true,
-            fillColor: const Color(0xFFF7F9FA),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide.none,
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 11,
-            ),
-          ),
-        ),
-      ],
+          final list = snapshot.data ?? [];
+          final displayList = list.where((item) {
+            final UserSubscription sub = item['subscription'] as UserSubscription;
+            return sub.isActive || sub.status == 'pending' || sub.status == 'payment_failed';
+          }).toList();
+
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              const Text(
+                'My Subscriptions',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1E293B)),
+              ),
+              const SizedBox(height: 10),
+              if (displayList.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Center(
+                    child: Text(
+                      'No subscriptions found.',
+                      style: TextStyle(color: Color(0xFF64748B), fontSize: 14),
+                    ),
+                  ),
+                )
+              else
+                ...displayList.map(_buildSubscriptionCard),
+              const SizedBox(height: 24),
+              const Text(
+                'Payment History',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1E293B)),
+              ),
+              const SizedBox(height: 10),
+              FutureBuilder<List<Map<String, dynamic>>>(
+                future: AppRepositories.billing.getParentTransactions(),
+                builder: (context, txnSnapshot) {
+                  if (txnSnapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator(color: Color(0xFF00C853)));
+                  }
+                  final txns = txnSnapshot.data ?? [];
+                  if (txns.isEmpty) {
+                    return Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'No payment history found.',
+                          style: TextStyle(color: Color(0xFF64748B), fontSize: 14),
+                        ),
+                      ),
+                    );
+                  }
+                  return Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      children: txns.map(_buildTransactionRow).toList(),
+                    ),
+                  );
+                },
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
@@ -2489,5 +3584,219 @@ class _FeatureLine extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _SupportTherapistReviewsSection extends StatelessWidget {
+  const _SupportTherapistReviewsSection({required this.therapistId});
+
+  final String therapistId;
+
+  Widget _buildBreakdownRow(int star, int count, int total) {
+    final percentage = total > 0 ? count / total : 0.0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      child: Row(
+        children: [
+          Text(
+            '$star ★',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF4B5563),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: percentage,
+                backgroundColor: const Color(0xFFE5E7EB),
+                color: Colors.amber,
+                minHeight: 8,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 24,
+            child: Text(
+              '$count',
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<TherapistReview>>(
+      stream: AppRepositories.support.watchReviewsForTherapist(therapistId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const _SupportDetailCard(
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        }
+
+        final reviews = snapshot.data ?? const [];
+        final totalReviews = reviews.length;
+
+        double sumRating = 0.0;
+        final breakdown = {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0};
+        for (final r in reviews) {
+          sumRating += r.rating;
+          final key = r.rating.clamp(1, 5).toString();
+          breakdown[key] = (breakdown[key] ?? 0) + 1;
+        }
+        final averageRating = totalReviews > 0 ? (sumRating / totalReviews) : 0.0;
+
+        return _SupportDetailCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Ratings & Reviews',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Color(0xFF1F2937),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (totalReviews == 0)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Text(
+                      'No reviews yet. Be the first to leave a review!',
+                      style: TextStyle(color: Color(0xFF6B7280), fontStyle: FontStyle.italic),
+                    ),
+                  ),
+                )
+              else ...[
+                Row(
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          averageRating.toStringAsFixed(1),
+                          style: const TextStyle(
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1F2937),
+                          ),
+                        ),
+                        Row(
+                          children: List.generate(5, (index) {
+                            return Icon(
+                              index < averageRating.round()
+                                  ? Icons.star
+                                  : Icons.star_border,
+                              color: Colors.amber,
+                              size: 16,
+                            );
+                          }),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '$totalReviews ${totalReviews == 1 ? "Review" : "Reviews"}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 24),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          for (int i = 5; i >= 1; i--)
+                            _buildBreakdownRow(
+                              i,
+                              breakdown[i.toString()] ?? 0,
+                              totalReviews,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 8),
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: reviews.length,
+                  separatorBuilder: (context, index) => const Divider(height: 16),
+                  itemBuilder: (context, index) {
+                    final review = reviews[index];
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              review.parentName.isEmpty ? 'Parent' : review.parentName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: Color(0xFF374151),
+                              ),
+                            ),
+                            const Spacer(),
+                            Row(
+                              children: List.generate(5, (sIndex) {
+                                return Icon(
+                                  sIndex < review.rating
+                                      ? Icons.star
+                                      : Icons.star_border,
+                                  color: Colors.amber,
+                                  size: 14,
+                                );
+                              }),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          review.feedback.trim().isEmpty
+                              ? 'No written feedback provided.'
+                              : review.feedback,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF4B5563),
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _formatDate(review.createdAt),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF9CA3AF),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  String _formatDate(DateTime dt) {
+    return '${dt.day}/${dt.month}/${dt.year}';
   }
 }

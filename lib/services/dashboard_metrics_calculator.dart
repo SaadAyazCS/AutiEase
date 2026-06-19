@@ -19,9 +19,16 @@ class DashboardMetricsCalculator {
     required List<MoodLogEntry> moodLogs,
     required List<LearningModuleModel> assignedModules,
     required List<DailyActivityTemplate> assignedTemplates,
+    List<CustomDailyActivity> customActivities = const <CustomDailyActivity>[],
+    int totalDailyActivitiesAssigned = 0,
     DateTime? now,
   }) {
     final generatedAt = now ?? DateTime.now();
+    final todayStart = DateTime(
+      generatedAt.year,
+      generatedAt.month,
+      generatedAt.day,
+    );
     final weeklyStart = generatedAt.subtract(
       const Duration(days: _weeklyWindowDays),
     );
@@ -35,16 +42,21 @@ class DashboardMetricsCalculator {
     final weeklyEvents = monthlyEvents
         .where((event) => _isOnOrAfter(event.completedAt, weeklyStart))
         .toList();
+    final todayEvents = weeklyEvents
+        .where((event) => _isOnOrAfter(event.completedAt, todayStart))
+        .toList();
 
     final weeklyMinutes = _sumMinutes(
       weeklyEvents,
       assignedModules: assignedModules,
       assignedTemplates: assignedTemplates,
+      customActivities: customActivities,
     );
     final monthlyMinutes = _sumMinutes(
       monthlyEvents,
       assignedModules: assignedModules,
       assignedTemplates: assignedTemplates,
+      customActivities: customActivities,
     );
 
     final weeklyMove = _progressForCategory(
@@ -84,6 +96,25 @@ class DashboardMetricsCalculator {
       events: weeklyEvents.isNotEmpty ? weeklyEvents : monthlyEvents,
     );
 
+    // --- New metrics ---
+    final streakDays = _computeStreak(activityEvents, today: generatedAt);
+
+    // Daily activities completed today (source: 'daily_activity' or matching assigned template/custom IDs)
+    final assignedDailyIds = <String>{
+      for (final t in assignedTemplates) t.id,
+      for (final c in customActivities) c.id,
+    };
+    final dailyActivitiesToday = _countDailyActivitiesToday(
+      todayEvents,
+      assignedDailyIds: assignedDailyIds,
+    );
+    final dailyActivitiesTotal = totalDailyActivitiesAssigned > 0
+        ? totalDailyActivitiesAssigned
+        : assignedDailyIds.length;
+
+    // Communication taps this week: unique item IDs whose source is aac_sentence
+    final communicationTapsThisWeek = _countCommunicationTaps(weeklyEvents);
+
     final weeklyHours = weeklyMinutes / 60.0;
     final monthlyHours = monthlyMinutes / 60.0;
     final weeklyRecommendations = _recommendations(
@@ -110,12 +141,16 @@ class DashboardMetricsCalculator {
       movePlayProgress: weeklyMove,
       talkExpressProgress: weeklyTalk,
       focusGamesProgress: weeklyFocus,
+      streakDays: streakDays,
+      dailyActivitiesToday: dailyActivitiesToday,
+      dailyActivitiesTotal: dailyActivitiesTotal,
+      communicationTapsThisWeek: communicationTapsThisWeek,
       weeklyReport: DashboardReport(
         title: 'Weekly Progress Report',
         dateLabel: _formatDate(generatedAt),
         summarySubtitle: 'Progress',
         summaryText:
-            'In the last $_weeklyWindowDays days, ${weeklyEvents.length} activities were completed with ${weeklyHours.toStringAsFixed(1)} hours of learning.',
+            'Great job! You are on a $streakDays day learning streak! In the last $_weeklyWindowDays days, ${weeklyEvents.length} activities were completed with ${weeklyHours.toStringAsFixed(1)} hours of learning.',
         sections: [
           _section(
             title: 'Move & Play',
@@ -127,7 +162,7 @@ class DashboardMetricsCalculator {
             title: 'Talk & Express',
             progressValue: weeklyTalk,
             detail:
-                'Speech and expression targets are tracking ${_percentText(weeklyTalk)} this week.',
+                'Speech and expression targets are tracking ${_percentText(weeklyTalk)} this week. $communicationTapsThisWeek unique vocabulary items were practiced.',
           ),
           _section(
             title: 'Focus Games',
@@ -143,7 +178,7 @@ class DashboardMetricsCalculator {
         dateLabel: _formatDate(generatedAt),
         summarySubtitle: 'Assessment',
         summaryText:
-            'In the last $_monthlyWindowDays days, ${monthlyEvents.length} activities were completed with ${monthlyHours.toStringAsFixed(1)} hours of learning.',
+            'Consistent effort! You are currently on a $streakDays day learning streak. In the last $_monthlyWindowDays days, ${monthlyEvents.length} activities were completed with ${monthlyHours.toStringAsFixed(1)} hours of learning.',
         sections: [
           _section(
             title: 'Move & Play',
@@ -155,7 +190,7 @@ class DashboardMetricsCalculator {
             title: 'Talk & Express',
             progressValue: monthlyTalk,
             detail:
-                'Speech and expression targets are tracking ${_percentText(monthlyTalk)} this month.',
+                'Speech and expression targets are tracking ${_percentText(monthlyTalk)} this month. Consistent daily communication is key.',
           ),
           _section(
             title: 'Focus Games',
@@ -170,6 +205,96 @@ class DashboardMetricsCalculator {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Streak computation
+  // ---------------------------------------------------------------------------
+
+  /// Returns how many consecutive calendar days (ending today or yesterday)
+  /// had at least one completed activity event.
+  int _computeStreak(
+    List<ActivityProgressEntry> allEvents, {
+    required DateTime today,
+  }) {
+    if (allEvents.isEmpty) return 0;
+
+    // Build a set of calendar day strings that have at least one event.
+    final activeDays = <String>{};
+    for (final event in allEvents) {
+      final dt = event.completedAt;
+      if (dt == null) continue;
+      activeDays.add(_dayKey(dt));
+    }
+
+    // Walk backwards from today counting consecutive active days.
+    var streak = 0;
+    var cursor = DateTime(today.year, today.month, today.day);
+
+    while (true) {
+      if (activeDays.contains(_dayKey(cursor))) {
+        streak += 1;
+        cursor = cursor.subtract(const Duration(days: 1));
+      } else {
+        // Allow a one-day gap only at the start (today might have no events yet)
+        if (streak == 0) {
+          // Today has no activity — check yesterday before giving up
+          cursor = cursor.subtract(const Duration(days: 1));
+          if (activeDays.contains(_dayKey(cursor))) {
+            streak += 1;
+            cursor = cursor.subtract(const Duration(days: 1));
+          } else {
+            break;
+          }
+        } else {
+          break;
+        }
+      }
+    }
+    return streak;
+  }
+
+  String _dayKey(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+
+  // ---------------------------------------------------------------------------
+  // Daily activity count helpers
+  // ---------------------------------------------------------------------------
+
+  int _countDailyActivitiesToday(
+    List<ActivityProgressEntry> todayEvents, {
+    required Set<String> assignedDailyIds,
+  }) {
+    // Count unique itemIds from today that are either:
+    //   (a) in the assigned daily IDs set, or
+    //   (b) have source == 'daily_activity' in their metadata (future-proofing)
+    final completed = <String>{};
+    for (final event in todayEvents) {
+      final itemId = event.itemId.trim();
+      if (assignedDailyIds.contains(itemId)) {
+        completed.add(itemId);
+      }
+    }
+    return completed.length;
+  }
+
+  int _countCommunicationTaps(List<ActivityProgressEntry> weeklyEvents) {
+    // Communication events: moduleId matches a board keyword and itemId is a vocab item id.
+    // We count unique itemIds that belong to the speak_learn category.
+    return weeklyEvents
+        .where(
+          (event) =>
+              _categoryForEvent(event) == 'speak_learn' &&
+              !_isLevelEvent(event.itemId.trim()),
+        )
+        .map((event) => event.itemId.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .length;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Section builder
+  // ---------------------------------------------------------------------------
+
   DashboardReportSection _section({
     required String title,
     required double progressValue,
@@ -183,15 +308,25 @@ class DashboardMetricsCalculator {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Minutes summation (now includes custom activities)
+  // ---------------------------------------------------------------------------
+
   int _sumMinutes(
     List<ActivityProgressEntry> events, {
     required List<LearningModuleModel> assignedModules,
     required List<DailyActivityTemplate> assignedTemplates,
+    List<CustomDailyActivity> customActivities = const <CustomDailyActivity>[],
   }) {
     final templateMinutesById = <String, int>{
       for (final template in assignedTemplates)
         template.id: template.estimatedMinutes > 0
             ? template.estimatedMinutes
+            : _fallbackMinutes,
+      // Also map custom activities by their ID
+      for (final custom in customActivities)
+        custom.id: custom.durationMinutes > 0
+            ? custom.durationMinutes
             : _fallbackMinutes,
     };
     final moduleMinutesById = <String, int>{};
@@ -248,6 +383,10 @@ class DashboardMetricsCalculator {
     }
     return totalMinutes.ceil();
   }
+
+  // ---------------------------------------------------------------------------
+  // Category progress
+  // ---------------------------------------------------------------------------
 
   double _progressForCategory({
     required String key,
@@ -440,6 +579,7 @@ class DashboardMetricsCalculator {
 
   double _clamp01(double value) => math.min(1.0, math.max(0.0, value));
 
+  // Keywords for category detection — extended with explicit game-type names
   static const Set<String> _talkEventKeywords = <String>{
     'speak',
     'talk',
@@ -468,6 +608,8 @@ class DashboardMetricsCalculator {
     'shapes',
     'emotions',
     'emergency',
+    'aac_sentence',
+    'speak_learn',
   };
 
   static const Set<String> _moveEventKeywords = <String>{
@@ -478,6 +620,10 @@ class DashboardMetricsCalculator {
     'drag',
     'trace',
     'tracing',
+    'tap_game',
+    'drag_game',
+    'trace_game',
+    'move_play',
   };
 
   static const Set<String> _focusEventKeywords = <String>{
@@ -486,7 +632,19 @@ class DashboardMetricsCalculator {
     'match',
     'hold',
     'attention',
+    'find_it',
+    'match_it',
+    'hold_it',
+    'focus_game',
+    'focus_games',
+    'findit',
+    'matchit',
+    'holdit',
   };
+
+  // ---------------------------------------------------------------------------
+  // Mood resolution
+  // ---------------------------------------------------------------------------
 
   String _resolveMood({
     required List<MoodLogEntry> moods,
@@ -496,7 +654,8 @@ class DashboardMetricsCalculator {
         moods.where((entry) => entry.emotion.trim().isNotEmpty).toList()
           ..sort((a, b) {
             final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-            final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final right =
+                b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
             return right.compareTo(left);
           });
     if (normalizedMoods.isNotEmpty) {

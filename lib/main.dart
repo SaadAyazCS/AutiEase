@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'firebase_options.dart';
+import 'navigation/app_route_observer.dart';
+import 'navigation/session_navigation.dart';
+import 'services/notification_service.dart';
 import 'screens/splash_screen.dart';
 import 'utils/app_colors.dart';
 import 'widgets/app_responsive_frame.dart';
@@ -11,6 +15,13 @@ void main() async {
 
   // Initialize Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Initialize Notification Service
+  try {
+    await NotificationService.instance.initialize();
+  } catch (e) {
+    debugPrint('Failed to initialize notifications: $e');
+  }
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -27,6 +38,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'AutiEase',
       debugShowCheckedModeBanner: false,
       builder: (context, child) {
@@ -38,12 +50,13 @@ class MyApp extends StatelessWidget {
           child: AppResponsiveFrame(child: child ?? const SizedBox.shrink()),
         );
       },
+      navigatorObservers: [appRouteObserver],
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: AppColors.primaryBlue,
           brightness: Brightness.light,
         ),
-        fontFamily: 'Roboto',
+        textTheme: GoogleFonts.nunitoTextTheme(Theme.of(context).textTheme),
         useMaterial3: true,
         scaffoldBackgroundColor: AppColors.skyBlue,
       ),

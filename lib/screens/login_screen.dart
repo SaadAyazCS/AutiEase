@@ -4,9 +4,9 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
+import '../navigation/child_mode_lock_controller.dart';
 import '../navigation/session_navigation.dart';
 import '../repositories/app_repositories.dart';
-import 'parent_home_screen.dart';
 import '../widgets/wave_background.dart';
 import '../widgets/custom_widgets.dart';
 import '../services/firebase_service.dart';
@@ -139,6 +139,7 @@ class _LoginScreenState extends State<LoginScreen>
     setState(() => _isLoading = false);
 
     if (result['success'] == true) {
+      await ChildModeLockController.initialize();
       final session = await AppRepositories.auth.resolveSession();
       if (!mounted) return;
       _navigateForSession(session);
@@ -201,6 +202,7 @@ class _LoginScreenState extends State<LoginScreen>
     setState(() => _isLoading = false);
 
     if (result['success'] == true) {
+      await ChildModeLockController.initialize();
       final bool isNewUser = result['isNewUser'] == true;
       final String? userRole = result['role'];
 
@@ -224,18 +226,9 @@ class _LoginScreenState extends State<LoginScreen>
           ),
         );
       } else if (userRole == 'parent') {
-        Navigator.pushReplacement(
-          context,
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                const ParentHomeScreen(),
-            transitionsBuilder:
-                (context, animation, secondaryAnimation, child) {
-                  return FadeTransition(opacity: animation, child: child);
-                },
-            transitionDuration: const Duration(milliseconds: 500),
-          ),
-        );
+        final session = await AppRepositories.auth.resolveSession();
+        if (!mounted) return;
+        _navigateForSession(session);
       } else if (userRole == 'therapist') {
         Navigator.pushReplacement(
           context,

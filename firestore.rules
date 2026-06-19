@@ -9,6 +9,10 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    function isAdmin() {
+      return signedIn() && userDoc().role == 'admin';
+    }
+
     function isParent() {
       return signedIn() && userDoc().role == 'parent';
     }
@@ -28,23 +32,28 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read, update: if signedIn() && request.auth.uid == userId;
-      allow create: if signedIn() && request.auth.uid == userId;
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow update: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow create, delete: if signedIn() && request.auth.uid == userId;
     }
 
     match /child_profiles/{childId} {
-      allow read: if (isParent() && resource.data.parentId == request.auth.uid) || isTherapist();
+      allow read: if (isParent() && resource.data.parentId == request.auth.uid) || isTherapist() || isAdmin();
       allow create, update: if isParent() && request.resource.data.parentId == request.auth.uid;
+      allow delete: if isParent() && resource.data.parentId == request.auth.uid;
     }
 
     match /child_assignments/{childId} {
       allow read: if (isParent() && resource.data.parentId == request.auth.uid) || isTherapist();
       allow create, update: if isParent() && request.resource.data.parentId == request.auth.uid;
+      allow delete: if isParent() && resource.data.parentId == request.auth.uid;
     }
 
     match /therapist_profiles/{therapistId} {
       allow read: if signedIn();
-      allow create, update: if isTherapist() && request.auth.uid == therapistId;
+      allow create: if isTherapist() && request.auth.uid == therapistId;
+      allow update: if (isTherapist() && request.auth.uid == therapistId) || isAdmin();
+      allow delete: if signedIn() && request.auth.uid == therapistId;
     }
 
     match /content_categories/{document=**} {
@@ -66,16 +75,25 @@ service cloud.firestore {
     match /dashboard_snapshots/{childId} {
       allow read: if ownsChild(childId) || isTherapist();
       allow create, update: if ownsChild(childId);
+      allow delete: if isParent() && get(/databases/$(database)/documents/child_profiles/$(childId)).data.parentId == request.auth.uid;
     }
 
     match /mood_logs/{logId} {
       allow read: if signedIn();
       allow create: if isParent();
+      allow delete: if isParent() && resource.data.parentId == request.auth.uid;
     }
 
     match /activity_progress/{progressId} {
       allow read: if signedIn();
       allow create: if signedIn();
+      allow delete: if isParent() && get(/databases/$(database)/documents/child_profiles/$(resource.data.childId)).data.parentId == request.auth.uid;
+    }
+
+    match /communication_sentence_settings/{childId}/items/{settingId} {
+      allow read: if ownsChild(childId) || isTherapist();
+      allow create, update: if ownsChild(childId) &&
+        request.resource.data.childId == childId;
     }
 
     match /therapist_threads/{threadId} {
@@ -88,6 +106,7 @@ service cloud.firestore {
         request.resource.data.therapistId == resource.data.therapistId &&
         request.resource.data.childId == resource.data.childId &&
         request.resource.data.subscriptionId == resource.data.subscriptionId;
+      allow delete: if isParent() && resource.data.parentId == request.auth.uid;
 
       match /messages/{messageId} {
         allow read: if isThreadParticipant(
@@ -101,6 +120,8 @@ service cloud.firestore {
             (isParent() && request.resource.data.senderRole == 'parent') ||
             (isTherapist() && request.resource.data.senderRole == 'therapist')
           );
+        allow delete: if isParent() &&
+          get(/databases/$(database)/documents/therapist_threads/$(threadId)).data.parentId == request.auth.uid;
       }
     }
 
@@ -109,8 +130,24 @@ service cloud.firestore {
     }
 
     match /subscriptions/{subscriptionId} {
-      allow read: if signedIn() && resource.data.userId == request.auth.uid;
-      allow write: if false;
+      allow read: if signedIn() && (resource == null || resource.data.userId == request.auth.uid || resource.data.therapistId == request.auth.uid || isAdmin());
+      allow create, update: if false;
+      allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /checkout_sessions/{sessionId} {
+      allow read: if signedIn() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
+      allow create, update, delete: if false;
+    }
+
+    match /therapist_earnings/{earningId} {
+      allow read: if signedIn() && (resource.data.userId == request.auth.uid || resource.data.therapistId == request.auth.uid || isAdmin());
+      allow create, update, delete: if false;
+    }
+
+    match /withdrawal_requests/{requestId} {
+      allow read: if signedIn() && (resource.data.therapistId == request.auth.uid || isAdmin());
+      allow create, update, delete: if false;
     }
 
     match /legal_documents/{document=**} {
@@ -127,7 +164,50 @@ service cloud.firestore {
 
     match /feedback/{feedbackId} {
       allow create: if signedIn();
-      allow read: if false;
+      allow read: if isAdmin();
+      allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /learning_metrics/{metricId} {
+      allow create: if isParent();
+      allow read: if isTherapist();
+      allow delete: if isParent() &&
+        get(/databases/$(database)/documents/child_profiles/$(resource.data.childId)).data.parentId == request.auth.uid;
+    }
+
+    match /therapist_reviews/{reviewId} {
+      allow read: if signedIn();
+      allow create: if isParent();
+      allow update, delete: if isAdmin() || (signedIn() && resource.data.parentId == request.auth.uid);
+    }
+
+    match /reports/{reportId} {
+      allow create: if signedIn();
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /admin_audit_logs/{logId} {
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // Platform revenue summary — backend writes via Admin SDK (bypasses rules)
+    // Admins can read; no client-side writes allowed.
+    match /platform_revenue/{document=**} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // Payment events — idempotency store. Backend writes via Admin SDK only.
+    match /payment_events/{eventId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /notifications/{notificationId} {
+      allow read, update: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if signedIn();
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
     }
   }
 }

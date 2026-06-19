@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../services/firebase_service.dart';
+import '../services/play_preferences_service.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
+import '../widgets/phone_input_field.dart';
+import '../widgets/password_input_field.dart';
+import 'communication_info_screen.dart';
+import 'learning_play_info_screen.dart';
 
 enum _ProfileTab { parent, child }
 
@@ -22,21 +29,23 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _childNameController = TextEditingController();
-  final _savedPasswordDisplay = TextEditingController(
-    text: '************',
-  );
+  final _savedPasswordDisplay = TextEditingController();
   final _newPasswordController = TextEditingController();
   final FirebaseService _firebaseService = FirebaseService();
+  final PlayPreferencesService _playPreferencesService =
+      const PlayPreferencesService();
 
   bool _communicationEnabled = false;
   bool _learningEnabled = false;
   bool _isSaving = false;
-  bool _revealSavedPassword = false;
-  bool _obscureNewPassword = true;
+
   UserProfile? _profile;
   ChildProfile? _child;
+  PlayPreferences _playPreferences = PlayPreferences.defaults;
   String? _loadError;
+  String? _photoBase64;
   _ProfileTab _activeTab = _ProfileTab.parent;
+  PhoneCountry _selectedPhoneCountry = kSupportedCountries.first;
 
   @override
   void initState() {
@@ -59,7 +68,11 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         _firstNameController.text = _profile!.firstName;
         _lastNameController.text = _profile!.lastName;
         _emailController.text = _profile!.email;
-        _phoneController.text = _profile!.phone;
+        _photoBase64 = _profile!.photoUrl;
+        final (parsedCountry, parsedLocalDigits) = parseStoredPhoneNumber(_profile!.phone);
+        _phoneController.text = parsedLocalDigits;
+        _selectedPhoneCountry = parsedCountry;
+        _playPreferences = PlayPreferences.fromMap(_profile!.playSettings);
       }
       if (_child != null) {
         _childNameController.text = _child!.name;
@@ -75,6 +88,62 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  Future<void> _pickProfilePicture() async {
+    final picker = ImagePicker();
+    final XFile? image = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 800,
+      maxHeight: 800,
+      imageQuality: 85,
+    );
+    
+    if (image == null) return;
+    
+    // Validate file type
+    final extension = image.path.toLowerCase().split('.').last;
+    if (extension != 'jpg' && extension != 'jpeg' && extension != 'png') {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Only JPG and PNG images are allowed.')),
+      );
+      return;
+    }
+    
+    // Read and encode image
+    final bytes = await image.readAsBytes();
+    final sizeKB = bytes.length / 1024;
+    
+    if (sizeKB > 500) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Image size must be under 500 KB.')),
+      );
+      return;
+    }
+    
+    final base64 = base64Encode(bytes);
+    setState(() => _photoBase64 = base64);
+    
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Profile picture selected successfully.')),
+    );
+  }
+
+  ImageProvider? _getParentImageProvider(String? photo) {
+    if (photo == null || photo.isEmpty) return null;
+    if (photo.startsWith('http://') || photo.startsWith('https://')) {
+      return NetworkImage(photo);
+    }
+    try {
+      final bytes = base64Decode(photo.trim());
+      return MemoryImage(bytes);
+    } catch (e) {
+      debugPrint('Error decoding parent base64 photo: $e');
+      return null;
     }
   }
 
@@ -96,18 +165,37 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
             if (!mounted) {
               return;
             }
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(passwordError)),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(passwordError)));
             return;
           }
+        }
+
+        final fullPhone = buildFullPhoneNumber(_selectedPhoneCountry, _phoneController.text.trim());
+        if (_phoneController.text.trim().isEmpty) {
+          if (!mounted) return;
+          setState(() => _isSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please enter your phone number.')),
+          );
+          return;
+        }
+        if (!_isValidPhoneNumber(fullPhone)) {
+          if (!mounted) return;
+          setState(() => _isSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please enter a valid phone number.')),
+          );
+          return;
         }
 
         await AppRepositories.users.updateCurrentUser({
           'firstName': firstName,
           'lastName': lastName,
           'fullName': fullName,
-          'phone': _phoneController.text.trim(),
+          'phone': fullPhone,
+          'photoUrl': _photoBase64 ?? '',
         });
         final authUser = FirebaseAuth.instance.currentUser;
         if (authUser != null &&
@@ -121,21 +209,55 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         }
 
         if (newPassword.isNotEmpty) {
+          final currentPassword = _savedPasswordDisplay.text.trim();
+          if (currentPassword.isEmpty) {
+            if (!mounted) return;
+            setState(() => _isSaving = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Please enter your current password to set a new one.'),
+                backgroundColor: Color(0xFFEF4444),
+              ),
+            );
+            return;
+          }
+
           final result = await _firebaseService.updateCurrentUserPassword(
             newPassword: newPassword,
+            currentPassword: currentPassword,
           );
           if (result['success'] != true) {
             if (!mounted) {
               return;
             }
+            setState(() => _isSaving = false);
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(result['message']?.toString() ?? 'Failed to update password.')),
+              SnackBar(
+                content: Text(
+                  result['message']?.toString() ?? 'Failed to update password.',
+                ),
+                backgroundColor: const Color(0xFFEF4444),
+              ),
             );
             return;
           }
           _newPasswordController.clear();
+          _savedPasswordDisplay.clear();
         }
       } else if (_child != null) {
+        if (!_communicationEnabled && !_learningEnabled) {
+          if (!mounted) {
+            return;
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Please keep at least one support area enabled for your child.',
+              ),
+            ),
+          );
+          return;
+        }
         await AppRepositories.users.upsertChildProfile(
           ChildProfile(
             id: _child!.id,
@@ -171,6 +293,123 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         setState(() => _isSaving = false);
       }
     }
+  }
+
+  Future<void> _showPlayPreferencesDialog() async {
+    var draft = _playPreferences;
+    final saved = await showDialog<PlayPreferences>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text(
+                'Learning game preferences',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+              ),
+              content: SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 360),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Choose how challenging the learning games should be.',
+                        style: TextStyle(fontSize: 14, height: 1.35),
+                      ),
+                      const SizedBox(height: 14),
+                      for (final difficulty in ParentDifficulty.values) ...[
+                        _DifficultyChoiceTile(
+                          difficulty: difficulty,
+                          selected: draft.difficulty == difficulty,
+                          onTap: () {
+                            setDialogState(() {
+                              draft = draft.copyWith(difficulty: difficulty);
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF4F8FB),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFD4DCE5)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Low stimulation mode',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF1F2C45),
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Calmer transitions, fewer moving objects, and lighter celebrations.',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      height: 1.3,
+                                      color: Color(0xFF556070),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Switch(
+                              value: draft.lowStimulationMode,
+                              onChanged: (value) {
+                                setDialogState(() {
+                                  draft = draft.copyWith(
+                                    lowStimulationMode: value,
+                                  );
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, draft),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (saved == null) {
+      return;
+    }
+    await _playPreferencesService.save(saved);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _playPreferences = saved);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Learning game preferences saved.')),
+    );
   }
 
   @override
@@ -278,6 +517,59 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         ),
         const SizedBox(height: 6),
         Container(height: 1, color: const Color(0xFFD8DEE8)),
+        const SizedBox(height: 16),
+        Center(
+          child: Stack(
+            children: [
+              Builder(
+                builder: (context) {
+                  final provider = _getParentImageProvider(_photoBase64);
+                  if (provider != null) {
+                    return CircleAvatar(
+                      radius: 50,
+                      backgroundColor: const Color(0xFFE2E8F0),
+                      backgroundImage: provider,
+                    );
+                  }
+                  return CircleAvatar(
+                    radius: 50,
+                    backgroundColor: const Color(0xFFE0F2FE),
+                    child: Text(
+                      _firstNameController.text.isNotEmpty
+                          ? _firstNameController.text[0].toUpperCase()
+                          : 'P',
+                      style: const TextStyle(
+                        color: Color(0xFF0284C7),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 40,
+                      ),
+                    ),
+                  );
+                }
+              ),
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: InkWell(
+                  onTap: _pickProfilePicture,
+                  borderRadius: BorderRadius.circular(999),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF4EA9E3),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.camera_alt,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 10),
         _buildLabel('First Name'),
         _buildField(_firstNameController),
@@ -286,29 +578,35 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         _buildLabel('Email'),
         _buildField(_emailController, readOnly: true),
         _buildLabel('Phone Number'),
-        _buildField(_phoneController),
+        PhoneInputField(
+          localController: _phoneController,
+          initialCountry: _selectedPhoneCountry,
+          onCountryChanged: (country) {
+            setState(() => _selectedPhoneCountry = country);
+          },
+          fieldDecoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
+          ),
+        ),
         _buildLabel('Current password'),
         ..._savedPasswordWidgets(),
         _buildLabel('New password (optional)'),
-        _buildField(
-          _newPasswordController,
-          obscureText: _obscureNewPassword,
-          trailing: IconButton(
-            onPressed: () {
-              setState(() => _obscureNewPassword = !_obscureNewPassword);
-            },
-            icon: Icon(
-              _obscureNewPassword ? Icons.visibility_off : Icons.visibility,
-              color: const Color(0xFF556070),
-            ),
+        PasswordInputField(
+          controller: _newPasswordController,
+          showStrength: true,
+          fieldDecoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
           ),
         ),
       ],
     );
   }
 
-  static const String _savedPasswordRevealMessageParent =
-      'Your actual password is not displayed on this screen for security. Tap the eye to hide again. Use the field below only when you want to set a new password.';
+
 
   bool _parentHasEmailPassword() =>
       FirebaseAuth.instance.currentUser?.providerData.any(
@@ -316,14 +614,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       ) ??
       false;
 
-  void _toggleParentSavedPasswordVisibility() {
-    setState(() {
-      _revealSavedPassword = !_revealSavedPassword;
-      _savedPasswordDisplay.text = _revealSavedPassword
-          ? _savedPasswordRevealMessageParent
-          : '************';
-    });
-  }
+
 
   List<Widget> _savedPasswordWidgets() {
     if (!_parentHasEmailPassword()) {
@@ -343,18 +634,13 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     }
 
     return [
-      _buildField(
-        _savedPasswordDisplay,
-        readOnly: true,
-        obscureText: !_revealSavedPassword,
-        trailing: IconButton(
-          onPressed: _toggleParentSavedPasswordVisibility,
-          icon: Icon(
-            _revealSavedPassword
-                ? Icons.visibility_off
-                : Icons.visibility,
-            color: const Color(0xFF556070),
-          ),
+      PasswordInputField(
+        controller: _savedPasswordDisplay,
+        hintText: 'Enter current password',
+        fieldDecoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
         ),
       ),
       const SizedBox(height: 12),
@@ -392,7 +678,6 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           onToggle: () => setState(() {
             _communicationEnabled = !_communicationEnabled;
           }),
-          message: 'Helps with expression, requests, and social interaction.',
         ),
         const SizedBox(height: 8),
         _supportAreaTile(
@@ -401,10 +686,67 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           onToggle: () => setState(() {
             _learningEnabled = !_learningEnabled;
           }),
-          message:
-              'Includes attention games, tracing, speak & learn, and focus activities.',
         ),
+        const SizedBox(height: 12),
+        _learningGamePreferencesTile(),
       ],
+    );
+  }
+
+  Widget _learningGamePreferencesTile() {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _showPlayPreferencesDialog,
+        borderRadius: BorderRadius.circular(10),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF7FBFE),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFD4DCE5)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.tune_rounded, color: Color(0xFF2A456F)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Learning game preferences',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF2A456F),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${_playPreferences.difficulty.label}'
+                      '${_playPreferences.lowStimulationMode ? ' • Low stimulation' : ''}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF556070),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -412,7 +754,6 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     required String label,
     required bool selected,
     required VoidCallback onToggle,
-    required String message,
   }) {
     return Material(
       color: Colors.transparent,
@@ -452,20 +793,13 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
               InkWell(
                 borderRadius: BorderRadius.circular(999),
                 onTap: () {
-                  showDialog<void>(
-                    context: context,
-                    builder: (context) {
-                      return AlertDialog(
-                        title: Text(label),
-                        content: Text(message),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('Close'),
-                          ),
-                        ],
-                      );
-                    },
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => label == 'Communication'
+                          ? const CommunicationInfoScreen()
+                          : const LearningPlayInfoScreen(),
+                    ),
                   );
                 },
                 child: const Padding(
@@ -482,13 +816,14 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
   Widget _buildLabel(String label) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8, top: 12),
+      padding: const EdgeInsets.only(bottom: 8, top: 16),
       child: Text(
         label,
         style: const TextStyle(
-          fontSize: 34 / 1.5,
+          fontSize: 16,
           fontWeight: FontWeight.w700,
-          color: Color(0xFF2A456F),
+          color: Color(0xFF1E293B),
+          letterSpacing: 0.3,
         ),
       ),
     );
@@ -504,15 +839,15 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     final inert = !enabled || readOnly;
     return Container(
       decoration: BoxDecoration(
-        color: inert ? const Color(0xFFF5F5F7) : Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFD9DEE8)),
+        color: inert ? const Color(0xFFF8FAFC) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
+          if (!inert)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
         ],
       ),
       child: TextField(
@@ -520,12 +855,30 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         enabled: enabled,
         readOnly: readOnly,
         obscureText: obscureText,
+        style: TextStyle(
+          fontSize: 16,
+          color: inert ? const Color(0xFF64748B) : const Color(0xFF0F172A),
+          fontWeight: FontWeight.w500,
+        ),
         decoration: InputDecoration(
           contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 12,
+            horizontal: 16,
+            vertical: 16,
           ),
-          border: InputBorder.none,
+          filled: true,
+          fillColor: Colors.transparent,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF4EA9E3), width: 2),
+          ),
+          disabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0), width: 1),
+          ),
           suffixIcon: trailing,
         ),
       ),
@@ -546,6 +899,97 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       return 'Password must contain at least one number for strong password';
     }
     return '';
+  }
+
+  bool _isValidPhoneNumber(String phone) {
+    final digitsOnly = phone.replaceAll(RegExp(r'[^\d]'), '');
+    if (digitsOnly.length < 10 || digitsOnly.length > 15) return false;
+    final phoneRegex = RegExp(r'^[+]?[\d\s\-()]+$');
+    return phoneRegex.hasMatch(phone);
+  }
+}
+
+class _DifficultyChoiceTile extends StatelessWidget {
+  const _DifficultyChoiceTile({
+    required this.difficulty,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final ParentDifficulty difficulty;
+  final bool selected;
+  final VoidCallback onTap;
+
+  String get _description {
+    return switch (difficulty) {
+      ParentDifficulty.easy => 'Fewer choices and shorter hold games.',
+      ParentDifficulty.normal => 'Balanced object count and challenge.',
+      ParentDifficulty.challenge =>
+        'More choices, distractors, and longer hold games.',
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFFEAF6FF) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFF4EA9E3)
+                  : const Color(0xFFD4DCE5),
+              width: selected ? 1.6 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                color: selected
+                    ? const Color(0xFF187C9A)
+                    : const Color(0xFF7A8495),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      difficulty.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1F2C45),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _description,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.25,
+                        color: Color(0xFF556070),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

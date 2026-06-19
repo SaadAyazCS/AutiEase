@@ -13,12 +13,17 @@ import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../services/firebase_service.dart';
 import '../utils/responsive.dart';
+import '../widgets/phone_input_field.dart';
 import '../widgets/session_guard.dart';
 import 'about_application_screen.dart';
 import 'login_screen.dart';
 import '../utils/app_colors.dart';
+import '../widgets/bouncing_button.dart';
 import '../widgets/figma_module_scaffold.dart';
+import 'feedback_screen.dart';
 import 'therapist_chat_screen.dart';
+import '../utils/currency_utils.dart';
+import 'therapist_notification_inbox_screen.dart';
 
 class TherapistHomeScreen extends StatefulWidget {
   const TherapistHomeScreen({super.key});
@@ -27,22 +32,33 @@ class TherapistHomeScreen extends StatefulWidget {
   State<TherapistHomeScreen> createState() => _TherapistHomeScreenState();
 }
 
-class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
+class _TherapistHomeScreenState extends State<TherapistHomeScreen>
+    with TickerProviderStateMixin {
   TherapistProfile? _profile;
   bool _loading = true;
   int _years = 0;
+  int _months = 0;
   String _credentials = '';
   String _contactEmail = '';
   String _contactPhone = '';
   String? _certificatePdfName;
   List<TherapyPackage> _packages = const <TherapyPackage>[];
   Map<String, bool> _notificationPrefs = _defaultTherapistNotificationPrefs;
-  
+
   // Info icon state variables
   bool _showInfoIcon = false;
   bool _isGlowing = false;
   bool _isDialogShowing = false;
-  
+
+  // Pulse animation for the info icon on first visit
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnimation;
+
+  // Bell animation variables
+  late final AnimationController _bellController;
+  late final Animation<double> _bellAnimation;
+  int _lastUnreadCount = 0;
+
   // Profile completion control
   bool _shouldCheckProfileCompletion = true;
   bool _hasCompletedInitialProfile = false;
@@ -50,7 +66,48 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
   @override
   void initState() {
     super.initState();
+    // Always show info icon immediately — don't wait for Firestore.
+    _showInfoIcon = true;
+    // Set up pulse animation (scale 1.0 → 1.18 → 1.0).
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.18).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    _bellController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _bellAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: -0.12), weight: 1),
+      TweenSequenceItem(tween: Tween(begin: -0.12, end: 0.12), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 0.12, end: -0.08), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: -0.08, end: 0.08), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 0.08, end: 0.0), weight: 1),
+    ]).animate(CurvedAnimation(parent: _bellController, curve: Curves.linear));
+
     _loadState();
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    _bellController.dispose();
+    super.dispose();
+  }
+
+  void _triggerBellAnimation() {
+    if (_bellController.isAnimating) return;
+    _bellController.repeat(reverse: true);
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        _bellController.stop();
+        _bellController.animateTo(0.0);
+      }
+    });
   }
 
   Future<void> _loadState() async {
@@ -116,7 +173,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
               photoUrl: '',
               isActive: true,
             );
-        _years = intFrom(data['yearsOfExperience']);
+        _years = intFrom(data['experience_years'] ?? data['yearsOfExperience']);
+        _months = intFrom(data['experience_months']);
         _credentials = (data['credentials'] ?? '').toString();
         _contactEmail = canonicalEmail;
         _contactPhone = canonicalPhone;
@@ -226,39 +284,41 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
 
   Future<void> _checkFirstTimeVisit() async {
     if (!mounted) return;
-    
+
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    
+
     try {
       // Check if user has seen the info dialog before
       final userDoc = await FirebaseFirestore.instance
           .collection(FirestoreCollections.users)
           .doc(uid)
           .get();
-      
+
       final hasSeenInfo = userDoc.data()?['hasSeenTherapistInfo'] ?? false;
-      
+
       if (!hasSeenInfo) {
+        if (!mounted) return;
         setState(() {
           _showInfoIcon = true;
           _isGlowing = true;
+          _isDialogShowing = true; // Show tooltip instantly
         });
-        
-        // Show the tooltip after a short delay
-        Future.delayed(const Duration(seconds: 1), () {
-          if (mounted && _isGlowing) {
-            _showFirstTimeTooltip();
-          }
-        });
+        // Play pulse animation for ~2 seconds (3 forward-reverse cycles)
+        _pulseController.repeat(reverse: true);
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (!mounted) return;
+        _pulseController.stop();
+        _pulseController.animateTo(0);
       } else {
+        if (!mounted) return;
         setState(() {
           _showInfoIcon = true;
           _isGlowing = false;
         });
       }
-    } catch (e) {
-      // If there's an error, default to showing the info icon without glowing
+    } catch (_) {
+      // On error, show icon without animation.
       if (mounted) {
         setState(() {
           _showInfoIcon = true;
@@ -268,14 +328,6 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
     }
   }
 
-  
-  void _showFirstTimeTooltip() {
-    if (!mounted) return;
-    
-    setState(() {
-      _isDialogShowing = true;
-    });
-  }
 
   Future<void> _markInfoAsSeen() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -367,6 +419,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
             profile: _profile!,
             setupMode: true,
             initialYears: _years,
+            initialMonths: _months,
             initialCredentials: _credentials,
             initialEmail: _contactEmail,
             initialPhone: _contactPhone,
@@ -375,6 +428,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
             onSave: ({
               required profile,
               required years,
+              required months,
               required credentials,
               required contactEmail,
               required contactPhone,
@@ -386,6 +440,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
                 _saveProfileData(
                   profile: profile,
                   years: years,
+                  months: months,
                   credentials: credentials,
                   contactEmail: contactEmail,
                   contactPhone: contactPhone,
@@ -445,6 +500,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
   Future<void> _saveProfileData({
     required TherapistProfile profile,
     required int years,
+    required int months,
     required String credentials,
     required String contactEmail,
     required String contactPhone,
@@ -465,7 +521,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
 
     final pricing = packages.isEmpty
         ? profile.pricing
-        : '\$${packages.map((TherapyPackage item) => item.price).reduce(math.min).toDouble().toStringAsFixed(0)}/month';
+        : '${formatPrice(packages.map((TherapyPackage item) => item.price).reduce(math.min).toDouble())}/month';
 
     final normalized = TherapistProfile(
       id: profile.id,
@@ -476,17 +532,26 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
       languages: profile.languages.isEmpty
           ? const ['English']
           : profile.languages,
-      // Hardcoded fallback rating removed for now.
       rating: profile.rating,
       availability: profile.availability.isEmpty
           ? 'Open'
           : profile.availability,
       photoUrl: profile.photoUrl,
       isActive: profile.isActive,
-      yearsOfExperience: profile.yearsOfExperience,
+      yearsOfExperience: years,
+      experienceMonths: months,
       credentials: profile.credentials,
       photoUrlBase64: profile.photoUrlBase64,
       certificateBase64: profile.certificateBase64,
+      verificationStatus: profile.verificationStatus,
+      adminFeedback: profile.adminFeedback,
+      verifiedBadge: profile.verifiedBadge,
+      licenseNumber: profile.licenseNumber,
+      registrationNumber: profile.registrationNumber,
+      cnic: profile.cnic,
+      experienceDetails: profile.experienceDetails,
+      ratingBreakdown: profile.ratingBreakdown,
+      totalReviews: profile.totalReviews,
     );
 
     await AppRepositories.users.upsertTherapistProfile(normalized);
@@ -526,6 +591,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
             .doc(uid)
             .set({
               'yearsOfExperience': years,
+              'experience_years': years,
+              'experience_months': months,
               'credentials': credentials,
               'contactEmail': contactEmail,
               'contactPhone': contactPhone,
@@ -554,6 +621,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
       setState(() {
         _profile = normalized;
         _years = years;
+        _months = months;
         _credentials = credentials;
         _contactEmail = contactEmail;
         _contactPhone = contactPhone;
@@ -616,6 +684,10 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
     if (uid == null || profile == null) {
       return;
     }
+    // Only approved therapists can toggle visibility
+    if (profile.verificationStatus != 'approved') {
+      return;
+    }
     final updated = TherapistProfile(
       id: profile.id,
       displayName: profile.displayName,
@@ -627,6 +699,20 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
       availability: profile.availability,
       photoUrl: profile.photoUrl,
       isActive: isActive,
+      yearsOfExperience: profile.yearsOfExperience,
+      experienceMonths: profile.experienceMonths,
+      credentials: profile.credentials,
+      photoUrlBase64: profile.photoUrlBase64,
+      certificateBase64: profile.certificateBase64,
+      verificationStatus: profile.verificationStatus,
+      adminFeedback: profile.adminFeedback,
+      verifiedBadge: profile.verifiedBadge,
+      licenseNumber: profile.licenseNumber,
+      registrationNumber: profile.registrationNumber,
+      cnic: profile.cnic,
+      experienceDetails: profile.experienceDetails,
+      ratingBreakdown: profile.ratingBreakdown,
+      totalReviews: profile.totalReviews,
     );
     await AppRepositories.users.upsertTherapistProfile(updated);
     await FirebaseFirestore.instance
@@ -643,6 +729,73 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
   }
 
   Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.logout_rounded, color: Color(0xFFEF4444), size: 26),
+            SizedBox(width: 10),
+            Text(
+              'Logout',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF1E293B),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to logout? You will need to sign in again to access your account.',
+          style: TextStyle(
+            fontSize: 15,
+            height: 1.45,
+            color: Color(0xFF475569),
+          ),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF64748B),
+              ),
+            ),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Logout',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
     await FirebaseService().logout();
     if (!mounted) {
       return;
@@ -670,6 +823,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
                   profile: _profile!,
                   setupMode: false,
                   initialYears: _years,
+                  initialMonths: _months,
                   initialCredentials: _credentials,
                   initialEmail: _contactEmail,
                   initialPhone: _contactPhone,
@@ -678,6 +832,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
                   onSave: ({
                     required profile,
                     required years,
+                    required months,
                     required credentials,
                     required contactEmail,
                     required contactPhone,
@@ -689,6 +844,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
                       _saveProfileData(
                         profile: profile,
                         years: years,
+                        months: months,
                         credentials: credentials,
                         contactEmail: contactEmail,
                         contactPhone: contactPhone,
@@ -721,6 +877,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
               await _saveProfileData(
                 profile: _profile!,
                 years: _years,
+                months: _months,
                 credentials: _credentials,
                 contactEmail: _contactEmail,
                 contactPhone: _contactPhone,
@@ -744,9 +901,58 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
               ),
             );
             if (updated != null) {
-              await _saveNotificationPreferences(updated);
+              final uid = FirebaseAuth.instance.currentUser?.uid;
+              if (uid != null) {
+                try {
+                  await Future.wait([
+                    FirebaseFirestore.instance
+                        .collection(FirestoreCollections.users)
+                        .doc(uid)
+                        .update({
+                      'notificationPreferences': updated,
+                    }),
+                    FirebaseFirestore.instance
+                        .collection(FirestoreCollections.therapistProfiles)
+                        .doc(uid)
+                        .set({
+                      'therapistNotificationPreferences': updated,
+                    }, SetOptions(merge: true)),
+                  ]);
+                  if (mounted) {
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(
+                        content: const Row(
+                          children: [
+                            Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
+                            SizedBox(width: 10),
+                            Text(
+                              'Notification preferences saved successfully!',
+                              style: TextStyle(fontWeight: FontWeight.w500),
+                            ),
+                          ],
+                        ),
+                        backgroundColor: const Color(0xFF2ECC71),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                  }
+                } catch (_) {}
+              }
+              setState(() {
+                _notificationPrefs = updated;
+              });
             }
-            // Snackbar is shown inside _saveNotificationPreferences.
+          },
+          onFeedback: () async {
+            Navigator.pop(context);
+            await Navigator.push<void>(
+              this.context,
+              MaterialPageRoute(builder: (_) => const FeedbackScreen()),
+            );
           },
           onAbout: () async {
             Navigator.pop(context);
@@ -764,99 +970,12 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
     );
   }
 
-  Future<void> _saveNotificationPreferences(Map<String, bool> values) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
-      return;
-    }
-
-    // Build a sanitised map that contains ONLY the keys the app knows about.
-    // This removes any stale / renamed keys that may be in Firestore from older
-    // versions of the app, keeping the stored document in sync with the UI.
-    final sanitised = <String, bool>{
-      for (final key in _defaultTherapistNotificationPrefs.keys)
-        key: values[key] ?? _defaultTherapistNotificationPrefs[key]!,
-    };
-
-    try {
-      // Write to BOTH documents concurrently so they are always in sync.
-      // We use .update() with the map field directly to OVERWRITE the entire 
-      // map, which ensures any extra/stale keys are completely removed.
-      await Future.wait([
-        FirebaseFirestore.instance
-            .collection(FirestoreCollections.therapistProfiles)
-            .doc(uid)
-            .update({
-              'therapistNotificationPreferences': sanitised,
-              'updatedAt': FieldValue.serverTimestamp(),
-            }),
-        FirebaseFirestore.instance
-            .collection(FirestoreCollections.users)
-            .doc(uid)
-            .update({
-              'notificationPreferences': sanitised,
-              'updatedAt': FieldValue.serverTimestamp(),
-            }),
-      ]);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _notificationPrefs = sanitised;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
-              SizedBox(width: 10),
-              Text(
-                'Notification preferences saved successfully!',
-                style: TextStyle(fontWeight: FontWeight.w500),
-              ),
-            ],
-          ),
-          backgroundColor: const Color(0xFF2ECC71),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.error_outline, color: Colors.white, size: 20),
-              SizedBox(width: 10),
-              Text(
-                'Failed to save notification preferences.',
-                style: TextStyle(fontWeight: FontWeight.w500),
-              ),
-            ],
-          ),
-          backgroundColor: const Color(0xFFE74C3C),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
-  }
-
   Future<void> _openDashboard() async {
     if (_profile == null) return;
     
     // Check if profile is complete for INITIAL SIGNUP before allowing dashboard access
     bool isIncompleteForInitialSignup() {
-      return _years == 0 ||
+      return (_years == 0 && _months == 0 && !_hasCompletedInitialProfile) ||
           _credentials.trim().isEmpty ||
           _contactEmail.trim().isEmpty ||
           _contactPhone.trim().isEmpty ||
@@ -867,7 +986,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
     
     // Check if profile is incomplete for REGULAR SETTINGS (less strict)
     bool isIncompleteForSettings() {
-      return _years == 0 ||
+      return (_years == 0 && _months == 0 && !_hasCompletedInitialProfile) ||
           _credentials.trim().isEmpty ||
           _contactEmail.trim().isEmpty ||
           _contactPhone.trim().isEmpty;
@@ -1123,37 +1242,39 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
               right: 0,
               child: Center(child: _TherapistHomeBadge(size: r.w(124))),
             ),
-            // Info icon in bottom right corner (moved up)
             if (_showInfoIcon)
               Positioned(
                 bottom: r.h(120),
                 right: r.w(20),
-                child: GestureDetector(
-                  onTap: _startInfoFlow,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 500),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFF6B35),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        if (_isGlowing)
+                child: ScaleTransition(
+                  scale: _pulseAnimation,
+                  child: GestureDetector(
+                    onTap: _startInfoFlow,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 500),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF6B35),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          if (_isGlowing)
+                            BoxShadow(
+                              color: const Color(0xFFFF6B35).withValues(alpha: 0.6),
+                              blurRadius: 20,
+                              spreadRadius: 3,
+                            ),
                           BoxShadow(
-                            color: const Color(0xFFFF6B35).withValues(alpha: 0.6),
-                            blurRadius: 20,
-                            spreadRadius: 3,
+                            color: Colors.black.withValues(alpha: 0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
                           ),
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      Icons.info_outline,
-                      color: Colors.white,
-                      size: r.sp(28, min: 24, max: 32),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.info_outline,
+                        color: Colors.white,
+                        size: r.sp(28, min: 24, max: 32),
+                      ),
                     ),
                   ),
                 ),
@@ -1270,10 +1391,112 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
                   ],
                 ),
               ),
+            Positioned(
+              top: MediaQuery.of(context).padding.top + r.h(12),
+              right: r.w(18),
+              child: _buildHomeNotificationBell(context),
+            ),
           ],
         ),
       ),
     ),
+    );
+  }
+
+  Widget _buildHomeNotificationBell(BuildContext context) {
+    return StreamBuilder<List<NotificationInboxItem>>(
+      stream: AppRepositories.support.watchNotifications(),
+      builder: (context, snapshot) {
+        final items = snapshot.data ?? const [];
+        final unreadCount = items.where((item) => !item.isRead).length;
+
+        if (unreadCount > _lastUnreadCount) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _triggerBellAnimation();
+            _lastUnreadCount = unreadCount;
+          });
+        } else if (unreadCount < _lastUnreadCount) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _lastUnreadCount = unreadCount;
+          });
+        }
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.8),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: AnimatedBuilder(
+                animation: _bellAnimation,
+                builder: (context, child) {
+                  return Transform.rotate(
+                    angle: _bellAnimation.value,
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.notifications_none_rounded,
+                        color: Color(0xFF1E293B),
+                        size: 24,
+                      ),
+                      onPressed: () async {
+                        final updated = await Navigator.push<Map<String, bool>>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => TherapistNotificationInboxScreen(
+                              initialPrefs: _notificationPrefs,
+                            ),
+                          ),
+                        );
+                        if (updated != null) {
+                          setState(() {
+                            _notificationPrefs = updated;
+                          });
+                        }
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+            if (unreadCount > 0)
+              Positioned(
+                right: -2,
+                top: -2,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEF4444),
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 18,
+                    minHeight: 18,
+                  ),
+                  child: Center(
+                    child: Text(
+                      '$unreadCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
@@ -1670,11 +1893,13 @@ class TherapistDashboardScreen extends StatefulWidget {
 class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
   late bool _isActive;
   bool _updatingVisibility = false;
+  late TherapistProfile _profile;
 
   @override
   void initState() {
     super.initState();
-    _isActive = widget.profile.isActive;
+    _profile = widget.profile;
+    _isActive = _profile.isActive;
   }
 
   @override
@@ -1682,6 +1907,25 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.profile.isActive != widget.profile.isActive) {
       _isActive = widget.profile.isActive;
+    }
+    if (oldWidget.profile != widget.profile) {
+      _profile = widget.profile;
+    }
+  }
+
+  Future<void> _refreshProfile() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final updatedProfile = await AppRepositories.support.getTherapistById(uid);
+      if (updatedProfile != null && mounted) {
+        setState(() {
+          _profile = updatedProfile;
+          _isActive = updatedProfile.isActive;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error refreshing profile: $e');
     }
   }
 
@@ -1732,7 +1976,7 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final profile = widget.profile;
+    final profile = _profile;
     final specialization = profile.specializations.isEmpty
         ? 'Specialization not set'
         : profile.specializations.first;
@@ -1792,7 +2036,10 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                           ),
                         ),
                         IconButton(
-                          onPressed: widget.onOpenSettings,
+                          onPressed: () async {
+                            await widget.onOpenSettings();
+                            await _refreshProfile();
+                          },
                           icon: const Icon(Icons.menu, color: Color(0xFF1F2937)),
                         ),
                       ],
@@ -1804,6 +2051,84 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
                   children: [
+                    if (profile.verificationStatus == 'pending') ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFBEB),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFDE68A)),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.hourglass_empty, color: Colors.amber),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Verification status: Pending. Your credentials are under review. You will be listed once approved.',
+                                style: TextStyle(color: Color(0xFF92400E), fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ] else if (profile.verificationStatus == 'rejected') ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFCA5A5)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.error_outline, color: Colors.red),
+                                SizedBox(width: 10),
+                                Text(
+                                  'Profile Update Required',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF991B1B),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Rejection comments: ${profile.adminFeedback.isEmpty ? "Please double-check your uploaded documents and details." : profile.adminFeedback}',
+                              style: const TextStyle(color: Color(0xFF991B1B), fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ] else if (profile.verificationStatus == 'suspended') ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFCA5A5)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.gavel, color: Colors.red),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Account Suspended: ${profile.adminFeedback.isEmpty ? "Please contact support." : profile.adminFeedback}',
+                                style: const TextStyle(color: Color(0xFF991B1B), fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: _cardDeco,
@@ -1813,7 +2138,7 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                             children: [
                               _LogoCircleAvatar(
                                 radius: 26,
-                                backgroundColor: Color(0xFFD8F6DF),
+                                backgroundColor: const Color(0xFFD8F6DF),
                                 padding: 4,
                                 photoBase64: profile.photoUrlBase64,
                               ),
@@ -1837,9 +2162,9 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                                       ),
                                     ),
                                     Text(
-                                      widget.years > 0
-                                          ? '${widget.years} years exp'
-                                          : 'Experience not set',
+                                      profile.formattedExperience == 'Not set'
+                                          ? 'Experience not set'
+                                          : '${profile.formattedExperience} exp',
                                       style: const TextStyle(
                                         fontSize: 12,
                                         color: Color(0xFF6B7280),
@@ -1852,6 +2177,226 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                           ),
                         ],
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                    _TherapistWalletSection(therapistId: profile.id),
+                    const SizedBox(height: 10),
+                    StreamBuilder<List<TherapistReview>>(
+                      stream: AppRepositories.support.watchReviewsForTherapist(profile.id),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: _cardDeco,
+                            child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                          );
+                        }
+                        final reviews = snapshot.data ?? const [];
+                        final totalReviews = reviews.length;
+                        double sumRating = 0.0;
+                        final breakdown = {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0};
+                        for (final r in reviews) {
+                          sumRating += r.rating;
+                          final key = r.rating.clamp(1, 5).toString();
+                          breakdown[key] = (breakdown[key] ?? 0) + 1;
+                        }
+                        final averageRating = totalReviews > 0 ? (sumRating / totalReviews) : 0.0;
+
+                        Widget buildBreakdownRow(int star, int count) {
+                          final percentage = totalReviews > 0 ? count / totalReviews : 0.0;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 1.5),
+                            child: Row(
+                              children: [
+                                Text(
+                                  '$star ★',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF4B5563),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: LinearProgressIndicator(
+                                      value: percentage,
+                                      backgroundColor: const Color(0xFFE5E7EB),
+                                      color: Colors.amber,
+                                      minHeight: 6,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '$count',
+                                  style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: _cardDeco,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.star_rounded, color: Colors.amber, size: 20),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Reviews & Feedback',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                      color: Color(0xFF1F2937),
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              if (totalReviews == 0)
+                                const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 12),
+                                    child: Text(
+                                      'No reviews submitted yet.',
+                                      style: TextStyle(color: Color(0xFF6B7280), fontStyle: FontStyle.italic),
+                                    ),
+                                  ),
+                                )
+                              else ...[
+                                Row(
+                                  children: [
+                                    Column(
+                                      children: [
+                                        Text(
+                                          averageRating.toStringAsFixed(1),
+                                          style: const TextStyle(
+                                            fontSize: 32,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF1F2937),
+                                          ),
+                                        ),
+                                        Row(
+                                          children: List.generate(5, (index) {
+                                            return Icon(
+                                              index < averageRating.round()
+                                                  ? Icons.star
+                                                  : Icons.star_border,
+                                              color: Colors.amber,
+                                              size: 14,
+                                            );
+                                          }),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '$totalReviews reviews',
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            color: Color(0xFF6B7280),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        children: [
+                                          for (int i = 5; i >= 1; i--)
+                                            buildBreakdownRow(i, breakdown[i.toString()] ?? 0),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                const Divider(),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Recent Written Feedback',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                    color: Color(0xFF4B5563),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ListView.separated(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  itemCount: math.min(3, reviews.length),
+                                  separatorBuilder: (context, index) => const Divider(height: 12),
+                                  itemBuilder: (context, index) {
+                                    final review = reviews[index];
+                                    return Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Text(
+                                              review.parentName.isEmpty ? 'Parent' : review.parentName,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 11,
+                                                color: Color(0xFF374151),
+                                              ),
+                                            ),
+                                            const Spacer(),
+                                            Row(
+                                              children: List.generate(5, (sIndex) {
+                                                return Icon(
+                                                  sIndex < review.rating
+                                                      ? Icons.star
+                                                      : Icons.star_border,
+                                                  color: Colors.amber,
+                                                  size: 11,
+                                                );
+                                              }),
+                                            ),
+                                          ],
+                                        ),
+                                        if (review.feedback.trim().isNotEmpty) ...[
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            review.feedback,
+                                            style: const TextStyle(
+                                              fontSize: 11.5,
+                                              color: Color(0xFF4B5563),
+                                            ),
+                                          ),
+                                        ],
+                                        if (review.privateFeedback.trim().isNotEmpty) ...[
+                                          const SizedBox(height: 4),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF3F4F6),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'Private Note: ${review.privateFeedback}',
+                                              style: const TextStyle(
+                                                fontSize: 10.5,
+                                                color: Color(0xFF6B7280),
+                                                fontStyle: FontStyle.italic,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ],
+                            ],
+                          ),
+                        );
+                      },
                     ),
                     const SizedBox(height: 10),
                     Container(
@@ -1916,82 +2461,162 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                             ),
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                            _isActive
-                                ? 'Your profile is visible to parents in the community'
-                                : 'Your profile is hidden from new parent discovery',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF4B5563),
+                          // ── Only approved therapists can toggle visibility ──
+                          if (profile.verificationStatus == 'approved') ...[
+                            Text(
+                              _isActive
+                                  ? 'Your profile is visible to parents in the community'
+                                  : 'Your profile is hidden from new parent discovery',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF4B5563),
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: visibilityBg,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: visibilityBorder),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _isActive
-                                            ? 'Status: Active'
-                                            : 'Status: Inactive',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          color: statusColor,
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: visibilityBg,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: visibilityBorder),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _isActive
+                                              ? 'Status: Active'
+                                              : 'Status: Inactive',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            color: statusColor,
+                                          ),
                                         ),
-                                      ),
-                                      Text(
-                                        _isActive
-                                            ? 'Parents can discover and contact you'
-                                            : 'Only subscribed parents can continue seeing you',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: detailColor,
+                                        Text(
+                                          _isActive
+                                              ? 'Parents can discover and contact you'
+                                              : 'Only subscribed parents can continue seeing you',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: detailColor,
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                OutlinedButton(
-                                  onPressed: _updatingVisibility
-                                      ? null
-                                      : _handleToggleVisibility,
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: actionColor,
-                                    side: BorderSide(color: actionColor),
-                                    minimumSize: const Size(86, 40),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
+                                      ],
                                     ),
                                   ),
-                                  child: _updatingVisibility
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
+                                  OutlinedButton(
+                                    onPressed: _updatingVisibility
+                                        ? null
+                                        : _handleToggleVisibility,
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: actionColor,
+                                      side: BorderSide(color: actionColor),
+                                      minimumSize: const Size(86, 40),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                      ),
+                                    ),
+                                    child: _updatingVisibility
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : Text(
+                                            _isActive ? 'Hide' : 'Show',
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                           ),
-                                        )
-                                      : Text(
-                                          _isActive ? 'Hide' : 'Show',
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ] else ...[
+                            // ── Locked state for pending / rejected / suspended ──
+                            const Text(
+                              'This feature is locked until your profile is verified by the admin.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF6B7280),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF3F4F6),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFFD1D5DB)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.lock_outline, color: Color(0xFF9CA3AF), size: 20),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          profile.verificationStatus == 'pending'
+                                              ? 'Status: Pending Verification'
+                                              : profile.verificationStatus == 'rejected'
+                                                  ? 'Status: Rejected'
+                                                  : 'Status: Suspended',
                                           style: const TextStyle(
-                                            fontSize: 15,
                                             fontWeight: FontWeight.w600,
+                                            color: Color(0xFF9CA3AF),
                                           ),
                                         ),
-                                ),
-                              ],
+                                        Text(
+                                          profile.verificationStatus == 'pending'
+                                              ? 'Your profile is under review. Visibility control will unlock once approved.'
+                                              : profile.verificationStatus == 'rejected'
+                                                  ? 'Please update your profile and resubmit for verification.'
+                                                  : 'Your account is suspended. Please contact support.',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Color(0xFFB0B7C0),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  OutlinedButton(
+                                    onPressed: null, // Disabled
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: const Color(0xFFD1D5DB),
+                                      side: const BorderSide(color: Color(0xFFD1D5DB)),
+                                      minimumSize: const Size(86, 40),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.lock, size: 14, color: Color(0xFFD1D5DB)),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'Locked',
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFFD1D5DB),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),
@@ -2037,6 +2662,748 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
   }
 }
 
+class _TherapistWalletSection extends StatefulWidget {
+  final String therapistId;
+  const _TherapistWalletSection({required this.therapistId});
+
+  @override
+  State<_TherapistWalletSection> createState() => _TherapistWalletSectionState();
+}
+
+class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
+  late Future<Map<String, dynamic>> _walletFuture;
+  late Future<List<Map<String, dynamic>>> _transactionsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  void _refresh() {
+    setState(() {
+      _walletFuture = AppRepositories.billing.getTherapistWallet(widget.therapistId);
+      _transactionsFuture = AppRepositories.billing.getTherapistTransactions(widget.therapistId);
+    });
+  }
+
+  void _showWithdrawalSheet(BuildContext context, double availableBalance) {
+    // Pre-check cooldown before showing sheet
+    AppRepositories.billing.getTherapistTransactions(widget.therapistId).then((transactions) {
+      if (!context.mounted) return;
+      final threeDaysAgo = DateTime.now().subtract(const Duration(days: 3));
+      final hasCooldown = transactions.any((tx) {
+        final type = (tx['type'] ?? '').toString();
+        final status = (tx['status'] ?? '').toString();
+        final createdAt = tx['createdAt'];
+        if (type != 'withdrawal') return false;
+        if (status == 'rejected') return false;
+        DateTime? dt;
+        if (createdAt is Timestamp) {
+          dt = createdAt.toDate();
+        }
+        return dt != null && dt.isAfter(threeDaysAgo);
+      });
+      if (hasCooldown) {
+        showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(children: [
+              Icon(Icons.timer_outlined, color: Color(0xFFD97706)),
+              SizedBox(width: 8),
+              Text('Cooldown Active', style: TextStyle(fontSize: 17)),
+            ]),
+            content: const Text(
+              'You have already submitted a withdrawal request in the last 3 days. Please wait for it to be processed before submitting another.',
+              style: TextStyle(height: 1.5),
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+          ),
+        );
+        return;
+      }
+
+      // No cooldown — open sheet
+      _openWithdrawalSheet(context, availableBalance);
+    }).catchError((e) {
+      // On error just open the sheet (server will enforce the cooldown)
+      if (context.mounted) _openWithdrawalSheet(context, availableBalance);
+    });
+  }
+
+  void _openWithdrawalSheet(BuildContext context, double availableBalance) {
+    final formKey = GlobalKey<FormState>();
+    final amountController = TextEditingController();
+    final accountDetailsController = TextEditingController();
+    final accountTitleController = TextEditingController();
+    String selectedMethod = 'EasyPaisa';
+    bool submitting = false;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 34),
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Withdraw Funds',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Available Balance: ${formatPrice(availableBalance)}',
+                        style: const TextStyle(fontSize: 14, color: Color(0xFF0D9488), fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 16),
+
+                      DropdownButtonFormField<String>(
+                        value: selectedMethod, // ignore: deprecated_member_use
+                        decoration: const InputDecoration(
+                          labelText: 'Payment Method',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.payment),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'EasyPaisa', child: Text('EasyPaisa')),
+                          DropdownMenuItem(value: 'JazzCash', child: Text('JazzCash')),
+                          DropdownMenuItem(value: 'Raast', child: Text('Raast (Instant Transfer)')),
+                          DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
+                        ],
+                        onChanged: submitting
+                            ? null
+                            : (val) {
+                                if (val != null) {
+                                  setSheetState(() => selectedMethod = val);
+                                }
+                              },
+                      ),
+                      const SizedBox(height: 12),
+
+                      // 3-day payout cooldown warning banner
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7ED),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFFFEDD5)),
+                        ),
+                        child: const Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.info_outline_rounded, color: Color(0xFFD97706), size: 20),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Important: Payouts are limited to once every 3 days. Once submitted, please wait 3 days for processing before requesting another withdrawal.',
+                                style: TextStyle(fontSize: 12, color: Color(0xFFC2410C), height: 1.4, fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextFormField(
+                        controller: amountController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        enabled: !submitting,
+                        decoration: const InputDecoration(
+                          labelText: 'Amount (PKR)',
+                          hintText: 'Enter amount to withdraw',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.money),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter an amount';
+                          }
+                          final val = double.tryParse(value);
+                          if (val == null || val <= 0) {
+                            return 'Enter a valid positive number';
+                          }
+                          if (val < 500) {
+                            return 'Minimum withdrawal amount is Rs. 500';
+                          }
+                          if (val > availableBalance) {
+                            return 'Amount exceeds available balance';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextFormField(
+                        controller: accountTitleController,
+                        enabled: !submitting,
+                        decoration: const InputDecoration(
+                          labelText: 'Account Title',
+                          hintText: 'Full name on account',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.person_outline),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter account title';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextFormField(
+                        controller: accountDetailsController,
+                        enabled: !submitting,
+                        decoration: InputDecoration(
+                          labelText: selectedMethod == 'Bank Transfer'
+                              ? 'IBAN / Account Number'
+                              : 'Mobile Account Number',
+                          hintText: selectedMethod == 'Bank Transfer'
+                              ? 'Enter full IBAN or Bank Account Number'
+                              : 'e.g. 03001234567',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.pin),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter account details';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 24),
+
+                      ElevatedButton(
+                        onPressed: submitting
+                            ? null
+                            : () async {
+                                if (formKey.currentState?.validate() != true) {
+                                  return;
+                                }
+                                setSheetState(() => submitting = true);
+
+                                final double withdrawAmt = double.parse(amountController.text.trim());
+                                final String accTitle = accountTitleController.text.trim();
+                                final String accNum = accountDetailsController.text.trim();
+                                final String fullDetailsStr = '$accTitle - $accNum';
+
+                                try {
+                                  await AppRepositories.billing.requestWithdrawal(
+                                    widget.therapistId,
+                                    withdrawAmt,
+                                    selectedMethod,
+                                    fullDetailsStr,
+                                  );
+
+                                  if (context.mounted) {
+                                    Navigator.pop(context);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Withdrawal request submitted successfully!'),
+                                        backgroundColor: Color(0xFF059669),
+                                      ),
+                                    );
+                                  }
+                                  _refresh();
+                                } catch (e) {
+                                  setSheetState(() => submitting = false);
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Withdrawal request failed: $e'),
+                                        backgroundColor: const Color(0xFFDC2626),
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0D9488),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: submitting
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              )
+                            : const Text('Submit Withdrawal Request', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _formatTime(DateTime dt) {
+    final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final suffix = dt.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $suffix';
+  }
+
+  void _showTherapistTransactionModal(BuildContext context, Map<String, dynamic> tx) {
+    final isEarning = tx['type'] == 'subscription';
+    // For earnings, prefer netAmount (the amount credited to wallet)
+    final grossAmount = double.tryParse((tx['grossAmount'] ?? 0.0).toString()) ?? 0.0;
+    final platformFee = double.tryParse((tx['platformFee'] ?? 0.0).toString()) ?? 0.0;
+    final safepayFee = double.tryParse((tx['safepayFee'] ?? 0.0).toString()) ?? 0.0;
+    final netAmount = double.tryParse((tx['netAmount'] ?? tx['amount'] ?? 0.0).toString()) ?? 0.0;
+    final amount = isEarning ? netAmount : (double.tryParse((tx['amount'] ?? 0.0).toString()) ?? 0.0);
+    final amountStr = formatPrice(amount);
+    final hasBreakdown = isEarning && grossAmount > 0 && (platformFee > 0 || safepayFee > 0);
+    final dateVal = tx['createdAt'];
+    String formattedDate = '';
+    if (dateVal is Timestamp) {
+      final dt = dateVal.toDate().toLocal();
+      formattedDate = '${dt.day}/${dt.month}/${dt.year} at ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    }
+    final status = (tx['status'] ?? 'pending').toString().toUpperCase();
+    final details = (tx['accountDetails'] ?? '').toString();
+    final method = (tx['paymentMethod'] ?? '').toString();
+    final parentName = (tx['parentName'] ?? '').toString();
+    final txnId = (tx['transactionId'] ?? tx['id'] ?? 'N/A').toString();
+    final basketId = (tx['basketId'] ?? 'N/A').toString();
+
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: isEarning ? const Color(0xFFE6F4EA) : const Color(0xFFFEF3C7),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: Center(
+                  child: Column(
+                    children: [
+                      Icon(
+                        isEarning ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                        color: isEarning ? const Color(0xFF059669) : const Color(0xFFD97706),
+                        size: 48,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        isEarning ? 'Earning Receipt' : 'Withdrawal Request',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        amountStr,
+                        style: TextStyle(
+                          fontSize: 26, 
+                          fontWeight: FontWeight.w800, 
+                          color: isEarning ? const Color(0xFF059669) : const Color(0xFFD97706),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    _buildModalDetailRow('Status', status, 
+                      valueColor: status == 'COMPLETED' || status == 'PAID'
+                          ? const Color(0xFF059669)
+                          : status == 'PENDING'
+                              ? const Color(0xFFD97706)
+                              : const Color(0xFFDC2626),
+                      isBoldValue: true,
+                    ),
+                    const Divider(),
+                    _buildModalDetailRow('Transaction ID', txnId),
+                    const Divider(),
+                    if (isEarning) ...[
+                      _buildModalDetailRow('Basket Order ID', basketId),
+                      const Divider(),
+                      _buildModalDetailRow('From Parent', parentName.isNotEmpty ? parentName : 'Parent Member'),
+                      if (hasBreakdown) ...[
+                        const Divider(),
+                        _buildModalDetailRow('Gross Subscription', formatPrice(grossAmount)),
+                        const Divider(),
+                        _buildModalDetailRow('SafePay Processing Fee', '-${formatPrice(safepayFee)}', valueColor: const Color(0xFFDC2626)),
+                        const Divider(),
+                        _buildModalDetailRow('Platform Service Fee (7%)', '-${formatPrice(platformFee)}', valueColor: const Color(0xFFDC2626)),
+                        const Divider(),
+                        _buildModalDetailRow('Net Credited to Wallet', formatPrice(netAmount), valueColor: const Color(0xFF059669), isBoldValue: true),
+                      ],
+                    ] else ...[
+                      _buildModalDetailRow('Payment Method', method.isNotEmpty ? method : 'Bank/Wallet'),
+                      const Divider(),
+                      _buildModalDetailRow('Account Details', details),
+                    ],
+                    const Divider(),
+                    _buildModalDetailRow('Date', formattedDate),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFFCBD5E1)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            child: const Text('Close', style: TextStyle(color: Color(0xFF475569))),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildModalDetailRow(String label, String value, {Color? valueColor, bool isBoldValue = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                fontSize: 13,
+                color: valueColor ?? const Color(0xFF1E293B),
+                fontWeight: isBoldValue ? FontWeight.bold : FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _walletFuture,
+      builder: (context, walletSnapshot) {
+        if (walletSnapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(24.0),
+            decoration: _cardDeco,
+            child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        }
+        if (walletSnapshot.hasError) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(16.0),
+            decoration: _cardDeco,
+            child: Text('Error loading wallet: ${walletSnapshot.error}'),
+          );
+        }
+        final walletData = walletSnapshot.data ?? {'walletBalance': 0.0, 'totalEarnings': 0.0};
+        final balance = double.tryParse(walletData['walletBalance'].toString()) ?? 0.0;
+        final earnings = double.tryParse(walletData['totalEarnings'].toString()) ?? 0.0;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+            border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF0EA5C6), Color(0xFF0D9488)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.account_balance_wallet, color: Colors.white, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              'Earnings & Wallet',
+                              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                            ),
+                          ],
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.refresh, color: Colors.white, size: 20),
+                          onPressed: _refresh,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Available Balance',
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      formatPrice(balance),
+                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Total Gross Earnings',
+                              style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 11),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              formatPrice(earnings),
+                              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: balance > 0
+                              ? () => _showWithdrawalSheet(context, balance)
+                              : null,
+                          icon: const Icon(Icons.arrow_upward_rounded, size: 16),
+                          label: const Text('Withdraw Funds', style: TextStyle(fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: const Color(0xFF0D9488),
+                            disabledBackgroundColor: Colors.white.withValues(alpha: 0.3),
+                            disabledForegroundColor: Colors.white.withValues(alpha: 0.5),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Transaction History',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF374151)),
+                    ),
+                    const SizedBox(height: 8),
+                    FutureBuilder<List<Map<String, dynamic>>>(
+                      future: _transactionsFuture,
+                      builder: (context, txSnapshot) {
+                        if (txSnapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 20),
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          );
+                        }
+                        final txList = txSnapshot.data ?? [];
+                        if (txList.isEmpty) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 20),
+                            child: Center(
+                              child: Text(
+                                'No transaction history yet.',
+                                style: TextStyle(color: Colors.grey, fontSize: 13, fontStyle: FontStyle.italic),
+                              ),
+                            ),
+                          );
+                        }
+
+                        return ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: txList.length,
+                          separatorBuilder: (context, index) => const Divider(height: 12),
+                          itemBuilder: (context, index) {
+                            final tx = txList[index];
+                            final isEarning = tx['type'] == 'subscription';
+                            final amount = double.tryParse((tx['amount'] ?? 0.0).toString()) ?? 0.0;
+                            final dateVal = tx['createdAt'];
+                            String formattedDate = '';
+                            if (dateVal is Timestamp) {
+                              final dt = dateVal.toDate().toLocal();
+                              formattedDate = '${dt.day}/${dt.month}/${dt.year} ${_formatTime(dt)}';
+                            }
+                            final status = (tx['status'] ?? 'pending').toString().toLowerCase();
+                            final details = (tx['accountDetails'] ?? '').toString();
+                            final method = (tx['paymentMethod'] ?? '').toString();
+                            final parentName = (tx['parentName'] ?? '').toString();
+
+                            return InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () => _showTherapistTransactionModal(context, tx),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                                child: Row(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 16,
+                                      backgroundColor: isEarning ? const Color(0xFFD1FAE5) : const Color(0xFFF3F4F6),
+                                      child: Icon(
+                                        isEarning ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                                        size: 16,
+                                        color: isEarning ? const Color(0xFF059669) : const Color(0xFF4B5563),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            isEarning 
+                                                ? 'Subscription received ${parentName.isNotEmpty ? "from $parentName" : ""}'
+                                                : 'Withdrawal to ${method.toUpperCase()}',
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1F2937)),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          if (formattedDate.isNotEmpty)
+                                            Text(
+                                              formattedDate,
+                                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                            ),
+                                          if (!isEarning && details.isNotEmpty)
+                                            Text(
+                                              'Acc: $details',
+                                              style: const TextStyle(fontSize: 11, color: Colors.black54),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          '${isEarning ? "+" : "-"}${formatPrice(amount).replaceAll(" PKR", "")}',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                            color: isEarning ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                                          ),
+                                        ),
+                                        Container(
+                                          margin: const EdgeInsets.only(top: 2),
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: status == 'completed' || status == 'paid'
+                                                ? const Color(0xFFD1FAE5)
+                                                : status == 'pending'
+                                                    ? const Color(0xFFFEF3C7)
+                                                    : const Color(0xFFFEE2E2),
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Text(
+                                            status.toUpperCase(),
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                              color: status == 'completed' || status == 'paid'
+                                                  ? const Color(0xFF065F46)
+                                                  : status == 'pending'
+                                                      ? const Color(0xFF92400E)
+                                                      : const Color(0xFF991B1B),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 class TherapistMessagesScreen extends StatefulWidget {
   const TherapistMessagesScreen({super.key});
 
@@ -2072,6 +3439,46 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
     };
   }
 
+  Widget _buildParentAvatar(String? photoUrl, {double size = 40}) {
+    Widget imageWidget;
+    final cleanPhoto = photoUrl?.trim() ?? '';
+    if (cleanPhoto.isNotEmpty) {
+      if (cleanPhoto.startsWith('http://') || cleanPhoto.startsWith('https://')) {
+        imageWidget = Image.network(
+          cleanPhoto,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => const Icon(Icons.person, color: Color(0xFF64748B)),
+        );
+      } else {
+        try {
+          final imageBytes = base64Decode(cleanPhoto);
+          imageWidget = Image.memory(
+            imageBytes,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => const Icon(Icons.person, color: Color(0xFF64748B)),
+          );
+        } catch (_) {
+          imageWidget = const Icon(Icons.person, color: Color(0xFF64748B));
+        }
+      }
+    } else {
+      imageWidget = const Icon(Icons.person, color: Color(0xFF64748B));
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: const BoxDecoration(
+        color: Color(0xFFD9F4DF),
+        shape: BoxShape.circle,
+      ),
+      padding: const EdgeInsets.all(2),
+      child: ClipOval(
+        child: imageWidget,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SessionGuard(
@@ -2095,7 +3502,7 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
                         'Messages',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 46 / 1.5,
+                          fontSize: 30 / 1.5,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -2162,13 +3569,7 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
                                       : parentProfile?.email ?? 'Parent');
 
                             return ListTile(
-                              leading: const CircleAvatar(
-                                backgroundColor: Color(0xFFD9F4DF),
-                                child: Icon(
-                                  Icons.person,
-                                  color: Color(0xFF64748B),
-                                ),
-                              ),
+                              leading: _buildParentAvatar(parentProfile?.photoUrl),
                               title: Text(
                                 parentName,
                                 style: const TextStyle(
@@ -2245,6 +3646,7 @@ class TherapistProfileSettingsScreen extends StatefulWidget {
     required this.profile,
     required this.setupMode,
     required this.initialYears,
+    required this.initialMonths,
     required this.initialCredentials,
     required this.initialEmail,
     required this.initialPhone,
@@ -2256,6 +3658,7 @@ class TherapistProfileSettingsScreen extends StatefulWidget {
   final TherapistProfile profile;
   final bool setupMode;
   final int initialYears;
+  final int initialMonths;
   final String initialCredentials;
   final String initialEmail;
   final String initialPhone;
@@ -2264,6 +3667,7 @@ class TherapistProfileSettingsScreen extends StatefulWidget {
   final Future<void> Function({
     required TherapistProfile profile,
     required int years,
+    required int months,
     required String credentials,
     required String contactEmail,
     required String contactPhone,
@@ -2288,7 +3692,6 @@ class _TherapistProfileSettingsScreenState
   late final TextEditingController _phone;
   late final TextEditingController _savedPasswordDisplay;
   late final TextEditingController _newPassword;
-  late final TextEditingController _years;
   late final TextEditingController _credentials;
   late final TextEditingController _about;
   late final TextEditingController _otherSpecialization;
@@ -2301,10 +3704,9 @@ class _TherapistProfileSettingsScreenState
   bool _obscureNewPassword = true;
   final FirebaseService _firebaseService = FirebaseService();
 
-  static const String _savedPasswordMaskedPlaceholder =
-      '************';
-  static const String _savedPasswordRevealMessage =
-      'Your actual password is not displayed on this screen for security. Tap the eye to hide again. Enter a new password below only when you want to change it.';
+  late int _selectedYears;
+  late int _selectedMonths;
+  late PhoneCountry _selectedPhoneCountry;
 
   @override
   void initState() {
@@ -2315,13 +3717,17 @@ class _TherapistProfileSettingsScreenState
       text: display.length > 1 ? display.sublist(1).join(' ') : '',
     );
     _email = TextEditingController(text: widget.initialEmail);
-    _phone = TextEditingController(text: widget.initialPhone);
+    
+    final (parsedCountry, parsedLocalDigits) = parseStoredPhoneNumber(widget.initialPhone);
+    _phone = TextEditingController(text: parsedLocalDigits);
+    _selectedPhoneCountry = parsedCountry;
+
     _newPassword = TextEditingController();
-    _savedPasswordDisplay =
-        TextEditingController(text: _savedPasswordMaskedPlaceholder);
-    _years = TextEditingController(
-      text: widget.initialYears > 0 ? widget.initialYears.toString() : '',
-    );
+    _savedPasswordDisplay = TextEditingController();
+    
+    _selectedYears = widget.initialYears;
+    _selectedMonths = widget.initialMonths;
+    
     _credentials = TextEditingController(text: widget.initialCredentials);
     _about = TextEditingController(text: widget.profile.bio);
     _certificatePdfName = widget.initialCertificatePdfName;
@@ -2350,7 +3756,6 @@ class _TherapistProfileSettingsScreenState
     _phone.dispose();
     _savedPasswordDisplay.dispose();
     _newPassword.dispose();
-    _years.dispose();
     _credentials.dispose();
     _about.dispose();
     _otherSpecialization.dispose();
@@ -2386,25 +3791,30 @@ class _TherapistProfileSettingsScreenState
       return;
     }
 
-    final phone = _phone.text.trim();
-    if (phone.isEmpty) {
+    final phoneText = _phone.text.trim();
+    if (phoneText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter your phone number before proceeding.')),
       );
       return;
     }
-    if (!_isValidPhoneNumber(phone)) {
+    final fullPhone = buildFullPhoneNumber(_selectedPhoneCountry, phoneText);
+    if (!_isValidPhoneNumber(fullPhone)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid phone number (10-15 digits).')),
       );
       return;
     }
 
-    final yearsStr = _years.text.trim();
-    final years = int.tryParse(yearsStr) ?? 0;
-    if (years < 0 || years > 100) {
+    if (_selectedYears < 0 || _selectedYears > 80) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Years of experience must be between 0 and 100 years.')),
+        const SnackBar(content: Text('Years of experience must be between 0 and 80 years.')),
+      );
+      return;
+    }
+    if (_selectedMonths < 0 || _selectedMonths > 11) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Months of experience must be between 0 and 11 months.')),
       );
       return;
     }
@@ -2485,14 +3895,15 @@ class _TherapistProfileSettingsScreenState
       );
       return;
     }
-    final phone = _phone.text.trim();
-    if (phone.isEmpty) {
+    final phoneText = _phone.text.trim();
+    if (phoneText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter your phone number.')),
       );
       return;
     }
-    if (!_isValidPhoneNumber(phone)) {
+    final fullPhone = buildFullPhoneNumber(_selectedPhoneCountry, phoneText);
+    if (!_isValidPhoneNumber(fullPhone)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please enter a valid phone number (10-15 digits).'),
@@ -2512,11 +3923,15 @@ class _TherapistProfileSettingsScreenState
       }
     }
 
-    final yearsStr = _years.text.trim();
-    final years = int.tryParse(yearsStr) ?? 0;
-    if (years < 0 || years > 100) {
+    if (_selectedYears < 0 || _selectedYears > 80) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Years of experience must be between 0 and 100 years.')),
+        const SnackBar(content: Text('Years of experience must be between 0 and 80 years.')),
+      );
+      return;
+    }
+    if (_selectedMonths < 0 || _selectedMonths > 11) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Months of experience must be between 0 and 11 months.')),
       );
       return;
     }
@@ -2529,25 +3944,41 @@ class _TherapistProfileSettingsScreenState
       }).where((s) => s.isNotEmpty).toList(growable: false);
 
       if (newPassword.isNotEmpty) {
-        final passwordResult =
-            await _firebaseService.updateCurrentUserPassword(
+        final currentPassword = _savedPasswordDisplay.text.trim();
+        if (currentPassword.isEmpty) {
+          if (!mounted) return;
+          setState(() => _saving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please enter your current password to set a new one.'),
+              backgroundColor: Color(0xFFE74C3C),
+            ),
+          );
+          return;
+        }
+
+        final passwordResult = await _firebaseService.updateCurrentUserPassword(
           newPassword: newPassword,
+          currentPassword: currentPassword,
         );
         if (passwordResult['success'] != true) {
           if (!mounted) {
             return;
           }
+          setState(() => _saving = false);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
                 passwordResult['message']?.toString() ??
                     'Failed to update password.',
               ),
+              backgroundColor: const Color(0xFFE74C3C),
             ),
           );
           return;
         }
         _newPassword.clear();
+        _savedPasswordDisplay.clear();
       }
 
       final updated = TherapistProfile(
@@ -2561,7 +3992,8 @@ class _TherapistProfileSettingsScreenState
         availability: widget.profile.availability,
         photoUrl: widget.profile.photoUrl,
         isActive: widget.profile.isActive,
-        yearsOfExperience: years,
+        yearsOfExperience: _selectedYears,
+        experienceMonths: _selectedMonths,
         credentials: _credentials.text.trim(),
         photoUrlBase64: _photoBase64 ?? widget.profile.photoUrlBase64,
         certificateBase64: _certificateTouched
@@ -2571,10 +4003,11 @@ class _TherapistProfileSettingsScreenState
 
       await widget.onSave(
         profile: updated,
-        years: years,
+        years: _selectedYears,
+        months: _selectedMonths,
         credentials: _credentials.text.trim(),
         contactEmail: email,
-        contactPhone: phone,
+        contactPhone: fullPhone,
         packages: packages,
         certificatePdfName: _certificateTouched ? _certificatePdfName : null,
         photoBase64: _photoBase64,
@@ -2760,9 +4193,6 @@ class _TherapistProfileSettingsScreenState
   void _toggleSavedPasswordVisibility() {
     setState(() {
       _revealSavedPassword = !_revealSavedPassword;
-      _savedPasswordDisplay.text = _revealSavedPassword
-          ? _savedPasswordRevealMessage
-          : _savedPasswordMaskedPlaceholder;
     });
   }
 
@@ -2795,24 +4225,24 @@ class _TherapistProfileSettingsScreenState
         const SizedBox(height: 4),
         TextField(
           controller: _savedPasswordDisplay,
-          readOnly: true,
           obscureText: !_revealSavedPassword,
           decoration: InputDecoration(
             filled: true,
             fillColor: const Color(0xFFF8FAFC),
             isDense: true,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
+            hintText: 'Enter current password',
+            hintStyle: const TextStyle(fontSize: 13, color: Colors.grey),
             suffixIcon: IconButton(
               onPressed: _toggleSavedPasswordVisibility,
               icon: Icon(
-                _revealSavedPassword
-                    ? Icons.visibility_off
-                    : Icons.visibility,
+                _revealSavedPassword ? Icons.visibility : Icons.visibility_off,
                 color: const Color(0xFF6B7280),
+                size: 20,
               ),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
             ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
@@ -2933,16 +4363,13 @@ class _TherapistProfileSettingsScreenState
             const SizedBox(height: 8),
             _input('Last Name', _last),
             const SizedBox(height: 8),
-            _input(
-              'Years of Experience',
-              _years,
-              keyboard: TextInputType.number,
-            ),
+            _buildExperiencePicker(),
             const SizedBox(height: 8),
             _input(
               'Credentials & Certifications',
               _credentials,
               lines: 3,
+              subtext: 'Please provide details such as registration/license number, CNIC, or other professional credentials for verification purposes.',
             ),
             const SizedBox(height: 8),
             _input('About You', _about, lines: 4),
@@ -3119,10 +4546,26 @@ class _TherapistProfileSettingsScreenState
                     readOnly: true,
                   ),
                   const SizedBox(height: 8),
-                  _input(
+                  const Text(
                     'Phone Number',
-                    _phone,
-                    keyboard: TextInputType.phone,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 12,
+                      color: Color(0xFF6B7280),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  PhoneInputField(
+                    localController: _phone,
+                    initialCountry: _selectedPhoneCountry,
+                    onCountryChanged: (country) {
+                      setState(() => _selectedPhoneCountry = country);
+                    },
+                    fieldDecoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
                   ),
                   const SizedBox(height: 8),
                   _buildCurrentPasswordIndicator(),
@@ -3163,16 +4606,13 @@ class _TherapistProfileSettingsScreenState
                     ),
                   ),
                   const SizedBox(height: 10),
-                  _input(
-                    'Years of Experience',
-                    _years,
-                    keyboard: TextInputType.number,
-                  ),
+                  _buildExperiencePicker(),
                   const SizedBox(height: 8),
                   _input(
                     'Credentials & Certifications',
                     _credentials,
                     lines: 3,
+                    subtext: 'Please provide details such as registration/license number, CNIC, or other professional credentials for verification purposes.',
                   ),
                   const SizedBox(height: 8),
                   _buildCertificateUploadGuidance(),
@@ -3430,8 +4870,22 @@ class _TherapistProfileSettingsScreenState
   }
 
   Future<void> _deleteAccount() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+    final uid = currentUser.uid;
+
+    final lastSignIn = currentUser.metadata.lastSignInTime;
+    if (lastSignIn != null && DateTime.now().difference(lastSignIn).inMinutes > 5) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('For security, please sign out and sign back in before deleting your account.'),
+          backgroundColor: Color(0xFFFF4D4D),
+          duration: Duration(seconds: 5),
+        ),
+      );
+      return;
+    }
 
     try {
       // First try to delete Firestore documents while we still have auth context
@@ -3466,14 +4920,17 @@ class _TherapistProfileSettingsScreenState
           // This is not critical for account deletion
         }
         
-        // Mark therapist as inactive in any global listings
+        // Delete any feedback submitted by the therapist
         try {
-          await FirebaseFirestore.instance
-              .collection('activeTherapists')
-              .doc(uid)
-              .delete();
+          final feedbackSnap = await FirebaseFirestore.instance
+              .collection(FirestoreCollections.feedback)
+              .where('userId', isEqualTo: uid)
+              .get();
+          for (final f in feedbackSnap.docs) {
+            await f.reference.delete();
+          }
         } catch (e) {
-          // This collection might not exist, which is fine
+          // Non-critical
         }
         
         firestoreDeleted = true;
@@ -3549,7 +5006,7 @@ class _TherapistProfileSettingsScreenState
               
               authDeleted = true; // Mark as disabled
             } catch (disableError) {
-              authError = disableError.toString();
+              // Preserve the original authError
             }
           }
         }
@@ -3631,6 +5088,7 @@ class _TherapistProfileSettingsScreenState
     bool readOnly = false,
     bool obscureText = false,
     Widget? suffixIcon,
+    String? subtext,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3673,6 +5131,17 @@ class _TherapistProfileSettingsScreenState
             ),
           ),
         ),
+        if (subtext != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            subtext,
+            style: const TextStyle(
+              fontSize: 11,
+              color: Color(0xFF6B7280),
+              height: 1.3,
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -3728,6 +5197,84 @@ class _TherapistProfileSettingsScreenState
       return 'Password must contain at least one number for strong password';
     }
     return '';
+  }
+
+  Widget _buildExperiencePicker() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Experience',
+          style: TextStyle(
+            fontWeight: FontWeight.w500,
+            fontSize: 12,
+            color: Color(0xFF6B7280),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: _selectedYears,
+                    isExpanded: true,
+                    style: const TextStyle(color: Color(0xFF1F2937), fontSize: 14),
+                    items: List.generate(81, (index) => index)
+                        .map((y) => DropdownMenuItem<int>(
+                              value: y,
+                              child: Text('$y Years'),
+                            ))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() => _selectedYears = val);
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: _selectedMonths,
+                    isExpanded: true,
+                    style: const TextStyle(color: Color(0xFF1F2937), fontSize: 14),
+                    items: List.generate(12, (index) => index)
+                        .map((m) => DropdownMenuItem<int>(
+                              value: m,
+                              child: Text('$m Months'),
+                            ))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() => _selectedMonths = val);
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 }
 
@@ -3896,11 +5443,8 @@ class TherapistNotificationSettingsScreen extends StatefulWidget {
 
 class _TherapistNotificationSettingsScreenState
     extends State<TherapistNotificationSettingsScreen> {
-  bool email = false;
-  bool sms = false;
   bool newMessages = false;
   bool bookings = false;
-  bool reminders = false;
   bool payments = false;
   bool emergency = true;
 
@@ -3911,11 +5455,8 @@ class _TherapistNotificationSettingsScreenState
       ..._defaultTherapistNotificationPrefs,
       ...widget.initialValues,
     };
-    email = initial['email'] ?? false;
-    sms = initial['sms'] ?? false;
     newMessages = initial['newMessages'] ?? false;
     bookings = initial['bookings'] ?? false;
-    reminders = initial['reminders'] ?? false;
     payments = initial['payments'] ?? false;
     emergency = initial['emergency'] ?? true;
   }
@@ -3932,18 +5473,6 @@ class _TherapistNotificationSettingsScreenState
           padding: EdgeInsets.fromLTRB(r.w(14), r.h(12), r.w(14), r.h(120)),
           children: [
             _switchTile(
-              'Email Notifications',
-              'Receive updates via email',
-              email,
-              (v) => setState(() => email = v),
-            ),
-            _switchTile(
-              'SMS Notifications',
-              'Receive text message alerts',
-              sms,
-              (v) => setState(() => sms = v),
-            ),
-            _switchTile(
               'New Messages',
               'When parents send you messages',
               newMessages,
@@ -3954,12 +5483,6 @@ class _TherapistNotificationSettingsScreenState
               'When parents book your sessions',
               bookings,
               (v) => setState(() => bookings = v),
-            ),
-            _switchTile(
-              'Session Reminders',
-              'Upcoming session notifications',
-              reminders,
-              (v) => setState(() => reminders = v),
             ),
             _switchTile(
               'Payment Alerts',
@@ -3977,11 +5500,8 @@ class _TherapistNotificationSettingsScreenState
             FilledButton(
               onPressed: () {
                 Navigator.pop(context, <String, bool>{
-                  'email': email,
-                  'sms': sms,
                   'newMessages': newMessages,
                   'bookings': bookings,
-                  'reminders': reminders,
                   'payments': payments,
                   'emergency': emergency,
                 });
@@ -4037,6 +5557,7 @@ class _TherapistSettingsDialog extends StatelessWidget {
     required this.onProfile,
     required this.onPackage,
     required this.onAlerts,
+    required this.onFeedback,
     required this.onAbout,
     required this.onLogout,
   });
@@ -4044,129 +5565,138 @@ class _TherapistSettingsDialog extends StatelessWidget {
   final VoidCallback onProfile;
   final VoidCallback onPackage;
   final VoidCallback onAlerts;
+  final VoidCallback onFeedback;
   final VoidCallback onAbout;
   final VoidCallback onLogout;
 
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      elevation: 0,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const Spacer(),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close, size: 18),
+                Row(
+                  children: [
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded, size: 24, color: Color(0xFF64748B)),
+                      splashRadius: 20,
+                    ),
+                  ],
+                ),
+                const CircleAvatar(
+                  radius: 32,
+                  backgroundColor: Color(0xFF4EA9E3),
+                  child: Icon(Icons.settings_rounded, color: Colors.white, size: 32),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Settings',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Color(0xFF1E293B)),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: BouncingButton(
+                        onTap: onProfile,
+                        child: _setBtn('Profile', const Color(0xFF4EA9E3), Icons.person_rounded),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: BouncingButton(
+                        onTap: onPackage,
+                        child: _setBtn('Package', const Color(0xFFFB923C), Icons.inventory_2_rounded),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: BouncingButton(
+                        onTap: onAlerts,
+                        child: _setBtn('Alerts', const Color(0xFF10B981), Icons.notifications_rounded),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: BouncingButton(
+                        onTap: onFeedback,
+                        child: _setBtn('Feedback', const Color(0xFF8B5CF6), Icons.rate_review_rounded),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: BouncingButton(
+                        onTap: onAbout,
+                        child: _setBtn('About App', const Color(0xFF3B82F6), Icons.info_rounded),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                BouncingButton(
+                  onTap: onLogout,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEF4444),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.logout_rounded, color: Colors.white, size: 20),
+                        SizedBox(width: 8),
+                        Text('Logout', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
-            const CircleAvatar(
-              radius: 23,
-              backgroundColor: Color(0xFF10B6CF),
-              child: Icon(Icons.settings, color: Colors.white),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Settings',
-              style: TextStyle(fontSize: 36 / 1.5, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _setBtn(
-                    'Profile',
-                    const Color(0xFF10B6CF),
-                    Icons.person_outline,
-                    onProfile,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _setBtn(
-                    'Package',
-                    const Color(0xFFFB923C),
-                    Icons.inventory_2_outlined,
-                    onPackage,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _setBtn(
-                    'Alerts',
-                    const Color(0xFF8CC93B),
-                    Icons.notifications_none,
-                    onAlerts,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _setBtn(
-                    'About Application',
-                    const Color(0xFF60A5FA),
-                    Icons.info_outline,
-                    onAbout,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: onLogout,
-                icon: const Icon(Icons.logout),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF3040),
-                  foregroundColor: Colors.white,
-                ),
-                label: const Text('Logout'),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
 
-  Widget _setBtn(String title, Color color, IconData icon, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Ink(
-        height: 58,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: Colors.white, size: 16),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                title,
-                maxLines: 2,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
+  Widget _setBtn(String title, Color color, IconData icon) {
+    return Container(
+      height: 58,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: Colors.white, size: 16),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              title,
+              maxLines: 2,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -4227,7 +5757,7 @@ class _PackageTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '\$${package.price.toStringAsFixed(0)} /session',
+                  '${formatPrice(package.price)} /session',
                   style: const TextStyle(
                     color: Color(0xFF0EA5C6),
                     fontWeight: FontWeight.w700,
@@ -4352,7 +5882,7 @@ class _PackageEditorState extends State<_PackageEditor> {
               _field('Package Title', _title),
               const SizedBox(height: 8),
               _field(
-                'Price per Session (\$)',
+                'Price per Session (PKR)',
                 _price,
                 keyboard: TextInputType.number,
               ),
@@ -4587,11 +6117,8 @@ const BoxDecoration _cardDeco = BoxDecoration(
 );
 
 const Map<String, bool> _defaultTherapistNotificationPrefs = <String, bool>{
-  'email': false,
-  'sms': false,
   'newMessages': false,
   'bookings': false,
-  'reminders': false,
   'payments': false,
   'emergency': true,
 };
@@ -4614,60 +6141,6 @@ const List<String> _specializations = <String>[
   'Feeding Therapy',
   'Others',
 ];
-
-class TherapyPackage {
-  const TherapyPackage({
-    required this.title,
-    required this.durationMinutes,
-    required this.sessionsPerWeek,
-    required this.price,
-    required this.description,
-    this.visible = true,
-  });
-
-  final String title;
-  final int durationMinutes;
-  final int sessionsPerWeek;
-  final double price;
-  final String description;
-  final bool visible;
-
-  TherapyPackage copy({
-    String? title,
-    int? durationMinutes,
-    int? sessionsPerWeek,
-    double? price,
-    String? description,
-    bool? visible,
-  }) {
-    return TherapyPackage(
-      title: title ?? this.title,
-      durationMinutes: durationMinutes ?? this.durationMinutes,
-      sessionsPerWeek: sessionsPerWeek ?? this.sessionsPerWeek,
-      price: price ?? this.price,
-      description: description ?? this.description,
-      visible: visible ?? this.visible,
-    );
-  }
-
-  Map<String, dynamic> toMap() => {
-    'title': title,
-    'durationMinutes': durationMinutes,
-    'sessionsPerWeek': sessionsPerWeek,
-    'price': price,
-    'description': description,
-    'visible': visible,
-  };
-
-  factory TherapyPackage.fromMap(Map<String, dynamic> map) => TherapyPackage(
-    title: map['title']?.toString() ?? '',
-    durationMinutes: (map['durationMinutes'] as num?)?.toInt() ?? 0,
-    sessionsPerWeek: (map['sessionsPerWeek'] as num?)?.toInt() ?? 0,
-    price: (map['price'] as num?)?.toDouble() ?? 0.0,
-    description: map['description']?.toString() ?? '',
-    visible: map['visible'] as bool? ?? true,
-  );
-}
 
 class _BottomWaveClipper extends CustomClipper<Path> {
   @override

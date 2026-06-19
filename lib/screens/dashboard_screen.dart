@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -101,6 +102,60 @@ class _DashboardHomeBody extends StatelessWidget {
           children: [
             _DashboardHeaderCard(onBack: () => Navigator.pop(context)),
             const SizedBox(height: 14),
+            // --- Today's Summary ---
+            _PanelCard(
+              title: "Today's Summary",
+              titleIcon: const Icon(
+                Icons.today_rounded,
+                color: Color(0xFFFF9500),
+                size: 22,
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _TodaySummaryTile(
+                          icon: Icons.check_circle_rounded,
+                          iconColor: const Color(0xFF2E8B57),
+                          label: 'Daily Activities',
+                          value: dashboard.dailyActivitiesTotal > 0
+                              ? '${dashboard.dailyActivitiesToday}/${dashboard.dailyActivitiesTotal}'
+                              : '${dashboard.dailyActivitiesToday}',
+                          subLabel: dashboard.dailyActivitiesTotal > 0 &&
+                                  dashboard.dailyActivitiesToday >=
+                                      dashboard.dailyActivitiesTotal
+                              ? 'All done! 🎉'
+                              : 'completed today',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _TodaySummaryTile(
+                          icon: Icons.local_fire_department_rounded,
+                          iconColor: const Color(0xFFFF4500),
+                          label: 'Streak',
+                          value: '${dashboard.streakDays}',
+                          subLabel: dashboard.streakDays == 1
+                              ? 'day in a row'
+                              : 'days in a row',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _TodaySummaryTile(
+                    icon: Icons.record_voice_over_rounded,
+                    iconColor: const Color(0xFF9B59B6),
+                    label: 'Communication',
+                    value: '${dashboard.communicationTapsThisWeek}',
+                    subLabel: 'vocab items used this week',
+                    fullWidth: true,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
             _PanelCard(
               title: 'Health Overview',
               titleIcon: const Icon(
@@ -121,6 +176,13 @@ class _DashboardHomeBody extends StatelessWidget {
                     child: _HealthPill(
                       label: 'Mood',
                       value: dashboard.moodLabel,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _HealthPill(
+                      label: '🔥 Streak',
+                      value: '${dashboard.streakDays} day${dashboard.streakDays == 1 ? '' : 's'}',
                     ),
                   ),
                 ],
@@ -387,6 +449,111 @@ class _HealthPill extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _TodaySummaryTile extends StatelessWidget {
+  const _TodaySummaryTile({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.value,
+    required this.subLabel,
+    this.fullWidth = false,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final String value;
+  final String subLabel;
+  final bool fullWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: iconColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: iconColor.withValues(alpha: 0.15)),
+      ),
+      child: fullWidth
+          ? Row(
+              children: [
+                Icon(icon, color: iconColor, size: 26),
+                const SizedBox(width: 10),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: iconColor.withValues(alpha: 0.8),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          value,
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: iconColor,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          subLabel,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF5C6A79),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Icon(icon, color: iconColor, size: 26),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: iconColor.withValues(alpha: 0.8),
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    color: iconColor,
+                  ),
+                ),
+                Text(
+                  subLabel,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF5C6A79),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
     );
   }
 }
@@ -699,7 +866,7 @@ class _ReportDetailScreenState extends State<_ReportDetailScreen> {
     if (!chatEnabled) {
       throw StateError('Coming soon');
     }
-    final subscription = await AppRepositories.billing.getCurrentSubscription();
+    final subscription = await AppRepositories.billing.getSubscriptionForTherapist(therapistId);
     final thread = await AppRepositories.support.ensureThread(
       therapistId: therapistId,
       childId: widget.childProfile.id,
@@ -707,10 +874,17 @@ class _ReportDetailScreenState extends State<_ReportDetailScreen> {
           ? subscription.id
           : 'local-bypass',
     );
+    
+    // Generate the PDF bytes
+    final bytes = await _buildPdfBytes(widget.report);
+    final base64Pdf = base64Encode(bytes);
+    
     await AppRepositories.support.sendMessage(
       threadId: thread.id,
       senderRole: 'parent',
       body: _buildShareMessage(widget.report),
+      attachments: [base64Pdf],
+      messageType: 'report',
     );
   }
 
@@ -768,90 +942,249 @@ class _ReportDetailScreenState extends State<_ReportDetailScreen> {
 
   Future<Uint8List> _buildPdfBytes(_ReportData report) async {
     final pdf = pw.Document();
-    final baseStyle = pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey800);
+    
+    // Theme Colors
+    final primaryColor = PdfColor.fromHex('#2967FF');
+    final secondaryColor = PdfColor.fromHex('#F5F5F8');
+    final textColor = PdfColor.fromHex('#2D3B4F');
+    final lightTextColor = PdfColor.fromHex('#6E7A8A');
+    final borderColor = PdfColor.fromHex('#E4EBF5');
+
+    PdfColor getSectionColor(String title) {
+      if (title.contains('Move')) return PdfColor.fromHex('#2F6FFF');
+      if (title.contains('Talk')) return PdfColor.fromHex('#0FB247');
+      if (title.contains('Focus')) return PdfColor.fromHex('#8C3DE0');
+      return primaryColor;
+    }
 
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(24),
+        margin: pw.EdgeInsets.zero,
         build: (context) => [
-          pw.Text(
-            report.title,
-            style: pw.TextStyle(
-              fontSize: 20,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColors.blueGrey900,
+          // Header
+          pw.Container(
+            padding: const pw.EdgeInsets.all(32),
+            decoration: pw.BoxDecoration(color: primaryColor),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'AutiEase',
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        color: PdfColors.white,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 12),
+                    pw.Text(
+                      report.title,
+                      style: pw.TextStyle(
+                        fontSize: 28,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.white,
+                      ),
+                    ),
+                    pw.SizedBox(height: 6),
+                    pw.Text(
+                      report.dateLabel,
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        color: PdfColor.fromHex('#E2EFE8'),
+                      ),
+                    ),
+                  ],
+                ),
+                pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.white,
+                    borderRadius: pw.BorderRadius.circular(20),
+                  ),
+                  child: pw.Text(
+                    report.summarySubtitle,
+                    style: pw.TextStyle(
+                      fontSize: 12,
+                      fontWeight: pw.FontWeight.bold,
+                      color: primaryColor,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          pw.SizedBox(height: 4),
-          pw.Text(report.dateLabel, style: baseStyle),
-          pw.SizedBox(height: 16),
-          pw.Text(
-            'Summary',
-            style: pw.TextStyle(
-              fontSize: 14,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColors.blueGrey900,
-            ),
-          ),
-          pw.SizedBox(height: 6),
-          pw.Text(report.summaryText, style: baseStyle),
-          pw.SizedBox(height: 16),
-          pw.Text(
-            'Progress by Section',
-            style: pw.TextStyle(
-              fontSize: 14,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColors.blueGrey900,
-            ),
-          ),
-          pw.SizedBox(height: 8),
-          ...report.sections.map(
-            (section) => pw.Container(
-              margin: const pw.EdgeInsets.only(bottom: 8),
-              padding: const pw.EdgeInsets.all(10),
-              decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: PdfColors.blueGrey100),
-                borderRadius: pw.BorderRadius.circular(6),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(32),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                // Summary Card
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(20),
+                  decoration: pw.BoxDecoration(
+                    color: secondaryColor,
+                    borderRadius: pw.BorderRadius.circular(12),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
                       pw.Text(
-                        section.title,
+                        'Summary',
                         style: pw.TextStyle(
+                          fontSize: 16,
                           fontWeight: pw.FontWeight.bold,
-                          fontSize: 11,
+                          color: textColor,
                         ),
                       ),
-                      pw.Text(section.percentLabel, style: baseStyle),
+                      pw.SizedBox(height: 8),
+                      pw.Text(
+                        report.summaryText,
+                        style: pw.TextStyle(fontSize: 12, color: lightTextColor, lineSpacing: 1.5),
+                      ),
                     ],
                   ),
-                  pw.SizedBox(height: 4),
-                  pw.Text(section.body, style: baseStyle),
-                  pw.SizedBox(height: 4),
-                  pw.Text('Status: ${section.statusLabel}', style: baseStyle),
-                ],
-              ),
-            ),
-          ),
-          pw.SizedBox(height: 8),
-          pw.Text(
-            'Therapist Recommendations',
-            style: pw.TextStyle(
-              fontSize: 14,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColors.blueGrey900,
-            ),
-          ),
-          pw.SizedBox(height: 6),
-          ...report.recommendations.map(
-            (item) => pw.Padding(
-              padding: const pw.EdgeInsets.only(bottom: 4),
-              child: pw.Text('• $item', style: baseStyle),
+                ),
+                pw.SizedBox(height: 24),
+                
+                // Progress by Section
+                pw.Text(
+                  'Progress by Section',
+                  style: pw.TextStyle(
+                    fontSize: 18,
+                    fontWeight: pw.FontWeight.bold,
+                    color: textColor,
+                  ),
+                ),
+                pw.SizedBox(height: 16),
+                ...report.sections.map((section) {
+                  final sectionColor = getSectionColor(section.title);
+                  return pw.Container(
+                    margin: const pw.EdgeInsets.only(bottom: 16),
+                    padding: const pw.EdgeInsets.all(16),
+                    decoration: pw.BoxDecoration(
+                      border: pw.Border.all(color: borderColor, width: 1.5),
+                      borderRadius: pw.BorderRadius.circular(12),
+                    ),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          children: [
+                            pw.Text(
+                              section.title,
+                              style: pw.TextStyle(
+                                fontSize: 14,
+                                fontWeight: pw.FontWeight.bold,
+                                color: textColor,
+                              ),
+                            ),
+                            pw.Text(
+                              section.statusLabel,
+                              style: pw.TextStyle(
+                                fontSize: 12,
+                                fontWeight: pw.FontWeight.bold,
+                                color: sectionColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                        pw.SizedBox(height: 12),
+                        // Progress Bar
+                        pw.Row(
+                          children: [
+                            pw.Expanded(
+                              child: pw.Container(
+                                height: 8,
+                                decoration: pw.BoxDecoration(
+                                  color: borderColor,
+                                  borderRadius: pw.BorderRadius.circular(4),
+                                ),
+                                child: pw.Row(
+                                  children: [
+                                    if (section.progressValue > 0)
+                                      pw.Expanded(
+                                        flex: (section.progressValue * 100).toInt(),
+                                        child: pw.Container(
+                                          decoration: pw.BoxDecoration(
+                                            color: sectionColor,
+                                            borderRadius: pw.BorderRadius.circular(4),
+                                          ),
+                                        ),
+                                      ),
+                                    if (section.progressValue < 1)
+                                      pw.Expanded(
+                                        flex: ((1 - section.progressValue) * 100).toInt(),
+                                        child: pw.SizedBox(),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            pw.SizedBox(width: 12),
+                            pw.Text(
+                              section.percentLabel,
+                              style: pw.TextStyle(
+                                fontSize: 12,
+                                fontWeight: pw.FontWeight.bold,
+                                color: textColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                        pw.SizedBox(height: 12),
+                        pw.Text(
+                          section.body,
+                          style: pw.TextStyle(fontSize: 11, color: lightTextColor, lineSpacing: 1.5),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+                
+                pw.SizedBox(height: 24),
+                
+                // Recommendations
+                pw.Text(
+                  'General Recommendations',
+                  style: pw.TextStyle(
+                    fontSize: 18,
+                    fontWeight: pw.FontWeight.bold,
+                    color: textColor,
+                  ),
+                ),
+                pw.SizedBox(height: 16),
+                ...report.recommendations.map(
+                  (item) => pw.Padding(
+                    padding: const pw.EdgeInsets.only(bottom: 8),
+                    child: pw.Row(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Container(
+                          margin: const pw.EdgeInsets.only(top: 4, right: 8),
+                          width: 6,
+                          height: 6,
+                          decoration: pw.BoxDecoration(
+                            color: primaryColor,
+                            shape: pw.BoxShape.circle,
+                          ),
+                        ),
+                        pw.Expanded(
+                          child: pw.Text(
+                            item,
+                            style: pw.TextStyle(fontSize: 12, color: textColor, lineSpacing: 1.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1250,7 +1583,7 @@ class _RecommendationsCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Therapist Recommendations',
+            'General Recommendations',
             style: TextStyle(
               fontSize: 20 / 1.2,
               fontWeight: FontWeight.w500,
@@ -1705,6 +2038,7 @@ class _ReportSectionData {
     required this.statusLabel,
     required this.statusChipBgColor,
     required this.statusChipTextColor,
+    required this.progressValue,
   });
 
   factory _ReportSectionData.fromDashboardSection(
@@ -1722,6 +2056,7 @@ class _ReportSectionData {
       statusLabel: section.statusLabel,
       statusChipBgColor: style.statusChipBgColor,
       statusChipTextColor: style.statusChipTextColor,
+      progressValue: section.progressValue,
     );
   }
 
@@ -1735,4 +2070,5 @@ class _ReportSectionData {
   final String statusLabel;
   final Color statusChipBgColor;
   final Color statusChipTextColor;
+  final double progressValue;
 }

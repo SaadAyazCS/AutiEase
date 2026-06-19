@@ -6,6 +6,7 @@ import '../utils/duration_utils.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
 import 'learning_planner_screen.dart';
+import '../widgets/bouncing_button.dart';
 
 class DailyActivitiesScreen extends StatefulWidget {
   const DailyActivitiesScreen({super.key, required this.childId});
@@ -21,6 +22,7 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
   Set<String> _completedIds = const <String>{};
   final Set<String> _savingIds = <String>{};
   bool _loading = true;
+  bool _allDoneDialogShown = false;
 
   @override
   void initState() {
@@ -100,13 +102,20 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
             )
             .toList();
 
+    final assignedActivities = <_AssignedActivity>[
+      ...customActivities,
+      ...templateActivities,
+    ];
+
     setState(() {
-      _activities = <_AssignedActivity>[
-        ...customActivities,
-        ...templateActivities,
-      ];
+      _activities = assignedActivities;
       _completedIds = completedToday;
       _loading = false;
+      _allDoneDialogShown =
+          assignedActivities.isNotEmpty &&
+          assignedActivities.every(
+            (activity) => completedToday.contains(activity.id),
+          );
     });
   }
 
@@ -115,6 +124,7 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
     if (!nowCompleted || _savingIds.contains(activity.id)) {
       return;
     }
+    final wasAllComplete = _allActivitiesComplete();
 
     setState(() {
       _completedIds = {..._completedIds, activity.id};
@@ -126,7 +136,19 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
         itemId: activity.id,
         moduleId: activity.id,
         score: 1,
+        metadata: {
+          'source': 'daily_activity',
+          'gameName': activity.title,
+        },
       );
+      if (!wasAllComplete &&
+          _allActivitiesComplete() &&
+          _savingIds.length == 1 &&
+          !_allDoneDialogShown &&
+          mounted) {
+        _allDoneDialogShown = true;
+        await _showAllDoneDialog();
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -134,6 +156,156 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
         });
       }
     }
+  }
+
+  bool _allActivitiesComplete() {
+    return _activities.isNotEmpty &&
+        _activities.every((activity) => _completedIds.contains(activity.id));
+  }
+
+  Future<void> _showAllDoneDialog() {
+    return showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withValues(alpha: 0.5),
+      transitionDuration: const Duration(milliseconds: 400),
+      pageBuilder: (context, animation, secondaryAnimation) => const SizedBox(),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final scale = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutBack,
+        );
+        return ScaleTransition(
+          scale: scale,
+          child: Dialog(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.only(top: 40, bottom: 30),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFFF6D365), Color(0xFFFDA085)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.3),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.star_rounded,
+                            color: Colors.white,
+                            size: 64,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        const Text(
+                          'YOU DID IT!',
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                            letterSpacing: 2,
+                            shadows: [
+                              Shadow(
+                                color: Colors.black26,
+                                offset: Offset(0, 2),
+                                blurRadius: 4,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 28, 24, 28),
+                    child: Column(
+                      children: [
+                        const Text(
+                          'All daily activities are complete!\nYou worked hard and stayed focused.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 17,
+                            height: 1.4,
+                            color: Color(0xFF4A5568),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Be very proud of yourself today!',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: Color(0xFF718096),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 56,
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF0DBBDB),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(100),
+                              ),
+                              elevation: 2,
+                            ),
+                            onPressed: () => Navigator.pop(context),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'AWESOME!',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                                SizedBox(width: 8),
+                                Icon(Icons.celebration_rounded, size: 22),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -148,17 +320,44 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
             : _activities.isEmpty
             ? Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(32),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF4EA9E3).withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.playlist_add_check_rounded,
+                          size: 64,
+                          color: Color(0xFF4EA9E3),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
                       const Text(
-                        'No daily activities are selected in Learning Planner yet.',
-                        textAlign: TextAlign.center,
+                        'No daily activities assigned yet',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1E293B),
+                        ),
                       ),
                       const SizedBox(height: 12),
-                      ElevatedButton(
-                        onPressed: () {
+                      const Text(
+                        'Select daily activities from the Learning Planner to start tracking your daily tasks.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Color(0xFF64748B),
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      BouncingButton(
+                        onTap: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -166,7 +365,37 @@ class _DailyActivitiesScreenState extends State<DailyActivitiesScreen> {
                             ),
                           );
                         },
-                        child: const Text('Open Learning Planner'),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF4EA9E3), Color(0xFF2D7CF6)],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF4EA9E3).withValues(alpha: 0.3),
+                                blurRadius: 12,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.edit_calendar_rounded, color: Colors.white, size: 20),
+                              SizedBox(width: 8),
+                              Text(
+                                'Open Learning Planner',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),

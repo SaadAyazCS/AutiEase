@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
+import '../navigation/child_mode_lock_controller.dart';
 import '../navigation/session_navigation.dart';
 import '../repositories/app_repositories.dart';
+import '../screens/parent_home_screen.dart';
 
-enum SessionGuardRole { parent, therapist, authenticated }
+enum SessionGuardRole { parent, therapist, authenticated, admin }
 
 class SessionGuard extends StatefulWidget {
   const SessionGuard({super.key, required this.role, required this.child});
@@ -26,6 +28,29 @@ class _SessionGuardState extends State<SessionGuard> {
     _sessionFuture = AppRepositories.auth.resolveSession();
   }
 
+  bool _isRestrictedByChildMode() {
+    if (!ChildModeLockController.isLocked) return false;
+
+    if (widget.role != SessionGuardRole.parent &&
+        widget.role != SessionGuardRole.authenticated) {
+      return false;
+    }
+
+    final childType = widget.child.runtimeType.toString();
+    final restrictedTypes = {
+      'DashboardScreen',
+      'SettingsScreen',
+      'LearningPlannerScreen',
+      'ProfessionalSupportScreen',
+      'MyProfileScreen',
+      'FeedbackScreen',
+      'NotificationsScreen',
+      'AboutApplicationScreen',
+    };
+
+    return restrictedTypes.contains(childType);
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<AppSession>(
@@ -41,7 +66,10 @@ class _SessionGuardState extends State<SessionGuard> {
             snapshot.data ??
             const AppSession(state: AppSessionState.unauthenticated);
 
-        if (_isAllowed(session)) {
+        final isAllowed = _isAllowed(session);
+        final isRestricted = _isRestrictedByChildMode();
+
+        if (isAllowed && !isRestricted) {
           return widget.child;
         }
 
@@ -51,10 +79,23 @@ class _SessionGuardState extends State<SessionGuard> {
             if (!mounted) {
               return;
             }
-            final target = destinationForSession(session);
-            Navigator.of(
-              context,
-            ).pushAndRemoveUntil(fadeSessionRoute(target), (route) => false);
+            if (isRestricted) {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              } else {
+                // Root of stack with a restricted screen — go to home.
+                // ParentHomeScreen shows locked cards via ValueListenableBuilder.
+                Navigator.of(context).pushAndRemoveUntil(
+                  fadeSessionRoute(const ParentHomeScreen()),
+                  (route) => false,
+                );
+              }
+            } else {
+              final target = destinationForSession(session);
+              Navigator.of(
+                context,
+              ).pushAndRemoveUntil(fadeSessionRoute(target), (route) => false);
+            }
           });
         }
 
@@ -69,9 +110,12 @@ class _SessionGuardState extends State<SessionGuard> {
         return session.state == AppSessionState.parent;
       case SessionGuardRole.therapist:
         return session.state == AppSessionState.therapist;
+      case SessionGuardRole.admin:
+        return session.state == AppSessionState.admin;
       case SessionGuardRole.authenticated:
         return session.state == AppSessionState.parent ||
-            session.state == AppSessionState.therapist;
+            session.state == AppSessionState.therapist ||
+            session.state == AppSessionState.admin;
     }
   }
 }

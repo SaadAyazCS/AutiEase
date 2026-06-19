@@ -1,8 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/app_models.dart';
+import '../navigation/child_mode_lock_controller.dart';
 import '../repositories/app_repositories.dart';
 import '../utils/responsive.dart';
+import '../widgets/child_mode_lock_widgets.dart';
 import '../widgets/session_guard.dart';
 import 'child_profile_home_screen.dart';
 import 'dashboard_screen.dart';
@@ -10,15 +14,213 @@ import 'learning_planner_screen.dart';
 import 'parent_home_info_flow_screen.dart';
 import 'professional_support_screen.dart';
 import 'settings_screen.dart';
+import 'notification_inbox_screen.dart';
 
-class ParentHomeScreen extends StatelessWidget {
+class ParentHomeScreen extends StatefulWidget {
   const ParentHomeScreen({super.key});
 
-  void _openInfoFlow(BuildContext context) {
-    Navigator.push(
+  @override
+  State<ParentHomeScreen> createState() => _ParentHomeScreenState();
+}
+
+/// Persisted so the welcome coachmark appears only once per parent account.
+const String parentHomeCoachmarkSeenField = 'hasSeenParentHomeInfoCoachmark';
+
+class _ParentHomeScreenState extends State<ParentHomeScreen>
+    with TickerProviderStateMixin {
+  bool _showCoachmark = false;
+  bool _pulseInfoGlow = false;
+
+  // Pulse animation for the info icon on first visit
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnimation;
+
+  // Bell animation variables
+  late final AnimationController _bellController;
+  late final Animation<double> _bellAnimation;
+  int _lastUnreadCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.18).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    _bellController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _bellAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: -0.12), weight: 1),
+      TweenSequenceItem(tween: Tween(begin: -0.12, end: 0.12), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 0.12, end: -0.08), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: -0.08, end: 0.08), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 0.08, end: 0.0), weight: 1),
+    ]).animate(CurvedAnimation(parent: _bellController, curve: Curves.linear));
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _evaluateParentCoachmark();
+      _syncNotificationPreferences();
+    });
+  }
+
+  Future<void> _syncNotificationPreferences() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      return;
+    }
+
+    try {
+      final profile = await AppRepositories.users.getCurrentUserProfile();
+      if (profile == null || profile.role != 'parent') {
+        return;
+      }
+
+      final saved = profile.notificationPreferences;
+      const canonicalKeys = <String>{
+        'therapistsUpdate',
+        'levelProgressNotification',
+        'subscription',
+        'routineReminders',
+      };
+
+      final currentKeys = saved.keys.toSet();
+      final extraKeys = currentKeys.difference(canonicalKeys);
+      final missingKeys = canonicalKeys.difference(currentKeys);
+
+      if (extraKeys.isNotEmpty || missingKeys.isNotEmpty) {
+        final Map<String, bool> mappedPreferences = {
+          'therapistsUpdate':
+              saved['therapistsUpdate'] ?? saved['pushNotifications'] ?? true,
+          'levelProgressNotification':
+              saved['levelProgressNotification'] ??
+              saved['progressUpdates'] ??
+              true,
+          'subscription':
+              saved['subscription'] ?? saved['emailNotifications'] ?? true,
+          'routineReminders':
+              saved['routineReminders'] ?? saved['dailyReminders'] ?? true,
+        };
+
+        await AppRepositories.users.updateNotificationPreferences(mappedPreferences);
+      }
+    } catch (_) {
+      // Non-blocking: skip if Firestore or network fails.
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    _bellController.dispose();
+    super.dispose();
+  }
+
+  void _triggerBellAnimation() {
+    if (_bellController.isAnimating) return;
+    _bellController.repeat(reverse: true);
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        _bellController.stop();
+        _bellController.animateTo(0.0);
+      }
+    });
+  }
+
+  Future<void> _evaluateParentCoachmark() async {
+    if (!mounted) {
+      return;
+    }
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      return;
+    }
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection(FirestoreCollections.users)
+          .doc(uid)
+          .get();
+      final hasSeen =
+          snapshot.data()?[parentHomeCoachmarkSeenField] == true;
+      if (!mounted || hasSeen) {
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 420));
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _showCoachmark = true;
+        _pulseInfoGlow = true;
+      });
+      // Play pulse animation for ~2 seconds (3 forward-reverse cycles)
+      _pulseController.repeat(reverse: true);
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+      _pulseController.stop();
+      _pulseController.animateTo(0);
+    } catch (_) {
+      // Non-blocking: omit coachmark when Firestore is unavailable.
+    }
+  }
+
+  Future<void> _markCoachmarkSeen() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      return;
+    }
+    try {
+      await FirebaseFirestore.instance
+          .collection(FirestoreCollections.users)
+          .doc(uid)
+          .set(
+            {parentHomeCoachmarkSeenField: true},
+            SetOptions(merge: true),
+          );
+    } catch (_) {
+      // Best-effort; avoid blocking the UI.
+    }
+  }
+
+  Future<void> _startInfoWalkthrough() async {
+    if (_showCoachmark || _pulseInfoGlow) {
+      await _markCoachmarkSeen();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _showCoachmark = false;
+        _pulseInfoGlow = false;
+      });
+      _pulseController.stop();
+      _pulseController.animateTo(0);
+    }
+    if (!mounted) {
+      return;
+    }
+    await Navigator.push<void>(
       context,
       MaterialPageRoute(builder: (_) => const ParentHomeInfoFlowScreen()),
     );
+  }
+
+  Future<void> _dismissCoachmarkWithoutWalkthrough() async {
+    await _markCoachmarkSeen();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showCoachmark = false;
+      _pulseInfoGlow = false;
+    });
+    _pulseController.stop();
+    _pulseController.animateTo(0);
   }
 
   Widget _buildScreenForModule(AppModule module) {
@@ -104,6 +306,136 @@ class ParentHomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = context.responsive;
+
+    Widget coachmarkTriangle() {
+      return CustomPaint(
+        size: Size(r.w(26), r.h(12)),
+        painter: _CoachmarkBubbleTrianglePainter(
+          color: const Color(0xFF3D8BD4),
+        ),
+      );
+    }
+
+    Widget coachmarkBubble() {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Container(
+            constraints: BoxConstraints(maxWidth: r.w(248)),
+            padding: EdgeInsets.fromLTRB(
+              r.w(14),
+              r.h(14),
+              r.w(14),
+              r.h(12),
+            ),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF56B9F5),
+                  Color(0xFF3D8BD4),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(r.w(16)),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.35),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF3D8BD4).withValues(alpha: 0.28),
+                  blurRadius: r.h(14),
+                  offset: Offset(0, r.h(8)),
+                  spreadRadius: 0,
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.16),
+                  blurRadius: r.h(8),
+                  offset: Offset(0, r.h(4)),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(r.w(5)),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.22),
+                        borderRadius: BorderRadius.circular(r.w(8)),
+                      ),
+                      child: Icon(
+                        Icons.waving_hand_rounded,
+                        color: Colors.white,
+                        size: r.sp(17, min: 14, max: 20),
+                      ),
+                    ),
+                    SizedBox(width: r.w(8)),
+                    Expanded(
+                      child: Text(
+                        'Welcome!',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: r.sp(15.5, min: 13, max: 18),
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: r.h(8)),
+                Text(
+                  'Tap the circular (i) icon just below Settings to explore '
+                  'what each tab does. That opens a step-by-step tour of your '
+                  'home—starting with Dashboard, then the other sections.',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.94),
+                    fontSize: r.sp(13, min: 11.5, max: 15),
+                    height: 1.45,
+                  ),
+                ),
+                SizedBox(height: r.h(10)),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _dismissCoachmarkWithoutWalkthrough,
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.symmetric(horizontal: r.w(10)),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(
+                      'Maybe later',
+                      style: TextStyle(
+                        fontSize: r.sp(12.5),
+                        decoration: TextDecoration.underline,
+                        decorationColor:
+                            Colors.white.withValues(alpha: 0.9),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.only(right: r.w(28)),
+            child: Transform.translate(
+              offset: Offset(r.w(-2), 0),
+              child: coachmarkTriangle(),
+            ),
+          ),
+        ],
+      );
+    }
+
     return SessionGuard(
       role: SessionGuardRole.parent,
       child: Scaffold(
@@ -219,28 +551,50 @@ class ParentHomeScreen extends StatelessWidget {
                             ),
                           );
                         }
-                        return ListView.separated(
-                          padding: EdgeInsets.fromLTRB(0, r.h(8), 0, r.h(172)),
-                          itemCount: modules.length,
-                          separatorBuilder: (_, __) =>
-                              SizedBox(height: r.h(12)),
-                          itemBuilder: (context, index) {
-                            final module = modules[index];
-                            return Center(
-                              child: _ParentModuleCard(
-                                label: _labelForModule(module),
-                                assetPath: _assetForModule(module),
-                                color: _cardColorForModule(module),
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          _buildScreenForModule(module),
-                                    ),
-                                  );
-                                },
-                              ),
+                        return ValueListenableBuilder<bool>(
+                          valueListenable: ChildModeLockController.isLockedNotifier,
+                          builder: (context, childModeLocked, _) {
+                            return ListView.separated(
+                              padding: EdgeInsets.fromLTRB(0, r.h(8), 0, r.h(172)),
+                              itemCount: modules.length,
+                              separatorBuilder: (_, __) =>
+                                  SizedBox(height: r.h(12)),
+                              itemBuilder: (context, index) {
+                                final module = modules[index];
+                                final isChildProfile = module.routeKey == 'child_profile';
+                                final isLocked = childModeLocked && !isChildProfile;
+
+                                return Center(
+                                  child: _ParentModuleCard(
+                                    label: _labelForModule(module),
+                                    assetPath: _assetForModule(module),
+                                    color: _cardColorForModule(module),
+                                    locked: isLocked,
+                                    onTap: () async {
+                                      if (isLocked) {
+                                        final unlocked = await ChildModeLockWidgets.showUnlockDialog(context);
+                                        if (unlocked && context.mounted) {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  _buildScreenForModule(module),
+                                            ),
+                                          );
+                                        }
+                                      } else {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                _buildScreenForModule(module),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                );
+                              },
                             );
                           },
                         );
@@ -250,37 +604,185 @@ class ParentHomeScreen extends StatelessWidget {
                 ],
               ),
             ),
+            if (_showCoachmark)
+              Positioned(
+                right: r.w(36),
+                bottom: r.h(88) + r.w(30) + r.h(10),
+                child: coachmarkBubble(),
+              ),
             Positioned(
               right: r.w(48),
               bottom: r.h(90),
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => _openInfoFlow(context),
-                child: Container(
-                  width: r.w(30),
-                  height: r.w(30),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: const Color(0xFF101010),
-                      width: r.w(1.8),
+              child: ScaleTransition(
+                scale: _pulseAnimation,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () async => _startInfoWalkthrough(),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 500),
+                    curve: Curves.easeOutCubic,
+                    width: r.w(30),
+                    height: r.w(30),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: const Color(0xFF101010),
+                        width: r.w(1.8),
+                      ),
+                      boxShadow: [
+                        if (_pulseInfoGlow) ...[
+                          BoxShadow(
+                            color: const Color(0xFF4EA9E3).withValues(alpha: 0.55),
+                            blurRadius: r.h(16),
+                            spreadRadius: r.h(1.5),
+                          ),
+                          BoxShadow(
+                            color: const Color(0xFF56B9F5).withValues(alpha: 0.35),
+                            blurRadius: r.h(24),
+                            spreadRadius: 0,
+                            offset: Offset(0, r.h(6)),
+                          ),
+                        ],
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.22),
+                          blurRadius: r.h(6),
+                          offset: Offset(0, r.h(3)),
+                        ),
+                      ],
                     ),
-                  ),
-                  alignment: Alignment.center,
-                  child: Icon(
-                    Icons.info_outline_rounded,
-                    size: r.sp(20, min: 14, max: 22),
-                    color: const Color(0xFF101010),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      Icons.info_outline_rounded,
+                      size: r.sp(20, min: 14, max: 22),
+                      color: const Color(0xFF101010),
+                    ),
                   ),
                 ),
               ),
+            ),
+            Positioned(
+              top: MediaQuery.of(context).padding.top + r.h(12),
+              right: r.w(18),
+              child: _buildHomeNotificationBell(context),
             ),
           ],
         ),
       ),
     );
   }
+
+  Widget _buildHomeNotificationBell(BuildContext context) {
+    return StreamBuilder<List<NotificationInboxItem>>(
+      stream: AppRepositories.support.watchNotifications(),
+      builder: (context, snapshot) {
+        final items = snapshot.data ?? const [];
+        final unreadCount = items.where((item) => !item.isRead).length;
+
+        if (unreadCount > _lastUnreadCount) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _triggerBellAnimation();
+            _lastUnreadCount = unreadCount;
+          });
+        } else if (unreadCount < _lastUnreadCount) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _lastUnreadCount = unreadCount;
+          });
+        }
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.8),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: AnimatedBuilder(
+                animation: _bellAnimation,
+                builder: (context, child) {
+                  return Transform.rotate(
+                    angle: _bellAnimation.value,
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.notifications_none_rounded,
+                        color: Color(0xFF1E293B),
+                        size: 24,
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const NotificationInboxScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+            if (unreadCount > 0)
+              Positioned(
+                right: -2,
+                top: -2,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEF4444),
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 18,
+                    minHeight: 18,
+                  ),
+                  child: Center(
+                    child: Text(
+                      '$unreadCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CoachmarkBubbleTrianglePainter extends CustomPainter {
+  const _CoachmarkBubbleTrianglePainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    final path = Path()
+      ..moveTo(size.width / 2, 0)
+      ..lineTo(0, size.height)
+      ..lineTo(size.width, size.height)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _ParentHomeBadge extends StatelessWidget {
@@ -311,12 +813,14 @@ class _ParentModuleCard extends StatelessWidget {
     required this.assetPath,
     required this.color,
     required this.onTap,
+    this.locked = false,
   });
 
   final String label;
   final String assetPath;
   final Color color;
   final VoidCallback onTap;
+  final bool locked;
 
   @override
   Widget build(BuildContext context) {
@@ -330,24 +834,26 @@ class _ParentModuleCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(r.w(16)),
-        child: Ink(
-          width: cardWidth,
-          height: r.h(104),
-          padding: EdgeInsets.fromLTRB(r.w(16), r.h(14), r.w(14), r.h(14)),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(r.w(16)),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: r.sp(25.5, min: 18, max: 28),
-                    fontWeight: FontWeight.w700,
-                    color: Colors.black,
-                    height: 1.15,
+        child: Stack(
+          children: [
+            Ink(
+              width: cardWidth,
+              height: r.h(104),
+              padding: EdgeInsets.fromLTRB(r.w(16), r.h(14), r.w(14), r.h(14)),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(r.w(16)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: r.sp(25.5, min: 18, max: 28),
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black,
+                        height: 1.15,
                   ),
                 ),
               ),
@@ -359,6 +865,31 @@ class _ParentModuleCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+            if (locked)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(r.w(16)),
+                  ),
+                  child: Center(
+                    child: Container(
+                      padding: EdgeInsets.all(r.w(10)),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.lock_rounded,
+                        size: r.sp(24),
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

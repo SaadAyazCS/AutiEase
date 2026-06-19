@@ -16,6 +16,21 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+subprojects {
+    val fixNamespace = Action<Project> {
+        if (project.name == "vosk_flutter") {
+            val android = project.extensions.findByName("android") as? com.android.build.gradle.LibraryExtension
+            android?.namespace = "org.vosk.vosk_flutter"
+        }
+    }
+
+    if (project.state.executed) {
+        fixNamespace.execute(project)
+    } else {
+        project.afterEvaluate(fixNamespace)
+    }
+}
+
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }

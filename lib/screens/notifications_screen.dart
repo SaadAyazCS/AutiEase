@@ -12,6 +12,13 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
+  static const Set<String> _supportedKeys = <String>{
+    'therapistsUpdate',
+    'levelProgressNotification',
+    'subscription',
+    'routineReminders',
+  };
+
   bool _isSaving = false;
   Map<String, bool> _preferences = {
     'therapistsUpdate': false,
@@ -58,12 +65,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
     setState(() => _isSaving = true);
     try {
-      await AppRepositories.users.updateNotificationPreferences(_preferences);
+      final sanitized = <String, bool>{
+        for (final key in _supportedKeys) key: _preferences[key] ?? false,
+      };
+      await AppRepositories.users.updateNotificationPreferences(sanitized);
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Notification preferences saved.')),
+        const SnackBar(content: Text('Notifications saved successfully.')),
       );
     } catch (_) {
       if (!mounted) {
@@ -173,54 +183,69 @@ class _NotificationRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 22),
-      child: InkWell(
-        onTap: onToggle,
-        borderRadius: BorderRadius.circular(8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+          border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onToggle,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 37 / 1.5,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF1A1A1A),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF1E293B),
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF64748B),
+                            height: 1.4,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 18 / 1.2,
-                      color: Color(0xFF242424),
-                      height: 1.4,
-                    ),
+                  const SizedBox(width: 16),
+                  Switch(
+                    value: value,
+                    onChanged: (_) => onToggle(),
+                    activeThumbColor: Colors.white,
+                    activeTrackColor: const Color(0xFF4EA9E3),
+                    inactiveThumbColor: Colors.white,
+                    inactiveTrackColor: const Color(0xFFCBD5E1),
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 14),
-            GestureDetector(
-              onTap: onToggle,
-              child: Container(
-                width: 20,
-                height: 20,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFF9A9A9A)),
-                  color: value ? const Color(0xFF2D7CF6) : Colors.white,
-                ),
-                child: value
-                    ? const Icon(Icons.check, size: 14, color: Colors.white)
-                    : null,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

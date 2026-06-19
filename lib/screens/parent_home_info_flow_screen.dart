@@ -188,7 +188,7 @@ class _ParentHomeInfoFlowScreenState extends State<ParentHomeInfoFlowScreen> {
               child: Text(isLastStep ? 'Done' : 'Next'),
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 200),
         ],
       ),
     );

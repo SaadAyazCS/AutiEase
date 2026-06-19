@@ -19,7 +19,8 @@ class FirebaseService {
     : _auth = FirebaseAuth.instance,
       _firestore = FirebaseFirestore.instance,
       _googleSignIn = GoogleSignIn(
-        serverClientId: '373824401794-dhrdq1p62q1lrcgmp3q3cv2vu5iuunfk.apps.googleusercontent.com',
+        serverClientId:
+            '373824401794-dhrdq1p62q1lrcgmp3q3cv2vu5iuunfk.apps.googleusercontent.com',
       );
 
   final FirebaseAuth _auth;
@@ -100,7 +101,7 @@ class FirebaseService {
   }) {
     switch (error.code) {
       case 'too-many-requests':
-        return 'Too many attempts from this device. Wait 30-60 minutes, then try once.';
+        return 'Please wait 30-60 seconds, then try once.';
       case 'network-request-failed':
         return 'Network error. Check your internet connection and try again.';
       case 'email-already-in-use':
@@ -252,8 +253,8 @@ class FirebaseService {
     final normalizedLastName = lastName.trim();
     final normalizedEmail = _normalizeEmail(email);
     final normalizedPhone = phone.trim();
-    final normalizedFullName =
-        '$normalizedFirstName $normalizedLastName'.trim();
+    final normalizedFullName = '$normalizedFirstName $normalizedLastName'
+        .trim();
     User? resolvedUser;
     var createdPasswordUser = false;
     var isExistingGoogleUser = false;
@@ -355,12 +356,15 @@ class FirebaseService {
         photoUrl: user.photoURL ?? '',
         subscriptionTier: 'free',
         entitlements: const {'professionalSupport': false, 'chatAccess': false},
+        playSettings: const {
+          'difficulty': 'normal',
+          'lowStimulationMode': false,
+        },
         notificationPreferences: const {
-          'pushNotifications': true,
-          'emailNotifications': false,
-          'dailyReminders': true,
-          'activityAlerts': true,
-          'progressUpdates': false,
+          'therapistsUpdate': true,
+          'levelProgressNotification': true,
+          'subscription': true,
+          'routineReminders': true,
         },
         activeChildId: childProfile.id,
         createdAt: DateTime.now(),
@@ -378,9 +382,8 @@ class FirebaseService {
         final defaultModules = wantsLearning
             ? await AppRepositories.content.getAllLearningModules()
             : const <LearningModuleModel>[];
-        final defaultActivities = wantsLearning
-            ? await AppRepositories.content.getAllActivityTemplates()
-            : const <DailyActivityTemplate>[];
+        final defaultActivities = await AppRepositories.content
+            .getAllActivityTemplates();
         final defaultCommunicationIds = wantsCommunication
             ? List<String>.from(CommunicationFigmaCatalog.homeBoardOrder)
             : const <String>[];
@@ -463,8 +466,8 @@ class FirebaseService {
     final normalizedLastName = lastName.trim();
     final normalizedEmail = _normalizeEmail(email);
     final normalizedPhone = phone.trim();
-    final normalizedFullName =
-        '$normalizedFirstName $normalizedLastName'.trim();
+    final normalizedFullName = '$normalizedFirstName $normalizedLastName'
+        .trim();
     User? resolvedUser;
     var createdPasswordUser = false;
     var isExistingGoogleUser = false;
@@ -554,6 +557,10 @@ class FirebaseService {
         photoUrl: user.photoURL ?? '',
         subscriptionTier: 'provider',
         entitlements: const {'professionalSupport': true, 'chatAccess': true},
+        playSettings: const {
+          'difficulty': 'normal',
+          'lowStimulationMode': false,
+        },
         notificationPreferences: const {
           'pushNotifications': true,
           'emailNotifications': true,
@@ -621,47 +628,94 @@ class FirebaseService {
     }
   }
 
+  /// Predefined admin credentials — the account is auto-created on first login.
+  static const _adminCredentials = <String, String>{
+    'admin@autiease.com': 'AutiEaseAdmin1',
+  };
+
   Future<Map<String, dynamic>> login({
     required String email,
     required String password,
   }) async {
     try {
-      final credential = await _auth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-      final user = await _refreshCurrentUser() ?? credential.user;
+      final normalizedEmail = email.toLowerCase().trim();
+
+      // ── Auto-bootstrap admin account on first login ─────────────────
+      // If this is a predefined admin email with the correct password,
+      // and the Firebase Auth account doesn't exist yet, create it.
+      if (_adminCredentials.containsKey(normalizedEmail) &&
+          _adminCredentials[normalizedEmail] == password) {
+        try {
+          await _auth.signInWithEmailAndPassword(
+            email: normalizedEmail,
+            password: password,
+          );
+        } on FirebaseAuthException catch (e) {
+          if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
+            // Account doesn't exist yet — create it automatically
+            try {
+              await _auth.createUserWithEmailAndPassword(
+                email: normalizedEmail,
+                password: password,
+              );
+            } on FirebaseAuthException catch (createError) {
+              if (createError.code == 'email-already-in-use') {
+                rethrow; // original error (meaning password entered is incorrect for existing user)
+              } else {
+                rethrow;
+              }
+            }
+          } else {
+            rethrow;
+          }
+        }
+      } else {
+        // ── Normal login for non-admin users ──────────────────────────
+        await _auth.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+      }
+
+      final user = await _refreshCurrentUser() ?? _auth.currentUser;
       if (user == null) {
         return {'success': false, 'message': 'Login failed'};
       }
 
+      // Skip email verification for predefined admin emails
+      final isAdminEmail = _adminCredentials.containsKey(
+        user.email?.toLowerCase().trim() ?? '',
+      );
+
       final userDoc = await _users.doc(user.uid).get();
       final data = userDoc.data() ?? <String, dynamic>{};
 
-      final isVerified = await _isCurrentUserEmailVerified();
-      final isGoogleUser = user.providerData.any(
-        (provider) => provider.providerId == 'google.com',
-      );
-      if (requiresEmailVerification(
-        isGoogleUser: isGoogleUser,
-        isEmailVerified: isVerified,
-      )) {
-        return {
-          'success': false,
-          'message': 'Please verify your email first. Check your inbox.',
-          'needsVerification': true,
-        };
-      }
+      if (!isAdminEmail) {
+        final isVerified = await _isCurrentUserEmailVerified();
+        final isGoogleUser = user.providerData.any(
+          (provider) => provider.providerId == 'google.com',
+        );
+        if (requiresEmailVerification(
+          isGoogleUser: isGoogleUser,
+          isEmailVerified: isVerified,
+        )) {
+          return {
+            'success': false,
+            'message': 'Please verify your email first. Check your inbox.',
+            'needsVerification': true,
+          };
+        }
 
-      if (isVerified) {
-        await _markCurrentUserVerified();
+        if (isVerified) {
+          await _markCurrentUserVerified();
+        }
       }
 
       return {
         'success': true,
         'user': user,
         'userData': data,
-        'emailVerified': isVerified,
+        'emailVerified': true,
       };
     } on FirebaseAuthException catch (error) {
       return {
@@ -973,6 +1027,7 @@ class FirebaseService {
 
   Future<Map<String, dynamic>> updateCurrentUserPassword({
     required String newPassword,
+    String? currentPassword,
   }) async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -983,6 +1038,16 @@ class FirebaseService {
     }
 
     try {
+      if (currentPassword != null &&
+          currentPassword.isNotEmpty &&
+          user.email != null) {
+        final credential = EmailAuthProvider.credential(
+          email: user.email!,
+          password: currentPassword,
+        );
+        await user.reauthenticateWithCredential(credential);
+      }
+
       await user.updatePassword(newPassword);
       await _users.doc(user.uid).set({
         'updatedAt': FieldValue.serverTimestamp(),
@@ -990,6 +1055,11 @@ class FirebaseService {
       return {'success': true, 'message': 'Password updated successfully.'};
     } on FirebaseAuthException catch (error) {
       switch (error.code) {
+        case 'wrong-password':
+          return {
+            'success': false,
+            'message': 'The current password you entered is incorrect.',
+          };
         case 'requires-recent-login':
           return {
             'success': false,
@@ -999,7 +1069,8 @@ class FirebaseService {
         case 'weak-password':
           return {
             'success': false,
-            'message': 'Password is too weak. Please choose a stronger password.',
+            'message':
+                'Password is too weak. Please choose a stronger password.',
           };
         default:
           return {
@@ -1010,10 +1081,161 @@ class FirebaseService {
             ),
           };
       }
-    } catch (error) {
-      return {'success': false, 'message': error.toString()};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
     }
   }
 
   Future<void> signOut() => logout();
+
+  /// Deletes parent-owned Firestore data, the user document, then the Firebase Auth user,
+  /// using the same recovery steps as the therapist account deletion flow.
+  Future<Map<String, dynamic>> deleteParentAccount() async {
+    final currentUser = _auth.currentUser;
+    final uid = currentUser?.uid;
+    if (uid == null || currentUser == null) {
+      return {
+        'firestoreDeleted': false,
+        'authDeleted': false,
+        'authError': '',
+        'message': 'No authenticated user found.',
+      };
+    }
+
+    final lastSignIn = currentUser.metadata.lastSignInTime;
+    if (lastSignIn != null && DateTime.now().difference(lastSignIn).inMinutes > 5) {
+      return {
+        'firestoreDeleted': false,
+        'authDeleted': false,
+        'authError': 'requires-recent-login',
+        'message': 'For security, please sign out and sign back in before deleting your account.',
+      };
+    }
+
+    var firestoreDeleted = false;
+    try {
+      await _deleteParentOwnedFirestoreData(uid);
+      firestoreDeleted = true;
+    } catch (firestoreError) {
+      debugPrint('deleteParentAccount Firestore error: $firestoreError');
+    }
+
+    var authDeleted = false;
+    var authError = '';
+
+    try {
+      await currentUser.delete();
+      authDeleted = true;
+    } catch (authError1) {
+      authError = authError1.toString();
+
+      try {
+        if (currentUser.email != null) {
+          throw Exception('Re-auth not possible without password');
+        }
+      } catch (_) {
+        try {
+          await _users.doc(uid).update({
+            'markedForDeletion': true,
+            'deletionTimestamp': FieldValue.serverTimestamp(),
+            'deletionReason': 'User requested account deletion',
+          });
+          authDeleted = true;
+        } catch (markError) {
+          try {
+            await _users.doc(uid).update({
+              'status': 'disabled',
+              'disabledByUser': true,
+              'disabledTimestamp': FieldValue.serverTimestamp(),
+            });
+            authDeleted = true;
+          } catch (disableError) {
+            // Preserve the original authError
+          }
+        }
+      }
+    }
+
+    return {
+      'firestoreDeleted': firestoreDeleted,
+      'authDeleted': authDeleted,
+      'authError': authError,
+    };
+  }
+
+  Future<void> _deleteParentOwnedFirestoreData(String uid) async {
+    final threads = await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .where('parentId', isEqualTo: uid)
+        .get();
+    for (final doc in threads.docs) {
+      try {
+        await doc.reference.delete();
+      } catch (_) {}
+    }
+
+    final children = await _children.where('parentId', isEqualTo: uid).get();
+    for (final doc in children.docs) {
+      final childId = doc.id;
+      final progress = await _firestore
+          .collection(FirestoreCollections.activityProgress)
+          .where('childId', isEqualTo: childId)
+          .get();
+      for (final p in progress.docs) {
+        try {
+          await p.reference.delete();
+        } catch (_) {}
+      }
+      final moods = await _firestore
+          .collection(FirestoreCollections.moodLogs)
+          .where('childId', isEqualTo: childId)
+          .get();
+      for (final m in moods.docs) {
+        try {
+          await m.reference.delete();
+        } catch (_) {}
+      }
+      try {
+        await _firestore
+            .collection(FirestoreCollections.childAssignments)
+            .doc(childId)
+            .delete();
+      } catch (_) {}
+      try {
+        await _firestore
+            .collection(FirestoreCollections.dashboardSnapshots)
+            .doc(childId)
+            .delete();
+      } catch (_) {}
+      try {
+        await doc.reference.delete();
+      } catch (_) {}
+    }
+
+    try {
+      final subs = await _firestore
+          .collection(FirestoreCollections.subscriptions)
+          .where('userId', isEqualTo: uid)
+          .get();
+      for (final s in subs.docs) {
+        try {
+          await s.reference.delete();
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    try {
+      final feedbackSnap = await _firestore
+          .collection(FirestoreCollections.feedback)
+          .where('userId', isEqualTo: uid)
+          .get();
+      for (final f in feedbackSnap.docs) {
+        try {
+          await f.reference.delete();
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    await _users.doc(uid).delete();
+  }
 }

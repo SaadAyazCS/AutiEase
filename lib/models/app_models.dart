@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/duration_utils.dart';
+import '../utils/currency_utils.dart';
 
 DateTime? dateTimeFromFirestore(dynamic value) {
   if (value is Timestamp) {
@@ -57,6 +58,7 @@ enum AppSessionState {
   emailVerificationPending,
   parent,
   therapist,
+  admin,
 }
 
 class AppSession {
@@ -86,9 +88,12 @@ class UserProfile {
     required this.subscriptionTier,
     required this.entitlements,
     required this.notificationPreferences,
+    required this.playSettings,
     this.activeChildId,
     this.createdAt,
     this.updatedAt,
+    this.isChildModeLocked = false,
+    this.childModePin = '',
   });
 
   final String uid;
@@ -102,9 +107,12 @@ class UserProfile {
   final String subscriptionTier;
   final Map<String, bool> entitlements;
   final Map<String, bool> notificationPreferences;
+  final Map<String, dynamic> playSettings;
   final String? activeChildId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final bool isChildModeLocked;
+  final String childModePin;
 
   String get fullName => '$firstName $lastName'.trim();
 
@@ -121,9 +129,12 @@ class UserProfile {
       subscriptionTier: (data['subscriptionTier'] ?? 'free').toString(),
       entitlements: boolMapFrom(data['entitlements']),
       notificationPreferences: boolMapFrom(data['notificationPreferences']),
+      playSettings: mapFrom(data['playSettings']),
       activeChildId: data['activeChildId']?.toString(),
       createdAt: dateTimeFromFirestore(data['createdAt']),
       updatedAt: dateTimeFromFirestore(data['updatedAt']),
+      isChildModeLocked: data['isChildModeLocked'] == true,
+      childModePin: (data['childModePin'] ?? '').toString(),
     );
   }
 
@@ -141,9 +152,12 @@ class UserProfile {
       'subscriptionTier': subscriptionTier,
       'entitlements': entitlements,
       'notificationPreferences': notificationPreferences,
+      'playSettings': playSettings,
       'activeChildId': activeChildId,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
+      'isChildModeLocked': isChildModeLocked,
+      'childModePin': childModePin,
     };
   }
 }
@@ -647,6 +661,10 @@ class DashboardMetrics {
     required this.weeklyReport,
     required this.monthlyReport,
     required this.generatedAt,
+    this.streakDays = 0,
+    this.dailyActivitiesToday = 0,
+    this.dailyActivitiesTotal = 0,
+    this.communicationTapsThisWeek = 0,
   });
 
   final String childId;
@@ -662,6 +680,18 @@ class DashboardMetrics {
   final DashboardReport weeklyReport;
   final DashboardReport monthlyReport;
   final DateTime generatedAt;
+
+  /// Number of consecutive days (ending today) that had at least one completed activity.
+  final int streakDays;
+
+  /// Number of daily activities completed today.
+  final int dailyActivitiesToday;
+
+  /// Total number of daily activities assigned (template + custom).
+  final int dailyActivitiesTotal;
+
+  /// Number of distinct communication vocabulary items spoken this week.
+  final int communicationTapsThisWeek;
 
   factory DashboardMetrics.empty(String childId) {
     const emptySections = <DashboardReportSection>[
@@ -695,6 +725,10 @@ class DashboardMetrics {
       movePlayProgress: 0,
       talkExpressProgress: 0,
       focusGamesProgress: 0,
+      streakDays: 0,
+      dailyActivitiesToday: 0,
+      dailyActivitiesTotal: 0,
+      communicationTapsThisWeek: 0,
       weeklyReport: const DashboardReport(
         title: 'Weekly Progress Report',
         dateLabel: '',
@@ -722,6 +756,60 @@ class DashboardMetrics {
   }
 }
 
+class TherapyPackage {
+  const TherapyPackage({
+    required this.title,
+    required this.durationMinutes,
+    required this.sessionsPerWeek,
+    required this.price,
+    required this.description,
+    this.visible = true,
+  });
+
+  final String title;
+  final int durationMinutes;
+  final int sessionsPerWeek;
+  final double price;
+  final String description;
+  final bool visible;
+
+  TherapyPackage copy({
+    String? title,
+    int? durationMinutes,
+    int? sessionsPerWeek,
+    double? price,
+    String? description,
+    bool? visible,
+  }) {
+    return TherapyPackage(
+      title: title ?? this.title,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
+      sessionsPerWeek: sessionsPerWeek ?? this.sessionsPerWeek,
+      price: price ?? this.price,
+      description: description ?? this.description,
+      visible: visible ?? this.visible,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'title': title,
+    'durationMinutes': durationMinutes,
+    'sessionsPerWeek': sessionsPerWeek,
+    'price': price,
+    'description': description,
+    'visible': visible,
+  };
+
+  factory TherapyPackage.fromMap(Map<String, dynamic> map) => TherapyPackage(
+    title: map['title']?.toString() ?? '',
+    durationMinutes: (map['durationMinutes'] as num?)?.toInt() ?? 0,
+    sessionsPerWeek: (map['sessionsPerWeek'] as num?)?.toInt() ?? 0,
+    price: (map['price'] as num?)?.toDouble() ?? 0.0,
+    description: map['description']?.toString() ?? '',
+    visible: map['visible'] as bool? ?? true,
+  );
+}
+
 class TherapistProfile {
   const TherapistProfile({
     required this.id,
@@ -735,9 +823,20 @@ class TherapistProfile {
     required this.photoUrl,
     required this.isActive,
     this.yearsOfExperience = 0,
+    this.experienceMonths = 0,
     this.credentials = '',
     this.photoUrlBase64 = '',
     this.certificateBase64 = '',
+    this.verificationStatus = 'pending',
+    this.adminFeedback = '',
+    this.verifiedBadge = false,
+    this.licenseNumber = '',
+    this.registrationNumber = '',
+    this.cnic = '',
+    this.experienceDetails = '',
+    this.ratingBreakdown = const <String, int>{'1': 0, '2': 0, '3': 0, '4': 0, '5': 0},
+    this.totalReviews = 0,
+    this.servicePackages = const <TherapyPackage>[],
   });
 
   final String id;
@@ -750,13 +849,43 @@ class TherapistProfile {
   final String availability;
   final String photoUrl;
   final bool isActive;
+  /// Total whole years of experience. Also serves as the legacy field alias.
   final int yearsOfExperience;
+  /// Additional months of experience (0-11).
+  final int experienceMonths;
   final String credentials;
   final String photoUrlBase64;
   final String certificateBase64;
+  final String verificationStatus;
+  final String adminFeedback;
+  final bool verifiedBadge;
+  final String licenseNumber;
+  final String registrationNumber;
+  final String cnic;
+  final String experienceDetails;
+  final Map<String, int> ratingBreakdown;
+  final int totalReviews;
+  final List<TherapyPackage> servicePackages;
+
+  /// Convenience alias for yearsOfExperience.
+  int get experienceYears => yearsOfExperience;
+
+  /// Human-readable experience string:
+  ///   5 years, 0 months  → "5 Years"
+  ///   5 years, 1 month   → "5.1 Years (approx)"
+  String get formattedExperience {
+    if (yearsOfExperience == 0 && experienceMonths == 0) return 'Not set';
+    if (experienceMonths == 0) return '$yearsOfExperience Years';
+    return '$yearsOfExperience.$experienceMonths Years (approx)';
+  }
 
   factory TherapistProfile.fromMap(String id, Map<String, dynamic> data) {
     final rawRating = data['rating'];
+    final rawBreakdown = data['ratingBreakdown'];
+    Map<String, int> resolvedBreakdown = const <String, int>{'1': 0, '2': 0, '3': 0, '4': 0, '5': 0};
+    if (rawBreakdown is Map) {
+      resolvedBreakdown = rawBreakdown.map((key, value) => MapEntry(key.toString(), intFrom(value)));
+    }
     return TherapistProfile(
       id: id,
       displayName: (data['displayName'] ?? '').toString(),
@@ -768,11 +897,221 @@ class TherapistProfile {
       availability: (data['availability'] ?? '').toString(),
       photoUrl: (data['photoUrl'] ?? '').toString(),
       isActive: data['isActive'] != false,
-      yearsOfExperience: intFrom(data['yearsOfExperience']),
+      yearsOfExperience: intFrom(
+        data['experience_years'] ?? data['yearsOfExperience'],
+      ),
+      experienceMonths: intFrom(data['experience_months']),
       credentials: (data['credentials'] ?? '').toString(),
       photoUrlBase64: (data['photoUrlBase64'] ?? '').toString(),
       certificateBase64: (data['certificateBase64'] ?? '').toString(),
+      verificationStatus: (data['verificationStatus'] ?? 'pending').toString(),
+      adminFeedback: (data['adminFeedback'] ?? '').toString(),
+      verifiedBadge: data['verifiedBadge'] == true,
+      licenseNumber: (data['licenseNumber'] ?? '').toString(),
+      registrationNumber: (data['registrationNumber'] ?? '').toString(),
+      cnic: (data['cnic'] ?? '').toString(),
+      experienceDetails: (data['experienceDetails'] ?? '').toString(),
+      ratingBreakdown: resolvedBreakdown,
+      totalReviews: intFrom(data['totalReviews'], 0),
+      servicePackages: (data['servicePackages'] is List)
+          ? (data['servicePackages'] as List)
+              .map((item) => TherapyPackage.fromMap(mapFrom(item)))
+              .toList()
+          : const <TherapyPackage>[],
     );
+  }
+}
+
+class TherapistReview {
+  const TherapistReview({
+    required this.id,
+    required this.parentId,
+    required this.parentName,
+    required this.therapistId,
+    required this.rating,
+    required this.feedback,
+    required this.createdAt,
+    this.privateFeedback = '',
+  });
+
+  final String id;
+  final String parentId;
+  final String parentName;
+  final String therapistId;
+  final int rating;
+  final String feedback;
+  final DateTime createdAt;
+  final String privateFeedback;
+
+  factory TherapistReview.fromMap(String id, Map<String, dynamic> data) {
+    return TherapistReview(
+      id: id,
+      parentId: (data['parentId'] ?? '').toString(),
+      parentName: (data['parentName'] ?? '').toString(),
+      therapistId: (data['therapistId'] ?? '').toString(),
+      rating: intFrom(data['rating'], 5),
+      feedback: (data['feedback'] ?? '').toString(),
+      createdAt: dateTimeFromFirestore(data['createdAt']) ?? DateTime.now(),
+      privateFeedback: (data['privateFeedback'] ?? '').toString(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'parentId': parentId,
+      'parentName': parentName,
+      'therapistId': therapistId,
+      'rating': rating,
+      'feedback': feedback,
+      'createdAt': createdAt,
+      'privateFeedback': privateFeedback,
+    };
+  }
+}
+
+class UserReport {
+  const UserReport({
+    required this.id,
+    required this.reporterId,
+    required this.reporterRole,
+    required this.reportedId,
+    required this.reason,
+    required this.comments,
+    required this.chatContext,
+    required this.timestamp,
+    required this.status,
+  });
+
+  final String id;
+  final String reporterId;
+  final String reporterRole;
+  final String reportedId;
+  final String reason;
+  final String comments;
+  final List<Map<String, dynamic>> chatContext;
+  final DateTime timestamp;
+  final String status; // 'pending', 'dismissed', 'warned', 'suspended', 'banned'
+
+  factory UserReport.fromMap(String id, Map<String, dynamic> data) {
+    final rawContext = data['chatContext'] as List?;
+    final context = rawContext != null
+        ? rawContext.map((item) => Map<String, dynamic>.from(item as Map)).toList()
+        : const <Map<String, dynamic>>[];
+
+    return UserReport(
+      id: id,
+      reporterId: (data['reporterId'] ?? '').toString(),
+      reporterRole: (data['reporterRole'] ?? '').toString(),
+      reportedId: (data['reportedId'] ?? '').toString(),
+      reason: (data['reason'] ?? '').toString(),
+      comments: (data['comments'] ?? '').toString(),
+      chatContext: context,
+      timestamp: dateTimeFromFirestore(data['timestamp']) ?? DateTime.now(),
+      status: (data['status'] ?? 'pending').toString(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'reporterId': reporterId,
+      'reporterRole': reporterRole,
+      'reportedId': reportedId,
+      'reason': reason,
+      'comments': comments,
+      'chatContext': chatContext,
+      'timestamp': timestamp,
+      'status': status,
+    };
+  }
+}
+
+class NotificationInboxItem {
+  const NotificationInboxItem({
+    required this.id,
+    required this.userId,
+    required this.title,
+    required this.message,
+    required this.category,
+    required this.timestamp,
+    required this.isRead,
+    this.navigationTarget = const <String, dynamic>{},
+  });
+
+  final String id;
+  final String userId;
+  final String title;
+  final String message;
+  final String category; // 'messages', 'subscription', 'reviews', 'activities', 'verification', 'system'
+  final DateTime timestamp;
+  final bool isRead;
+  final Map<String, dynamic> navigationTarget;
+
+  factory NotificationInboxItem.fromMap(String id, Map<String, dynamic> data) {
+    return NotificationInboxItem(
+      id: id,
+      userId: (data['userId'] ?? '').toString(),
+      title: (data['title'] ?? '').toString(),
+      message: (data['message'] ?? '').toString(),
+      category: (data['category'] ?? 'system').toString(),
+      timestamp: dateTimeFromFirestore(data['timestamp']) ?? DateTime.now(),
+      isRead: data['isRead'] == true,
+      navigationTarget: mapFrom(data['navigationTarget']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'userId': userId,
+      'title': title,
+      'message': message,
+      'category': category,
+      'timestamp': timestamp,
+      'isRead': isRead,
+      'navigationTarget': navigationTarget,
+    };
+  }
+}
+
+class AdminAuditLog {
+  const AdminAuditLog({
+    required this.id,
+    required this.adminUid,
+    required this.targetUid,
+    required this.actionType,
+    required this.details,
+    required this.timestamp,
+    this.adminEmail = '',
+  });
+
+  final String id;
+  final String adminUid;
+  final String targetUid;
+  final String actionType;
+  final String details;
+  final DateTime timestamp;
+  final String adminEmail;
+
+  factory AdminAuditLog.fromMap(String id, Map<String, dynamic> data) {
+    return AdminAuditLog(
+      id: id,
+      adminUid: (data['adminUid'] ?? '').toString(),
+      targetUid: (data['targetUid'] ?? '').toString(),
+      actionType: (data['actionType'] ?? '').toString(),
+      details: (data['details'] ?? '').toString(),
+      timestamp: dateTimeFromFirestore(data['timestamp']) ?? DateTime.now(),
+      adminEmail: (data['adminEmail'] ?? '').toString(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'adminUid': adminUid,
+      'targetUid': targetUid,
+      'actionType': actionType,
+      'details': details,
+      'timestamp': timestamp,
+      'adminEmail': adminEmail,
+    };
   }
 }
 
@@ -948,7 +1287,7 @@ class SubscriptionProduct {
       title: (data['title'] ?? '').toString(),
       subtitle: (data['subtitle'] ?? '').toString(),
       featureList: stringListFrom(data['featureList']),
-      priceLabel: (data['priceLabel'] ?? '').toString(),
+      priceLabel: formatPriceString((data['priceLabel'] ?? '').toString()),
       stripePriceId: (data['stripePriceId'] ?? '').toString(),
       isActive: data['isActive'] != false,
     );
@@ -959,6 +1298,7 @@ class UserSubscription {
   const UserSubscription({
     required this.id,
     required this.userId,
+    this.therapistId,
     required this.productId,
     required this.status,
     required this.cancelAtPeriodEnd,
@@ -967,6 +1307,7 @@ class UserSubscription {
 
   final String id;
   final String userId;
+  final String? therapistId;
   final String productId;
   final String status;
   final bool cancelAtPeriodEnd;
@@ -978,6 +1319,7 @@ class UserSubscription {
     return UserSubscription(
       id: id,
       userId: (data['userId'] ?? '').toString(),
+      therapistId: data['therapistId']?.toString(),
       productId: (data['productId'] ?? '').toString(),
       status: (data['status'] ?? 'inactive').toString(),
       cancelAtPeriodEnd: data['cancelAtPeriodEnd'] == true,

@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 import '../config/learning_catalog.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
+import '../modules/speak_learn/speak_learn_screen.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
-import 'learning_category_games_screen.dart';
+import 'move_play_screen.dart';
+import 'focus_games_screen.dart';
 import 'learning_planner_screen.dart';
+import '../widgets/bouncing_button.dart';
 
 class LearningModulesScreen extends StatelessWidget {
   const LearningModulesScreen({super.key, required this.childId});
@@ -31,17 +34,44 @@ class LearningModulesScreen extends StatelessWidget {
             if (modules.isEmpty) {
               return Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(32),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF4EA9E3).withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.school_rounded,
+                          size: 64,
+                          color: Color(0xFF4EA9E3),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
                       const Text(
-                        'No learning games are assigned for this child yet.',
-                        textAlign: TextAlign.center,
+                        'No learning modules assigned yet',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1E293B),
+                        ),
                       ),
                       const SizedBox(height: 12),
-                      ElevatedButton(
-                        onPressed: () {
+                      const Text(
+                        'Select learning topics from the Learning Planner to start playing games.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Color(0xFF64748B),
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      BouncingButton(
+                        onTap: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -49,7 +79,37 @@ class LearningModulesScreen extends StatelessWidget {
                             ),
                           );
                         },
-                        child: const Text('Open Learning Planner'),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF4EA9E3), Color(0xFF2D7CF6)],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF4EA9E3).withValues(alpha: 0.3),
+                                blurRadius: 12,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.edit_calendar_rounded, color: Colors.white, size: 20),
+                              SizedBox(width: 8),
+                              Text(
+                                'Open Learning Planner',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -75,7 +135,7 @@ class LearningModulesScreen extends StatelessWidget {
             ];
 
             return ListView.builder(
-              padding: const EdgeInsets.fromLTRB(8, 6, 8, 170),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 170),
               itemCount: orderedKeys.length,
               itemBuilder: (context, index) {
                 final key = orderedKeys[index];
@@ -86,19 +146,57 @@ class LearningModulesScreen extends StatelessWidget {
                   fallbackTitle: categoryModules.first.learningCategoryTitle,
                 );
 
+                String assetPath = '';
+                Color cardColor = category.color;
+                
+                if (key == 'move_play') {
+                  assetPath = 'assets/images/Move&Play.png';
+                  cardColor = const Color(0xFFFFB6B6); // Soft Red
+                } else if (key == 'speak_learn') {
+                  assetPath = 'assets/images/Speak&learn.png';
+                  cardColor = const Color(0xFFC1FF9B); // Soft Green
+                } else if (key == 'focus_games') {
+                  assetPath = 'assets/images/focusgames.png';
+                  cardColor = const Color(0xFFC7F0E3); // Soft Teal
+                }
+
                 return _LearnCategoryCard(
                   category: category,
-                  gameCount: categoryModules.length,
+                  selectionCount: categoryModules.length,
+                  assetPath: assetPath,
+                  cardColor: cardColor,
                   onTap: () {
-                    Navigator.push(
+                    if (category.key == 'focus_games') {
+                      Navigator.push<void>(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => FocusGamesScreen(childId: childId),
+                        ),
+                      );
+                      return;
+                    }
+                    final modules = List<LearningModuleModel>.from(
+                      categoryModules,
+                    );
+                    if (category.key == 'speak_learn') {
+                      Navigator.push<void>(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => SpeakLearnScreen(
+                            childId: childId,
+                            modules: modules,
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+                    Navigator.push<void>(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) => LearningCategoryGamesScreen(
+                      MaterialPageRoute<void>(
+                        builder: (_) => MovePlayScreen(
                           childId: childId,
                           category: category,
-                          modules: List<LearningModuleModel>.from(
-                            categoryModules,
-                          ),
+                          modules: modules,
                         ),
                       ),
                     );
@@ -116,29 +214,34 @@ class LearningModulesScreen extends StatelessWidget {
 class _LearnCategoryCard extends StatelessWidget {
   const _LearnCategoryCard({
     required this.category,
-    required this.gameCount,
+    required this.selectionCount,
     required this.onTap,
+    required this.assetPath,
+    required this.cardColor,
   });
 
   final LearningCategoryDefinition category;
-  final int gameCount;
+  final int selectionCount;
   final VoidCallback onTap;
+  final String assetPath;
+  final Color cardColor;
 
   @override
   Widget build(BuildContext context) {
+    final selectionText = category.key == 'speak_learn'
+        ? '$selectionCount level${selectionCount == 1 ? '' : 's'} selected'
+        : '$selectionCount game${selectionCount == 1 ? '' : 's'} selected';
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
+      margin: const EdgeInsets.only(bottom: 20),
       child: Material(
-        color: Colors.transparent,
+        color: cardColor,
+        borderRadius: BorderRadius.circular(28),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(22),
-          child: Ink(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: category.color,
-              borderRadius: BorderRadius.circular(22),
-            ),
+          borderRadius: BorderRadius.circular(28),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
             child: Row(
               children: [
                 Expanded(
@@ -148,23 +251,36 @@ class _LearnCategoryCard extends StatelessWidget {
                       Text(
                         category.title,
                         style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF1A2D4B),
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.black,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 2),
                       Text(
-                        '$gameCount games selected',
-                        style: const TextStyle(
-                          color: Color(0xFF2C405B),
-                          fontWeight: FontWeight.w500,
+                        selectionText,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black.withValues(alpha: 0.6),
                         ),
                       ),
                     ],
                   ),
                 ),
-                Icon(category.icon, size: 36, color: const Color(0xFF2A4A7A)),
+                if (assetPath.isNotEmpty)
+                  Image.asset(
+                    assetPath,
+                    width: 80,
+                    height: 80,
+                    fit: BoxFit.contain,
+                  )
+                else
+                  Icon(
+                    category.icon,
+                    size: 48,
+                    color: Colors.black.withValues(alpha: 0.7),
+                  ),
               ],
             ),
           ),

@@ -101,6 +101,197 @@ class TracePathValidator {
     );
   }
 
+  /// Validates against custom "traceable" segment hit tests.
+  /// Used by Trace Game to require tracing multiple separate elements per round.
+  static TracePathValidationResult validateCustom(
+    List<Offset> points, {
+    required List<bool Function(Offset)> segments,
+    required TraceValidationProfile profile,
+  }) {
+    if (points.length < 2) {
+      return const TracePathValidationResult(
+        isValid: false,
+        strokeLength: 0,
+        insideRatio: 0,
+        coveredSegments: 0,
+      );
+    }
+
+    final totalLength = _strokeLength(points);
+
+    var insideCount = 0;
+    final insidePoints = <Offset>[];
+    final touched = List<bool>.filled(segments.length, false);
+    final segmentHitCounts = List<int>.filled(segments.length, 0);
+    for (final point in points) {
+      var inAnySegment = false;
+      for (var i = 0; i < segments.length; i++) {
+        if (segments[i](point)) {
+          inAnySegment = true;
+          touched[i] = true;
+          segmentHitCounts[i] += 1;
+        }
+      }
+      if (inAnySegment) {
+        insideCount++;
+        insidePoints.add(point);
+      }
+    }
+
+    final startsInside = segments.any((segment) => segment(points.first));
+    final endsInside = segments.any((segment) => segment(points.last));
+    final insideRatio = insideCount / points.length;
+    final coveredSegments = touched.where((value) => value).length;
+    final dominantHits = segmentHitCounts.fold<int>(
+      0,
+      (best, count) => count > best ? count : best,
+    );
+    final dominantRatio = dominantHits / points.length;
+    final touchedCells = _touchedCellCount(insidePoints, cellSize: 22);
+    final endToEndDistance = (points.last - points.first).distance;
+    final horizontalSpan = _axisSpan(insidePoints, isHorizontal: true);
+    final verticalSpan = _axisSpan(insidePoints, isHorizontal: false);
+
+    final meetsLength = totalLength >= profile.minStrokeLength;
+    final meetsCoverage = insideRatio >= profile.minInsideRatio;
+    final meetsSegments = coveredSegments >= profile.minCoveredSegments;
+    final meetsDominant = dominantRatio >= profile.minDominantRatio;
+    final meetsCells = touchedCells >= profile.minTouchedCells;
+    final meetsEndToEnd = endToEndDistance >= profile.minEndToEndDistance;
+    final meetsHorizontalSpan =
+        profile.minHorizontalSpan == null ||
+        horizontalSpan >= profile.minHorizontalSpan!;
+    final meetsVerticalSpan =
+        profile.maxVerticalSpan == null ||
+        verticalSpan <= profile.maxVerticalSpan!;
+    final meetsEnd = endsInside || insideRatio >= profile.relaxedEndInsideRatio;
+
+    return TracePathValidationResult(
+      isValid:
+          startsInside &&
+          meetsLength &&
+          meetsCoverage &&
+          meetsSegments &&
+          meetsDominant &&
+          meetsCells &&
+          meetsEndToEnd &&
+          meetsHorizontalSpan &&
+          meetsVerticalSpan &&
+          meetsEnd,
+      strokeLength: totalLength,
+      insideRatio: insideRatio,
+      coveredSegments: coveredSegments,
+    );
+  }
+
+  /// Strict "follow the path" validator.
+  ///
+  /// Prevents completing a shape by scribbling inside an area or tracing only a
+  /// small part of it. A stroke must:
+  /// - stay close to the expected polyline (within [tolerancePx])
+  /// - cover enough of the expected path (coverage)
+  /// - have sufficient length
+  static TracePathValidationResult validateFollowPath(
+    List<Offset> points, {
+    required List<Offset> expectedPolyline,
+    double tolerancePx = 14,
+    double minCoverage = 0.78,
+    double minCloseRatio = 0.72,
+    double minLengthRatio = 0.70,
+  }) {
+    if (points.length < 2 || expectedPolyline.length < 2) {
+      return const TracePathValidationResult(
+        isValid: false,
+        strokeLength: 0,
+        insideRatio: 0,
+        coveredSegments: 0,
+      );
+    }
+
+    final strokeLen = _strokeLength(points);
+    final expectedLen = _strokeLength(expectedPolyline);
+    final samples = _resamplePolyline(expectedPolyline, step: 8);
+    if (samples.length < 8) {
+      return const TracePathValidationResult(
+        isValid: false,
+        strokeLength: 0,
+        insideRatio: 0,
+        coveredSegments: 0,
+      );
+    }
+
+    final covered = List<bool>.filled(samples.length, false);
+    var closeCount = 0;
+    for (final p in points) {
+      var bestI = -1;
+      var bestD2 = double.infinity;
+      for (var i = 0; i < samples.length; i++) {
+        final d2 = (p - samples[i]).distanceSquared;
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          bestI = i;
+        }
+      }
+      final within = bestD2 <= tolerancePx * tolerancePx;
+      if (within) {
+        closeCount++;
+        covered[bestI] = true;
+      }
+    }
+
+    // Smooth coverage: allow small gaps to still count (kids draw imperfectly).
+    final smoothed = List<bool>.from(covered);
+    for (var i = 1; i < smoothed.length - 1; i++) {
+      if (!smoothed[i] && smoothed[i - 1] && smoothed[i + 1]) {
+        smoothed[i] = true;
+      }
+    }
+
+    final closeRatio = closeCount / points.length;
+    final coverage = smoothed.where((v) => v).length / smoothed.length;
+    final lengthOk = expectedLen <= 0
+        ? true
+        : strokeLen >= expectedLen * minLengthRatio;
+
+    return TracePathValidationResult(
+      isValid:
+          closeRatio >= minCloseRatio && coverage >= minCoverage && lengthOk,
+      strokeLength: strokeLen,
+      insideRatio: closeRatio,
+      coveredSegments: (coverage * 10).round(),
+    );
+  }
+
+  static List<Offset> _resamplePolyline(
+    List<Offset> polyline, {
+    required double step,
+  }) {
+    if (polyline.length < 2) return polyline;
+    final out = <Offset>[polyline.first];
+    var carry = 0.0;
+    for (var i = 1; i < polyline.length; i++) {
+      final a = polyline[i - 1];
+      final b = polyline[i];
+      final seg = b - a;
+      final len = seg.distance;
+      if (len <= 0.001) continue;
+      final dir = seg / len;
+      var t = carry;
+      while (t + step <= len) {
+        t += step;
+        out.add(a + dir * t);
+      }
+      carry = (t + step) - len;
+      if (carry.isNaN || carry.isInfinite) carry = 0;
+      if (carry < 0) carry = 0;
+      if (carry > step) carry = step;
+    }
+    if ((out.last - polyline.last).distance > 0.1) {
+      out.add(polyline.last);
+    }
+    return out;
+  }
+
   static double _strokeLength(List<Offset> points) {
     var distance = 0.0;
     for (var i = 1; i < points.length; i++) {
@@ -109,10 +300,14 @@ class TracePathValidator {
     return distance;
   }
 
-  static _TraceValidationProfile _profileFor(TracePathKind kind) {
+  static double strokeLengthForMetrics(List<Offset> points) {
+    return _strokeLength(points);
+  }
+
+  static TraceValidationProfile _profileFor(TracePathKind kind) {
     switch (kind) {
       case TracePathKind.line:
-        return const _TraceValidationProfile(
+        return const TraceValidationProfile(
           minStrokeLength: 90,
           minInsideRatio: 0.60,
           minCoveredSegments: 1,
@@ -124,7 +319,7 @@ class TracePathValidator {
           maxVerticalSpan: 48,
         );
       case TracePathKind.curves:
-        return const _TraceValidationProfile(
+        return const TraceValidationProfile(
           minStrokeLength: 120,
           minInsideRatio: 0.52,
           minCoveredSegments: 1,
@@ -134,7 +329,7 @@ class TracePathValidator {
           minEndToEndDistance: 36,
         );
       case TracePathKind.shapes:
-        return const _TraceValidationProfile(
+        return const TraceValidationProfile(
           minStrokeLength: 110,
           minInsideRatio: 0.50,
           minCoveredSegments: 1,
@@ -211,8 +406,8 @@ class TracePathValidator {
   }
 }
 
-class _TraceValidationProfile {
-  const _TraceValidationProfile({
+class TraceValidationProfile {
+  const TraceValidationProfile({
     required this.minStrokeLength,
     required this.minInsideRatio,
     required this.minCoveredSegments,
