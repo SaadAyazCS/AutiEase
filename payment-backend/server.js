@@ -796,7 +796,7 @@ app.use((req, _res, next) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.0.2-transaction-fix' });
+  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.0.3-safepay-debug' });
 });
 
 app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
@@ -983,7 +983,7 @@ app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
     if (!safepayOrderRes.ok) {
       const errText = await safepayOrderRes.text();
       console.error('SafePay /order/v1/init failed:', safepayOrderRes.status, errText);
-      return jsonError(res, 502, 'Unable to create SafePay order. Please try again.');
+      return jsonError(res, 502, `SafePay Error (${safepayOrderRes.status}): ${errText}`);
     }
 
     const safepayOrder = await safepayOrderRes.json();
