@@ -19,7 +19,7 @@ class AdminDashboardScreen extends StatefulWidget {
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final List<String> _tabs = ['Overview', 'Verification', 'Reports', 'Subscriptions', 'Parents', 'Therapists', 'Feedback', 'Audit Logs'];
+  final List<String> _tabs = ['Overview', 'Verification', 'Reports', 'Subscriptions', 'Parents', 'Therapists', 'Feedback', 'Audit Logs', 'Withdrawals'];
   bool _loading = false;
   Map<String, dynamic> _stats = {};
   
@@ -286,6 +286,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   _buildTherapistsTab(),
                   _buildFeedbackTab(),
                   _buildAuditLogsTab(),
+                  _buildWithdrawalsTab(),
                 ],
               ),
       ),
@@ -3452,6 +3453,309 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           ),
         );
       },
+    );
+  }
+
+  Widget _buildWithdrawalsTab() {
+    return FutureBuilder<QuerySnapshot>(
+      future: FirebaseFirestore.instance
+          .collection('withdrawal_requests')
+          .orderBy('createdAt', descending: true)
+          .limit(100)
+          .get(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        }
+        final docs = snapshot.data?.docs ?? [];
+
+        // Compute totals for summary cards
+        double totalPending = 0;
+        double totalPaid = 0;
+        for (final doc in docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final amt = (data['amount'] as num?)?.toDouble() ?? 0.0;
+          final st = (data['status'] ?? '').toString();
+          if (st == 'pending') totalPending += amt;
+          if (st == 'paid') totalPaid += amt;
+        }
+
+        // Fetch platform revenue total
+        return FutureBuilder<DocumentSnapshot>(
+          future: FirebaseFirestore.instance
+              .collection('platform_revenue')
+              .doc('summary')
+              .get(),
+          builder: (context, revenueSnap) {
+            final revData = revenueSnap.data?.data() as Map<String, dynamic>? ?? {};
+            final totalRevenue = (revData['totalRevenue'] as num?)?.toDouble() ?? 0.0;
+
+            return Column(
+              children: [
+                // Summary cards
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  color: const Color(0xFFF8FAFC),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _buildOverviewCard(
+                          'Pending Payouts',
+                          'Rs. ${totalPending.toStringAsFixed(0)}',
+                          Icons.pending_outlined,
+                          const Color(0xFFD97706),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildOverviewCard(
+                          'Total Paid Out',
+                          'Rs. ${totalPaid.toStringAsFixed(0)}',
+                          Icons.check_circle_outline,
+                          const Color(0xFF059669),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildOverviewCard(
+                          'Platform Revenue (7%)',
+                          'Rs. ${totalRevenue.toStringAsFixed(0)}',
+                          Icons.account_balance_outlined,
+                          const Color(0xFF3B82F6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // CSV Export button
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.download_outlined, size: 16),
+                      label: const Text('Export CSV'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF1E293B),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => _exportWithdrawalsCsv(docs),
+                    ),
+                  ),
+                ),
+                // Withdrawals list
+                Expanded(
+                  child: docs.isEmpty
+                      ? const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.inbox_outlined, size: 48, color: Color(0xFFCBD5E1)),
+                              SizedBox(height: 12),
+                              Text('No withdrawal requests yet.', style: TextStyle(color: Color(0xFF94A3B8))),
+                            ],
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: docs.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final doc = docs[index];
+                            final data = doc.data() as Map<String, dynamic>;
+                            final status = (data['status'] ?? 'pending').toString();
+                            final amount = (data['amount'] as num?)?.toDouble() ?? 0.0;
+                            final therapistName = (data['therapistName'] ?? 'Therapist').toString();
+                            final method = (data['paymentMethod'] ?? '').toString();
+                            final accountDetails = (data['accountDetails'] ?? '').toString();
+                            final createdAt = data['createdAt'];
+                            String dateStr = '';
+                            if (createdAt != null) {
+                              final dt = (createdAt as Timestamp).toDate().toLocal();
+                              dateStr = '${dt.day}/${dt.month}/${dt.year}';
+                            }
+                            final statusColor = status == 'paid'
+                                ? const Color(0xFF059669)
+                                : status == 'rejected'
+                                    ? const Color(0xFFDC2626)
+                                    : const Color(0xFFD97706);
+
+                            return Card(
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: const BorderSide(color: Color(0xFFF1F5F9)),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(14),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            therapistName,
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: statusColor.withValues(alpha: 0.1),
+                                            borderRadius: BorderRadius.circular(20),
+                                          ),
+                                          child: Text(
+                                            status.toUpperCase(),
+                                            style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.bold),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Rs. ${amount.toStringAsFixed(0)}  •  $method  •  $dateStr',
+                                      style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                                    ),
+                                    if (accountDetails.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        accountDetails,
+                                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                                      ),
+                                    ],
+                                    if (status == 'pending') ...[
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: OutlinedButton.icon(
+                                              icon: const Icon(Icons.close_rounded, size: 16),
+                                              label: const Text('Reject'),
+                                              style: OutlinedButton.styleFrom(
+                                                foregroundColor: const Color(0xFFDC2626),
+                                                side: const BorderSide(color: Color(0xFFDC2626)),
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                              ),
+                                              onPressed: () => _resolveWithdrawal(doc.id, 'rejected'),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: ElevatedButton.icon(
+                                              icon: const Icon(Icons.check_rounded, size: 16),
+                                              label: const Text('Mark Paid'),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: const Color(0xFF059669),
+                                                foregroundColor: Colors.white,
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                              ),
+                                              onPressed: () => _resolveWithdrawal(doc.id, 'paid'),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _resolveWithdrawal(String requestId, String status) async {
+    String? adminNotes;
+    if (status == 'paid') {
+      adminNotes = await showDialog<String>(
+        context: context,
+        builder: (ctx) {
+          final ctrl = TextEditingController();
+          return AlertDialog(
+            title: const Text('Mark as Paid'),
+            content: TextField(
+              controller: ctrl,
+              decoration: const InputDecoration(
+                labelText: 'Transaction Reference (optional)',
+                hintText: 'e.g. TXN123456',
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Confirm')),
+            ],
+          );
+        },
+      );
+      if (adminNotes == null) return; // cancelled
+    }
+
+    try {
+      await AppRepositories.admin.resolveWithdrawalRequest(
+        requestId: requestId,
+        status: status,
+        adminNotes: adminNotes?.isEmpty == true ? null : adminNotes,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(status == 'paid' ? 'Withdrawal marked as paid.' : 'Withdrawal rejected.'),
+            backgroundColor: status == 'paid' ? const Color(0xFF059669) : const Color(0xFFDC2626),
+          ),
+        );
+        setState(() {}); // rebuild to refresh FutureBuilder
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to resolve withdrawal: $e'), backgroundColor: const Color(0xFFDC2626)),
+        );
+      }
+    }
+  }
+
+  void _exportWithdrawalsCsv(List<QueryDocumentSnapshot> docs) {
+    final buffer = StringBuffer();
+    buffer.writeln('Date,Therapist,Amount,Method,Account Details,Status,Admin Notes');
+    for (final doc in docs) {
+      final data = doc.data() as Map<String, dynamic>;
+      final String dateStr = (() {
+        final createdAt = data['createdAt'];
+        if (createdAt != null) {
+          final dt = (createdAt as Timestamp).toDate().toLocal();
+          return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+        }
+        return '';
+      })();
+      String esc(String? s) => '"${(s ?? '').replaceAll('"', '""')}"';
+      buffer.writeln([
+        esc(dateStr),
+        esc(data['therapistName']?.toString()),
+        data['amount']?.toString() ?? '0',
+        esc(data['paymentMethod']?.toString()),
+        esc(data['accountDetails']?.toString()),
+        esc(data['status']?.toString()),
+        esc(data['adminNotes']?.toString()),
+      ].join(','));
+    }
+    final csv = buffer.toString();
+    Clipboard.setData(ClipboardData(text: csv));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('CSV copied to clipboard! Paste into Excel/Sheets.'),
+        backgroundColor: Color(0xFF059669),
+      ),
     );
   }
 }

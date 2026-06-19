@@ -10,7 +10,7 @@ import '../config/app_runtime_config.dart';
 import '../models/app_models.dart';
 import '../services/auth_verification_policy.dart';
 import '../services/dashboard_metrics_calculator.dart';
-import '../services/gopayfast_backend_client.dart';
+import '../services/payment_backend_client.dart';
 
 class FirestoreCollections {
   static const users = 'users';
@@ -180,6 +180,11 @@ abstract class AdminRepository {
   });
   Future<List<Map<String, dynamic>>> listAllFeedbackAndReviews();
   Future<List<AdminAuditLog>> listAuditLogs();
+  Future<void> resolveWithdrawalRequest({
+    required String requestId,
+    required String status,
+    String? adminNotes,
+  });
 }
 
 abstract class BillingRepository {
@@ -207,7 +212,7 @@ class AppRepositories {
 
   static final FirebaseFirestore firestore = FirebaseFirestore.instance;
   static final FirebaseAuth authClient = FirebaseAuth.instance;
-  static final GoPayFastBackendClient paymentBackend = GoPayFastBackendClient(
+  static final PaymentBackendClient paymentBackend = PaymentBackendClient(
     authClient,
   );
 
@@ -1773,7 +1778,7 @@ class FirebaseBillingRepository implements BillingRepository {
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
-  final GoPayFastBackendClient _paymentBackend;
+  final PaymentBackendClient _paymentBackend;
 
   String _subscriptionDocId(String userId, String therapistId) =>
       '${userId.trim()}_${therapistId.trim()}';
@@ -1868,7 +1873,7 @@ class FirebaseBillingRepository implements BillingRepository {
           return true;
         }
         // Exit immediately on any terminal failure state.
-        // 'payment_failed' = PayFast sent user to FAILURE_URL (no point waiting further).
+        // 'payment_failed' = SafePay redirected to failure URL (no point waiting further).
         // 'canceled'/'expired' = admin-set terminal states.
         final status = subscription.status.trim().toLowerCase();
         if (status == 'canceled' || status == 'expired' || status == 'payment_failed') {
@@ -2660,5 +2665,18 @@ class FirebaseAdminRepository implements AdminRepository {
         .orderBy('timestamp', descending: true)
         .get();
     return snap.docs.map((doc) => AdminAuditLog.fromMap(doc.id, doc.data())).toList();
+  }
+
+  @override
+  Future<void> resolveWithdrawalRequest({
+    required String requestId,
+    required String status,
+    String? adminNotes,
+  }) async {
+    await AppRepositories.paymentBackend.resolveWithdrawalRequest(
+      requestId: requestId,
+      status: status,
+      adminNotes: adminNotes,
+    );
   }
 }

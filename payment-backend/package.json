@@ -1,7 +1,7 @@
 {
   "name": "autiease-payment-backend",
   "version": "1.0.0",
-  "description": "GoPayFast payment backend for AutiEase",
+  "description": "SafePay payment backend for AutiEase",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

@@ -187,7 +187,22 @@ service cloud.firestore {
     }
 
     match /admin_audit_logs/{logId} {
-      allow read, create, update: if isAdmin();
+      // Admin SDK (backend) writes bypass these rules. Client-side: admin read only.
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // Platform revenue summary — backend writes via Admin SDK (bypasses rules)
+    // Admins can read; no client-side writes allowed.
+    match /platform_revenue/{document=**} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // Payment events — idempotency store. Backend writes via Admin SDK only.
+    match /payment_events/{eventId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
     }
 
     match /notifications/{notificationId} {

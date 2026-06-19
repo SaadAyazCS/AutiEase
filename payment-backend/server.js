@@ -441,73 +441,88 @@ function buildStatusPageHtml(isSuccess, message) {
 </html>`;
 }
 
-const payfastConfig = {
-  provider: normalizeValue(process.env.PAYMENT_PROVIDER) || 'payfast_pk',
-  baseUrl: normalizeBaseUrl(
-    process.env.PAYFAST_BASE_URL || 'https://ipguat.apps.net.pk/Ecommerce/api/Transaction',
-  ),
-  accessTokenPath: normalizeValue(process.env.PAYFAST_ACCESS_TOKEN_PATH) || '/GetAccessToken',
-  postTransactionPath: normalizeValue(process.env.PAYFAST_POST_TRANSACTION_PATH) || '/PostTransaction',
-  statusPath: normalizeValue(process.env.PAYFAST_STATUS_PATH) || '/Inquiry',
-  merchantId: normalizeValue(process.env.PAYFAST_MERCHANT_ID) || '102',
-  securedKey: normalizeValue(process.env.PAYFAST_SECURED_KEY) || 'zWHjBp2AlttNu1sK',
-  merchantName: normalizeValue(process.env.PAYFAST_MERCHANT_NAME) || 'AutiEase',
-  currencyCode: normalizeValue(process.env.PAYFAST_CURRENCY_CODE) || 'PKR',
-  txDescription:
-    normalizeValue(process.env.PAYFAST_TXN_DESC) || 'AutiEase Professional Support Monthly Subscription',
-  version: normalizeValue(process.env.PAYFAST_VERSION) || 'MERCHANT-CART-0.1',
-  procCode: normalizeValue(process.env.PAYFAST_PROCCODE) || '00',
-  tranType: normalizeValue(process.env.PAYFAST_TRAN_TYPE) || 'ECOMM_PURCHASE',
-  storeId: normalizeValue(process.env.PAYFAST_STORE_ID) || '',
-  customerMobileDefault: normalizeValue(process.env.PAYFAST_CUSTOMER_MOBILE_DEFAULT) || '03001234567',
-  checkoutUrlField: normalizeValue(process.env.PAYFAST_CHECKOUT_URL_FIELD),
-  signatureStatic: normalizeValue(process.env.PAYFAST_SIGNATURE_STATIC) || 'testsign',
-  strictWebhookVerification: isTruthy(process.env.PAYFAST_STRICT_WEBHOOK_VERIFICATION),
+// ---------------------------------------------------------------------------
+// SafePay Configuration
+// ---------------------------------------------------------------------------
+const SAFEPAY_ENV = normalizeValue(process.env.SAFEPAY_ENVIRONMENT) || 'sandbox';
+const safepayConfig = {
+  environment: SAFEPAY_ENV,
+  apiKey: normalizeValue(process.env.SAFEPAY_API_KEY),
+  secretKey: normalizeValue(process.env.SAFEPAY_SECRET_KEY),
+  webhookSecret: normalizeValue(process.env.SAFEPAY_WEBHOOK_SECRET),
+  baseUrl: SAFEPAY_ENV === 'production'
+    ? 'https://api.getsafepay.com'
+    : 'https://sandbox.api.getsafepay.com',
+  checkoutBaseUrl: SAFEPAY_ENV === 'production'
+    ? 'https://getsafepay.com'
+    : 'https://sandbox.getsafepay.com',
 };
 
-function ensurePayFastConfigured() {
-  if (!payfastConfig.baseUrl || !payfastConfig.merchantId || !payfastConfig.securedKey) {
+function ensureSafepayConfigured() {
+  if (!safepayConfig.apiKey || !safepayConfig.secretKey) {
     throw new Error(
-      'PayFast is not configured. Required: PAYFAST_BASE_URL, PAYFAST_MERCHANT_ID, PAYFAST_SECURED_KEY.',
+      'SafePay is not configured. Required: SAFEPAY_API_KEY, SAFEPAY_SECRET_KEY.'
     );
   }
 }
 
-function payFastUrl(path) {
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return `${payfastConfig.baseUrl}${normalizedPath}`;
+/**
+ * Verify SafePay webhook HMAC-SHA256 signature.
+ * Header X-SFPY-SIGNATURE = HMAC-SHA256(timestamp + '.' + rawBody, base64Decode(webhookSecret))
+ */
+function verifySafepayWebhook(req) {
+  const providedSignature = req.headers['x-sfpy-signature'] || '';
+  const timestamp = req.headers['x-sfpy-timestamp'] || '';
+  const rawBody = req.rawBody || '';
+  const secret = safepayConfig.webhookSecret;
+
+  if (!secret) {
+    // If no webhook secret configured, skip verification in dev (log a warning)
+    console.warn('SAFEPAY_WEBHOOK_SECRET not set — skipping webhook signature check.');
+    return { verified: true, reason: 'no-secret-configured' };
+  }
+  if (!providedSignature || !timestamp) {
+    return { verified: false, reason: 'Missing X-SFPY-SIGNATURE or X-SFPY-TIMESTAMP header' };
+  }
+
+  try {
+    const keyBytes = Buffer.from(secret, 'base64');
+    const signingPayload = `${timestamp}.${rawBody}`;
+    const computedHmac = crypto
+      .createHmac('sha256', keyBytes)
+      .update(signingPayload, 'utf8')
+      .digest('hex');
+
+    // Constant-time comparison to prevent timing attacks
+    const computedBuf = Buffer.from(computedHmac, 'hex');
+    const providedBuf = Buffer.from(providedSignature.toLowerCase(), 'hex');
+    const verified =
+      computedBuf.length === providedBuf.length &&
+      crypto.timingSafeEqual(computedBuf, providedBuf);
+
+    return {
+      verified,
+      reason: verified ? '' : 'HMAC signature mismatch',
+    };
+  } catch (err) {
+    return { verified: false, reason: `Signature verification error: ${err.message}` };
+  }
 }
 
-async function getPayFastAccessToken({ basketId, amount }) {
-  ensurePayFastConfigured();
-  const body = new URLSearchParams({
-    MERCHANT_ID: payfastConfig.merchantId,
-    SECURED_KEY: payfastConfig.securedKey,
-    BASKET_ID: basketId,
-    TXNAMT: toAmountString(amount),
-    CURRENCY_CODE: payfastConfig.currencyCode,
-  });
-
-  const response = await fetch(payFastUrl(payfastConfig.accessTokenPath), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: body.toString(),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`PayFast access token request failed (${response.status}): ${text}`);
-  }
-
-  const payload = await response.json();
-  const token = normalizeValue(payload.ACCESS_TOKEN || payload.access_token || payload.token);
-  if (!token) {
-    throw new Error('PayFast access token response did not include ACCESS_TOKEN.');
-  }
-
-  return token;
+/**
+ * Calculate dynamic SafePay fees and platform revenue.
+ * SafePay fee: 2.9% + Rs.30 (applies to all payment methods in v1)
+ * Platform fee: 7% of (gross - safepayFee)
+ *
+ * @param {number} grossAmount - Full subscription amount paid by parent
+ * @returns {{ safepayFee: number, platformFee: number, netAmount: number }}
+ */
+function calculateFees(grossAmount) {
+  const safepayFee = parseFloat(((grossAmount * 0.029) + 30).toFixed(2));
+  const afterGateway = parseFloat((grossAmount - safepayFee).toFixed(2));
+  const platformFee = parseFloat((afterGateway * 0.07).toFixed(2));
+  const netAmount = parseFloat((afterGateway - platformFee).toFixed(2));
+  return { safepayFee, platformFee, netAmount };
 }
 
 function addDays(date, days) {
@@ -597,56 +612,37 @@ async function findSubscriptionByBasketId(basketId) {
   return snapshot.docs[0];
 }
 
-async function verifyTransactionWithGateway(normalizedPayload, expectedAmount) {
-  const transactionId = normalizedPayload.transactionId;
-  const basketId = normalizedPayload.basketId;
-  if (!transactionId && !basketId) {
-    return { verified: false, reason: 'Missing transaction identifiers' };
+async function verifyTransactionWithGateway(trackerToken) {
+  if (!trackerToken) {
+    return { verified: false, reason: 'Missing tracker token' };
   }
 
   try {
-    const token = await getPayFastAccessToken({
-      basketId: basketId || `verify_${Date.now()}`,
-      amount: expectedAmount > 0 ? expectedAmount : 1,
-    });
+    ensureSafepayConfigured();
 
-    const query = new URLSearchParams();
-    if (transactionId) {
-      query.set('transaction_id', transactionId);
-    }
-    if (basketId) {
-      query.set('basket_id', basketId);
-    }
-
-    const statusUrl = `${payFastUrl(payfastConfig.statusPath)}${query.toString() ? `?${query.toString()}` : ''}`;
-    const response = await fetch(statusUrl, {
+    const url = `${safepayConfig.baseUrl}/reporter/api/v1/payments/${trackerToken}`;
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${token}`,
+        'Authorization': `Bearer ${safepayConfig.secretKey}`,
       },
     });
 
     if (!response.ok) {
       const text = await response.text();
-      return { verified: false, reason: `Status API failed (${response.status}): ${text}` };
+      return { verified: false, reason: `Reporter API failed (${response.status}): ${text}` };
     }
 
     const payload = await response.json();
-    const status =
-      payload.status ||
-      payload.transaction_status ||
-      payload.TRANSACTION_STATUS ||
-      payload.message ||
-      '';
-    const responseCode = payload.code || payload.response_code || payload.RESPONSE_CODE || '';
-    const verified = isSuccessStatus(status, responseCode);
+    const data = payload.data || {};
+    const state = normalizeValue(data.state).toUpperCase();
+    const verified = state === 'PAID';
 
     return {
       verified,
-      status: normalizeValue(status),
-      responseCode: normalizeValue(responseCode),
+      state,
       payload,
-      reason: verified ? '' : 'Gateway status did not indicate success',
+      reason: verified ? '' : `Gateway status is ${state}`,
     };
   } catch (error) {
     return { verified: false, reason: error?.message || String(error) };
@@ -721,35 +717,27 @@ app.use(
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
+// Capture raw body bytes for SafePay HMAC webhook signature verification.
+// Must be set up BEFORE express.json() so the verify callback fires.
+let rawBodyStore = null;
 
-app.get('/health', (_req, res) => {
-  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: payfastConfig.provider, mock: mockPaymentsEnabled });
+app.use(express.urlencoded({ extended: false }));
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      rawBodyStore = buf.toString('utf8');
+    },
+  }),
+);
+// Expose rawBody on every request (webhook handler reads req.rawBody)
+app.use((req, _res, next) => {
+  req.rawBody = rawBodyStore;
+  rawBodyStore = null;
+  next();
 });
 
-app.get('/api/v1/checkout/redirect/:checkoutId', async (req, res) => {
-  try {
-    const checkoutId = normalizeValue(req.params.checkoutId);
-    if (!checkoutId) {
-      return jsonError(res, 400, 'Missing checkout id');
-    }
-    const checkoutDoc = await db.collection('checkout_sessions').doc(checkoutId).get();
-    if (!checkoutDoc.exists) {
-      return jsonError(res, 404, 'Checkout session not found');
-    }
-
-    const checkoutData = checkoutDoc.data() || {};
-    if (checkoutData.status !== 'pending') {
-      return jsonError(res, 400, 'Checkout session is no longer pending');
-    }
-
-    const html = buildAutoPostHtml(payFastUrl(payfastConfig.postTransactionPath), checkoutData.formFields || {});
-    res.status(200).set('Content-Type', 'text/html; charset=utf-8').send(html);
-  } catch (error) {
-    console.error('Checkout redirect failed:', error?.message || error);
-    return jsonError(res, 500, 'Unable to initialize checkout');
-  }
+app.get('/health', (_req, res) => {
+  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled });
 });
 
 app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
@@ -846,142 +834,143 @@ app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
     const transactionAmount = toAmountString(amount);
 
     if (mockPaymentsEnabled) {
-      await db.collection('subscriptions').doc(subscriptionId).set(
-        {
-          userId: uid,
-          therapistId: normalizedTherapistId,
-          productId: normalizedProductId,
-          provider: 'payfast_pk',
-          providerTransactionId: `mock_txn_${Date.now()}`,
-          providerCustomerRef: normalizeValue(user.email),
-          lastPaymentRef: `mock_ref_${Date.now()}`,
-          basketId,
-          amount,
-          status: 'active',
-          isActive: true,
-          cancelAtPeriodEnd: false,
-          currentPeriodEnd: admin.firestore.Timestamp.fromDate(addDays(new Date(), 30)),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          isMock: true,
-        },
-        { merge: true },
-      );
-      
-      // Update earnings for therapist
+      const { safepayFee, platformFee, netAmount } = calculateFees(amount);
+      const mockTxnId = `mock_txn_${Date.now()}`;
+      const batch = db.batch();
+
+      batch.set(db.collection('subscriptions').doc(subscriptionId), {
+        userId: uid,
+        therapistId: normalizedTherapistId,
+        productId: normalizedProductId,
+        provider: 'safepay',
+        providerTransactionId: mockTxnId,
+        providerCustomerRef: normalizeValue(user.email),
+        lastPaymentRef: `mock_ref_${Date.now()}`,
+        basketId,
+        amount,
+        status: 'active',
+        isActive: true,
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: admin.firestore.Timestamp.fromDate(addDays(new Date(), 30)),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        isMock: true,
+      }, { merge: true });
+
       const earningsId = `earn_${basketId}`;
-      await db.collection('therapist_earnings').doc(earningsId).set({
+      batch.set(db.collection('therapist_earnings').doc(earningsId), {
         therapistId: normalizedTherapistId,
         userId: uid,
         parentName: user.displayName || user.email || 'Parent',
         subscriptionId,
-        amount,
+        type: 'subscription',
+        grossAmount: amount,
+        safepayFee,
+        platformFee,
+        netAmount,
+        amount: netAmount,
         basketId,
-        transactionId: `mock_txn_${Date.now()}`,
+        transactionId: mockTxnId,
         status: 'completed',
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      
-      // Update therapist wallet balance
-      await db.collection('therapist_profiles').doc(normalizedTherapistId).set(
-        {
-          walletBalance: admin.firestore.FieldValue.increment(amount),
-          totalEarnings: admin.firestore.FieldValue.increment(amount),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
 
+      batch.set(db.collection('therapist_profiles').doc(normalizedTherapistId), {
+        walletBalance: admin.firestore.FieldValue.increment(netAmount),
+        totalEarnings: admin.firestore.FieldValue.increment(netAmount),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      // Track platform revenue
+      batch.set(db.collection('platform_revenue').doc('summary'), {
+        totalRevenue: admin.firestore.FieldValue.increment(platformFee),
+        lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      await batch.commit();
       await updateTherapistThreadAccess(uid, normalizedTherapistId, true);
       await syncUserSubscriptionEntitlements(uid);
 
+      const baseUrl = resolveCheckoutBaseUrl(req);
       return res.status(200).json({
         sessionId: subscriptionId,
-        url: `${resolveCheckoutBaseUrl(req)}/api/v1/payment/return/success?mock=1&basket_id=${encodeURIComponent(
-          basketId,
-        )}`,
+        url: `${baseUrl}/api/v1/payment/return/success?mock=1&basket_id=${encodeURIComponent(basketId)}`,
         mock: true,
       });
     }
 
-    ensurePayFastConfigured();
+    ensureSafepayConfigured();
 
-    const token = await getPayFastAccessToken({ basketId, amount });
     const baseUrl = resolveCheckoutBaseUrl(req);
-    const webhookUrl = `${baseUrl}/api/v1/payment/webhook`;
 
-    const formFields = {
-      CURRENCY_CODE: payfastConfig.currencyCode,
-      MERCHANT_ID: payfastConfig.merchantId,
-      MERCHANT_NAME: payfastConfig.merchantName,
-      TOKEN: token,
-      BASKET_ID: basketId,
-      TXNAMT: transactionAmount,
-      ORDER_DATE: formatOrderDate(),
-      SUCCESS_URL: `${baseUrl}/api/v1/payment/return/success?basket_id=${encodeURIComponent(basketId)}`,
-      FAILURE_URL: `${baseUrl}/api/v1/payment/return/failure?basket_id=${encodeURIComponent(basketId)}`,
-      CHECKOUT_URL: payfastConfig.checkoutUrlField || webhookUrl,
-      CUSTOMER_EMAIL_ADDRESS: normalizeValue(user.email),
-      CUSTOMER_MOBILE_NO: normalizeValue(user.phone) || payfastConfig.customerMobileDefault,
-      SIGNATURE: payfastConfig.signatureStatic,
-      VERSION: payfastConfig.version,
-      TXNDESC: payfastConfig.txDescription,
-      PROCCODE: payfastConfig.procCode,
-      TRAN_TYPE: payfastConfig.tranType,
-      STORE_ID: payfastConfig.storeId || '',
-      RECURRING_TXN: '',
-      BILL_NUMBER: '',
-      CUSTOMER_ID: uid,
-      ADDITIONAL_VALUE: '',
-      CUSTOMER_NAME: normalizeValue(user.displayName) || 'Customer',
-      MERCHANT_CUSTOMER_ID: uid,
-      CUSTOMER_IPADDRESS: req.ip || '127.0.0.1',
-      MERCHANT_USERAGENT: req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'ITEMS[0][SKU]': normalizedProductId,
-      'ITEMS[0][NAME]': product.title || 'Therapy Package',
-      'ITEMS[0][PRICE]': transactionAmount,
-      'ITEMS[0][QTY]': '1',
-    };
-
-    await db.collection('checkout_sessions').doc(checkoutId).set(
-      {
-        userId: uid,
-        therapistId: normalizedTherapistId,
-        productId: normalizedProductId,
-        subscriptionId,
-        basketId,
-        amount,
-        status: 'pending',
-        provider: 'payfast_pk',
-        formFields,
-        successUrl,
-        cancelUrl,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    // Create SafePay order via REST API
+    const safepayOrderRes = await fetch(`${safepayConfig.baseUrl}/order/v1/init`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${safepayConfig.secretKey}`,
       },
-      { merge: true },
-    );
+      body: JSON.stringify({
+        client: safepayConfig.apiKey,
+        amount: Math.round(amount * 100), // SafePay expects amount in paisas (smallest currency unit)
+        currency: 'PKR',
+        order_id: basketId,
+        source: 'app',
+        cancel_url: `${baseUrl}/api/v1/payment/return/failure?basket_id=${encodeURIComponent(basketId)}`,
+        redirect_url: `${baseUrl}/api/v1/payment/return/success?basket_id=${encodeURIComponent(basketId)}`,
+      }),
+    });
 
-    await db.collection('subscriptions').doc(subscriptionId).set(
-      {
-        userId: uid,
-        therapistId: normalizedTherapistId,
-        productId: normalizedProductId,
-        provider: 'payfast_pk',
-        status: 'pending',
-        isActive: false,
-        cancelAtPeriodEnd: false,
-        basketId,
-        amount,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
+    if (!safepayOrderRes.ok) {
+      const errText = await safepayOrderRes.text();
+      console.error('SafePay /order/v1/init failed:', safepayOrderRes.status, errText);
+      return jsonError(res, 502, 'Unable to create SafePay order. Please try again.');
+    }
+
+    const safepayOrder = await safepayOrderRes.json();
+    const beacon = safepayOrder?.data?.token || safepayOrder?.token;
+    if (!beacon) {
+      console.error('SafePay /order/v1/init response missing token:', JSON.stringify(safepayOrder));
+      return jsonError(res, 502, 'SafePay did not return a checkout token.');
+    }
+
+    const checkoutUrl = `${safepayConfig.checkoutBaseUrl}/components?beacon=${encodeURIComponent(beacon)}`;
+
+    // Save checkout session to Firestore
+    await db.collection('checkout_sessions').doc(basketId).set({
+      userId: uid,
+      therapistId: normalizedTherapistId,
+      productId: normalizedProductId,
+      subscriptionId,
+      basketId,
+      amount,
+      status: 'pending',
+      provider: 'safepay',
+      safepayBeacon: beacon,
+      successUrl,
+      cancelUrl,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    // Create pending subscription
+    await db.collection('subscriptions').doc(subscriptionId).set({
+      userId: uid,
+      therapistId: normalizedTherapistId,
+      productId: normalizedProductId,
+      provider: 'safepay',
+      status: 'pending',
+      isActive: false,
+      cancelAtPeriodEnd: false,
+      basketId,
+      amount,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
 
     return res.status(200).json({
       sessionId: subscriptionId,
-      url: `${baseUrl}/api/v1/checkout/redirect/${encodeURIComponent(checkoutId)}`,
+      url: checkoutUrl,
     });
   } catch (error) {
     console.error('Checkout session failed:', error?.message || error);
@@ -1027,42 +1016,55 @@ app.post('/api/v1/checkout/status', requireAuth, async (req, res) => {
 
     const amount = parseAmount(subscription.amount);
 
+    let trackerToken = basketId;
+    try {
+      const checkoutSessionDoc = await db.collection('checkout_sessions').doc(basketId).get();
+      if (checkoutSessionDoc.exists) {
+        const checkoutSession = checkoutSessionDoc.data() || {};
+        if (checkoutSession.safepayBeacon) {
+          trackerToken = checkoutSession.safepayBeacon;
+        }
+      }
+    } catch (dbError) {
+      console.warn(`Failed to retrieve checkout session for basket ${basketId}:`, dbError.message);
+    }
+
     let gatewayVerification = { verified: false, reason: 'Gateway inquiry not attempted' };
     try {
       // Attempt gateway verification but don't crash if it fails (UAT may be unreliable)
-      gatewayVerification = await verifyTransactionWithGateway({ basketId }, amount);
+      gatewayVerification = await verifyTransactionWithGateway(trackerToken);
     } catch (verifyError) {
-      console.warn(`Gateway verification threw for basket ${basketId}: ${verifyError?.message}`);
+      console.warn(`Gateway verification threw for tracker ${trackerToken}: ${verifyError?.message}`);
       gatewayVerification = { verified: false, reason: verifyError?.message || 'Gateway inquiry error' };
     }
     
     if (gatewayVerification.verified) {
-      const transactionId = gatewayVerification.payload?.transaction_id || gatewayVerification.payload?.pp_TxnRefNo || basketId;
+      const transactionId = gatewayVerification.payload?.data?.token || trackerToken;
       
       const eventId = crypto.createHash('sha256').update(`refresh:${basketId}:${transactionId}`).digest('hex');
       const wasInserted = await markPaymentEventProcessed(eventId, gatewayVerification.payload || {});
       
       if (wasInserted) {
-        await subscriptionDoc.ref.set(
-          {
-            provider: 'payfast_pk',
-            providerTransactionId: transactionId,
-            lastPaymentRef: transactionId || basketId,
-            status: 'active',
-            isActive: true,
-            cancelAtPeriodEnd: false,
-            currentPeriodEnd: admin.firestore.Timestamp.fromDate(addDays(new Date(), 30)),
-            verification: {
-              verifiedByGateway: true,
-              verifiedByHash: false,
-              responseCode: gatewayVerification.responseCode || '00',
-              status: gatewayVerification.status || 'success',
-              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            },
+        const { safepayFee, platformFee, netAmount } = calculateFees(amount);
+        const batch = db.batch();
+
+        batch.set(subscriptionDoc.ref, {
+          provider: 'safepay',
+          providerTransactionId: transactionId,
+          lastPaymentRef: transactionId || basketId,
+          status: 'active',
+          isActive: true,
+          cancelAtPeriodEnd: false,
+          currentPeriodEnd: admin.firestore.Timestamp.fromDate(addDays(new Date(), 30)),
+          verification: {
+            verifiedByGateway: true,
+            verifiedByHash: false,
+            responseCode: '00',
+            status: gatewayVerification.state || 'success',
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
-          { merge: true },
-        );
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
 
         // Fetch user profile for display name
         const userSnap = await db.collection('users').doc(uid).get();
@@ -1070,12 +1072,17 @@ app.post('/api/v1/checkout/status', requireAuth, async (req, res) => {
 
         // Record therapist earnings
         const earningsId = `earn_${basketId}`;
-        await db.collection('therapist_earnings').doc(earningsId).set({
+        batch.set(db.collection('therapist_earnings').doc(earningsId), {
           therapistId: normalizedTherapistId,
           userId: uid,
           parentName,
           subscriptionId,
-          amount,
+          type: 'subscription',
+          grossAmount: amount,
+          safepayFee,
+          platformFee,
+          netAmount,
+          amount: netAmount,
           basketId,
           transactionId,
           status: 'completed',
@@ -1083,14 +1090,19 @@ app.post('/api/v1/checkout/status', requireAuth, async (req, res) => {
         });
 
         // Update therapist profile balance
-        await db.collection('therapist_profiles').doc(normalizedTherapistId).set(
-          {
-            walletBalance: admin.firestore.FieldValue.increment(amount),
-            totalEarnings: admin.firestore.FieldValue.increment(amount),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
+        batch.set(db.collection('therapist_profiles').doc(normalizedTherapistId), {
+          walletBalance: admin.firestore.FieldValue.increment(netAmount),
+          totalEarnings: admin.firestore.FieldValue.increment(netAmount),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        // Track platform revenue
+        batch.set(db.collection('platform_revenue').doc('summary'), {
+          totalRevenue: admin.firestore.FieldValue.increment(platformFee),
+          lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        await batch.commit();
 
         await updateTherapistThreadAccess(uid, normalizedTherapistId, true);
         await syncUserSubscriptionEntitlements(uid);
@@ -1115,10 +1127,10 @@ app.post('/api/v1/checkout/status', requireAuth, async (req, res) => {
       return res.status(200).json({ status: 'active', message: 'Payment verified successfully.' });
     } else {
       // Gateway verification failed or not yet confirmed — return current Firestore status.
-      // Do NOT mark the subscription as failed here — the PayFast webhook may arrive
+      // Do NOT mark the subscription as failed here — the webhook may arrive
       // asynchronously and activate it. Only report what Firestore currently shows.
       const currentStatus = normalizeValue(subscription.status) || 'pending';
-      console.log(`Gateway verification not confirmed for basket ${basketId}: ${gatewayVerification.reason}. Current Firestore status: ${currentStatus}`);
+      console.log(`Gateway verification not confirmed for tracker ${trackerToken}: ${gatewayVerification.reason}. Current Firestore status: ${currentStatus}`);
       return res.status(200).json({ 
         status: currentStatus, 
         message: `Payment pending confirmation. ${gatewayVerification.reason || 'Webhook may still arrive.'}` 
@@ -1154,72 +1166,70 @@ async function processTransactionResult(rawPayload) {
   const therapistId = normalizeValue(subscription.therapistId);
 
   const amount = parseAmount(subscription.amount);
-  const gatewayVerification = payfastConfig.strictWebhookVerification
-    ? await verifyTransactionWithGateway(normalized, amount)
-    : {
-        verified: false,
-        status: '',
-        responseCode: '',
-        reason: 'Skipped gateway inquiry verification (strict mode disabled).',
-      };
-  const hashVerification = verifyPayFastValidationHash(normalized);
-  const webhookSuccess = isSuccessStatus(normalized.status, normalized.responseCode);
-  const isSuccess = payfastConfig.strictWebhookVerification
-    ? gatewayVerification.verified && hashVerification.verified
-    : webhookSuccess;
+
+  // Determine payment success from SafePay event data
+  const webhookEvent = normalized.raw;
+  const eventType = normalizeValue(webhookEvent.type || webhookEvent.event || webhookEvent.status || normalized.status);
+  const isSuccess = ['payment.captured', 'payment.success', 'success', 'completed', 'paid'].includes(eventType.toLowerCase());
 
   if (isSuccess) {
-    await subscriptionDoc.ref.set(
-      {
-        provider: 'payfast_pk',
-        providerTransactionId: normalized.transactionId,
-        lastPaymentRef: normalized.transactionId || normalized.basketId,
-        status: 'active',
-        isActive: true,
-        cancelAtPeriodEnd: false,
-        currentPeriodEnd: admin.firestore.Timestamp.fromDate(addDays(new Date(), 30)),
-        verification: {
-          verifiedByGateway: gatewayVerification.verified,
-          verifiedByHash: hashVerification.verified,
-          responseCode: gatewayVerification.responseCode || normalized.responseCode,
-          status: gatewayVerification.status || normalized.status,
-          hashErrorCode: hashVerification.errorCode || normalized.responseCode,
-          hashProvided: hashVerification.providedHash || '',
-          hashComputed: hashVerification.computedHash || '',
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
+    const { safepayFee, platformFee, netAmount } = calculateFees(amount);
+    const batch = db.batch();
+
+    batch.set(subscriptionDoc.ref, {
+      provider: 'safepay',
+      providerTransactionId: normalized.transactionId,
+      lastPaymentRef: normalized.transactionId || normalized.basketId,
+      status: 'active',
+      isActive: true,
+      cancelAtPeriodEnd: false,
+      currentPeriodEnd: admin.firestore.Timestamp.fromDate(addDays(new Date(), 30)),
+      verification: {
+        verifiedByHmac: true,
+        responseCode: normalized.responseCode,
+        status: normalized.status,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
-      { merge: true },
-    );
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
 
     // Fetch user profile for display name
     const userSnap = await db.collection('users').doc(subscriptionUserId).get();
     const parentName = userSnap.exists ? (userSnap.data().displayName || userSnap.data().email || 'Parent') : 'Parent';
 
-    // Record therapist earnings
+    // Record therapist earnings with fee breakdown
     const earningsId = `earn_${normalized.basketId}`;
-    await db.collection('therapist_earnings').doc(earningsId).set({
+    batch.set(db.collection('therapist_earnings').doc(earningsId), {
       therapistId,
       userId: subscriptionUserId,
       parentName,
       subscriptionId: subscriptionDoc.id,
-      amount,
+      type: 'subscription',
+      grossAmount: amount,
+      safepayFee,
+      platformFee,
+      netAmount,
+      amount: netAmount,
       basketId: normalized.basketId,
       transactionId: normalized.transactionId,
       status: 'completed',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Update therapist profile balance
-    await db.collection('therapist_profiles').doc(therapistId).set(
-      {
-        walletBalance: admin.firestore.FieldValue.increment(amount),
-        totalEarnings: admin.firestore.FieldValue.increment(amount),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+    // Update therapist wallet with net amount
+    batch.set(db.collection('therapist_profiles').doc(therapistId), {
+      walletBalance: admin.firestore.FieldValue.increment(netAmount),
+      totalEarnings: admin.firestore.FieldValue.increment(netAmount),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    // Track platform revenue
+    batch.set(db.collection('platform_revenue').doc('summary'), {
+      totalRevenue: admin.firestore.FieldValue.increment(platformFee),
+      lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    await batch.commit();
 
     if (subscriptionUserId && therapistId) {
       await updateTherapistThreadAccess(subscriptionUserId, therapistId, true);
@@ -1246,30 +1256,18 @@ async function processTransactionResult(rawPayload) {
     return { received: true, status: 'active' };
   }
 
-  await subscriptionDoc.ref.set(
-    {
-      status: 'payment_failed',
-      isActive: false,
-      cancelAtPeriodEnd: true,
-      verification: {
-        verifiedByGateway: gatewayVerification.verified,
-        verifiedByHash: hashVerification.verified,
-        responseCode: gatewayVerification.responseCode || normalized.responseCode,
-        status: gatewayVerification.status || normalized.status,
-        hashErrorCode: hashVerification.errorCode || normalized.responseCode,
-        hashProvided: hashVerification.providedHash || '',
-        hashComputed: hashVerification.computedHash || '',
-        reason:
-          (payfastConfig.strictWebhookVerification &&
-            ((!gatewayVerification.verified && gatewayVerification.reason) ||
-              (!hashVerification.verified && hashVerification.reason))) ||
-          'Transaction failed',
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
+  await subscriptionDoc.ref.set({
+    status: 'payment_failed',
+    isActive: false,
+    cancelAtPeriodEnd: true,
+    verification: {
+      verifiedByHmac: false,
+      reason: 'SafePay event did not indicate success',
+      status: normalized.status,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     },
-    { merge: true },
-  );
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
   if (subscriptionUserId && therapistId) {
     await updateTherapistThreadAccess(subscriptionUserId, therapistId, false);
   }
@@ -1297,7 +1295,22 @@ async function processTransactionResult(rawPayload) {
 
 app.post('/api/v1/payment/webhook', async (req, res) => {
   try {
-    const result = await processTransactionResult(req.body || {});
+    // Verify SafePay HMAC signature before processing
+    const sigResult = verifySafepayWebhook(req);
+    if (!sigResult.verified) {
+      console.warn('Webhook HMAC verification failed:', sigResult.reason, 'IP:', req.ip);
+      return jsonError(res, 401, 'Webhook signature invalid');
+    }
+
+    const body = req.body || {};
+    // SafePay webhook: extract basket_id / order_id from the event payload
+    const rawPayload = {
+      basket_id: body.order_id || body.basket_id || body.data?.order_id || '',
+      transaction_id: body.transaction_id || body.data?.transaction_id || '',
+      status: body.status || body.type || '',
+      ...body,
+    };
+    const result = await processTransactionResult(rawPayload);
     return res.status(200).json(result);
   } catch (error) {
     console.error('Payment webhook processing failed:', error?.message || error);
@@ -1327,56 +1340,64 @@ app.get('/api/v1/payment/return/success', async (req, res) => {
           const wasInserted = await markPaymentEventProcessed(eventId, { ...payload, source: 'success_redirect' });
 
           if (wasInserted) {
-            const transactionId = normalizeValue(payload.transaction_id || payload.TRANSACTION_ID || payload.pp_TxnRefNo || '');
-            
-            await subscriptionDoc.ref.set(
-              {
-                provider: 'payfast_pk',
-                providerTransactionId: transactionId || basketId,
-                lastPaymentRef: transactionId || basketId,
-                status: 'active',
-                isActive: true,
-                cancelAtPeriodEnd: false,
-                currentPeriodEnd: admin.firestore.Timestamp.fromDate(addDays(new Date(), 30)),
-                verification: {
-                  verifiedByGateway: false,
-                  verifiedByHash: false,
-                  verifiedBySuccessRedirect: true,
-                  responseCode: normalizeValue(payload.RESPONSE_CODE || payload.response_code || '00'),
-                  status: 'success_redirect',
-                  updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                },
+            // SafePay passes tracker/order_ref in query params
+            const transactionId = normalizeValue(payload.tracker || payload.transaction_id || payload.order_ref || '');
+            const amount = parseAmount(subscription.amount);
+            const { safepayFee, platformFee, netAmount } = calculateFees(amount);
+            const batch = db.batch();
+
+            batch.set(subscriptionDoc.ref, {
+              provider: 'safepay',
+              providerTransactionId: transactionId || basketId,
+              lastPaymentRef: transactionId || basketId,
+              status: 'active',
+              isActive: true,
+              cancelAtPeriodEnd: false,
+              currentPeriodEnd: admin.firestore.Timestamp.fromDate(addDays(new Date(), 30)),
+              verification: {
+                verifiedByHmac: false,
+                verifiedBySuccessRedirect: true,
+                status: 'success_redirect',
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
               },
-              { merge: true },
-            );
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
 
             // Record earnings if therapist exists
             if (therapistId && amount > 0) {
               const userSnap = await db.collection('users').doc(subscriptionUserId).get();
               const parentName = userSnap.exists ? (userSnap.data().displayName || userSnap.data().email || 'Parent') : 'Parent';
               const earningsId = `earn_${basketId}`;
-              await db.collection('therapist_earnings').doc(earningsId).set({
+              batch.set(db.collection('therapist_earnings').doc(earningsId), {
                 therapistId,
                 userId: subscriptionUserId,
                 parentName,
                 subscriptionId: subscriptionDoc.id,
-                amount,
+                type: 'subscription',
+                grossAmount: amount,
+                safepayFee,
+                platformFee,
+                netAmount,
+                amount: netAmount,
                 basketId,
                 transactionId: transactionId || basketId,
                 status: 'completed',
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
               });
 
-              await db.collection('therapist_profiles').doc(therapistId).set(
-                {
-                  walletBalance: admin.firestore.FieldValue.increment(amount),
-                  totalEarnings: admin.firestore.FieldValue.increment(amount),
-                  updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                },
-                { merge: true }
-              );
+              batch.set(db.collection('therapist_profiles').doc(therapistId), {
+                walletBalance: admin.firestore.FieldValue.increment(netAmount),
+                totalEarnings: admin.firestore.FieldValue.increment(netAmount),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              }, { merge: true });
+
+              batch.set(db.collection('platform_revenue').doc('summary'), {
+                totalRevenue: admin.firestore.FieldValue.increment(platformFee),
+                lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              }, { merge: true });
             }
+
+            await batch.commit();
 
             if (subscriptionUserId && therapistId) {
               await updateTherapistThreadAccess(subscriptionUserId, therapistId, true);
@@ -1413,7 +1434,7 @@ app.get('/api/v1/payment/return/success', async (req, res) => {
     }
   }
 
-  res.status(200).send(buildStatusPageHtml(true, 'Your checkout payment was completed successfully. You can close this browser page and return to the AutiEase app to start chatting with your therapist.'));
+  res.status(200).send(buildStatusPageHtml(true, 'Your SafePay payment was completed successfully. You can close this browser page and return to the AutiEase app to start chatting with your therapist.'));
 });
 
 app.get('/api/v1/payment/return/failure', async (req, res) => {
@@ -1459,7 +1480,7 @@ app.get('/api/v1/payment/return/failure', async (req, res) => {
     }
   }
 
-  res.status(200).send(buildStatusPageHtml(false, 'Your checkout payment was not completed or failed. If money was deducted, please wait a few minutes and tap Refresh Status in the app. Otherwise, please try again.'));
+  res.status(200).send(buildStatusPageHtml(false, 'Your SafePay payment was not completed or was cancelled. If money was deducted, please wait a few minutes and tap Refresh Status in the app. Otherwise, please try again.'));
 });
 
 app.post('/api/v1/subscription/cancel', requireAuth, async (req, res) => {
@@ -1553,6 +1574,7 @@ app.post('/api/v1/subscription/reactivate', requireAuth, async (req, res) => {
 });
 
 // Therapist withdrawal request endpoint
+// Enforces: Rs.500 minimum, 3-day cooldown, sufficient balance — all in a Firestore transaction
 app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
   try {
     const uid = req.user.uid;
@@ -1563,61 +1585,161 @@ app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
     }
 
     const parsedWithdrawAmount = parseAmount(amount);
-    if (parsedWithdrawAmount <= 0) {
-      return jsonError(res, 400, 'Withdrawal amount must be greater than zero');
+    if (parsedWithdrawAmount < 500) {
+      return jsonError(res, 400, 'Minimum withdrawal amount is Rs. 500');
+    }
+
+    // Enforce 3-day cooldown: check for any non-rejected withdrawal in the past 3 days
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const recentWithdrawals = await db
+      .collection('withdrawal_requests')
+      .where('therapistId', '==', uid)
+      .where('status', 'in', ['pending', 'paid'])
+      .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(threeDaysAgo))
+      .limit(1)
+      .get();
+    if (!recentWithdrawals.empty) {
+      return jsonError(res, 429, 'You must wait 3 days between withdrawal requests. Please wait for your current request to be processed.');
     }
 
     const therapistRef = db.collection('therapist_profiles').doc(uid);
-    const therapistSnap = await therapistRef.get();
-    if (!therapistSnap.exists) {
-      return jsonError(res, 404, 'Therapist profile not found');
-    }
 
-    const therapistData = therapistSnap.data() || {};
-    const walletBalance = parseAmount(therapistData.walletBalance);
+    // Use Firestore transaction to atomically check balance and deduct
+    const txnResult = await db.runTransaction(async (txn) => {
+      const therapistSnap = await txn.get(therapistRef);
+      if (!therapistSnap.exists) {
+        throw new Error('Therapist profile not found');
+      }
+      const therapistData = therapistSnap.data() || {};
+      const walletBalance = parseAmount(therapistData.walletBalance);
 
-    if (walletBalance < parsedWithdrawAmount) {
-      return jsonError(res, 400, 'Insufficient balance in wallet');
-    }
+      if (walletBalance < parsedWithdrawAmount) {
+        throw new Error(`Insufficient balance. Available: Rs. ${walletBalance.toFixed(0)}`);
+      }
 
-    // Deduct balance and add to pending withdrawals
-    await therapistRef.set(
-      {
+      const txnId = `withdraw_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+      const withdrawalRef = db.collection('withdrawal_requests').doc(txnId);
+      const earningsRef = db.collection('therapist_earnings').doc(txnId);
+
+      txn.set(withdrawalRef, {
+        therapistId: uid,
+        therapistName: therapistData.displayName || 'Therapist',
+        amount: parsedWithdrawAmount,
+        paymentMethod,
+        accountDetails,
+        status: 'pending',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      txn.set(earningsRef, {
+        therapistId: uid,
+        amount: parsedWithdrawAmount,
+        type: 'withdrawal',
+        paymentMethod,
+        accountDetails,
+        status: 'pending',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      txn.set(therapistRef, {
         walletBalance: admin.firestore.FieldValue.increment(-parsedWithdrawAmount),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+      }, { merge: true });
 
-    const txnId = `withdraw_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
-
-    // Create withdrawal request log
-    await db.collection('withdrawal_requests').doc(txnId).set({
-      therapistId: uid,
-      therapistName: therapistData.displayName || 'Therapist',
-      amount: parsedWithdrawAmount,
-      paymentMethod,
-      accountDetails,
-      status: 'pending',
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      return { txnId, remainingBalance: walletBalance - parsedWithdrawAmount };
     });
 
-    // Create transaction history log in therapist_earnings
-    await db.collection('therapist_earnings').doc(txnId).set({
-      therapistId: uid,
-      amount: parsedWithdrawAmount,
-      type: 'withdrawal',
-      paymentMethod,
-      accountDetails,
-      status: 'pending',
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    return res.status(200).json({ success: true, remainingBalance: walletBalance - parsedWithdrawAmount });
+    return res.status(200).json({ success: true, remainingBalance: txnResult.remainingBalance });
   } catch (error) {
-    console.error('Withdrawal failed:', error?.message || error);
+    const errMsg = error?.message || String(error);
+    console.error('Withdrawal failed:', errMsg);
+    // Surface friendly messages for balance/profile errors
+    if (errMsg.includes('Insufficient') || errMsg.includes('not found') || errMsg.includes('Rs.')) {
+      return jsonError(res, 400, errMsg);
+    }
     return jsonError(res, 500, 'Unable to request withdrawal');
+  }
+});
+
+// Admin resolve withdrawal request endpoint
+// Requires admin Firebase Auth token with admin custom claim (role==='admin')
+app.post('/api/v1/admin/withdraw/resolve', requireAuth, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { requestId, status, adminNotes } = req.body || {};
+
+    if (!requestId || !status) {
+      return jsonError(res, 400, 'requestId and status are required');
+    }
+    if (!['paid', 'rejected'].includes(status)) {
+      return jsonError(res, 400, 'status must be either paid or rejected');
+    }
+
+    // Verify admin role from Firestore (since custom claims may not always be set)
+    const adminDoc = await db.collection('users').doc(uid).get();
+    const adminData = adminDoc.data() || {};
+    if (!adminDoc.exists || adminData.role !== 'admin') {
+      return jsonError(res, 403, 'Admin access required');
+    }
+
+    const requestRef = db.collection('withdrawal_requests').doc(requestId);
+    const requestSnap = await requestRef.get();
+    if (!requestSnap.exists) {
+      return jsonError(res, 404, 'Withdrawal request not found');
+    }
+    const requestData = requestSnap.data() || {};
+    if (requestData.status !== 'pending') {
+      return jsonError(res, 409, `Withdrawal request is already ${requestData.status}`);
+    }
+
+    const therapistId = normalizeValue(requestData.therapistId);
+    const amount = parseAmount(requestData.amount);
+
+    await db.runTransaction(async (txn) => {
+      // Update withdrawal request
+      txn.set(requestRef, {
+        status,
+        adminNotes: adminNotes || null,
+        resolvedBy: uid,
+        resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      // Update therapist_earnings matching document
+      const earningsSnap = await txn.get(db.collection('therapist_earnings').doc(requestId));
+      if (earningsSnap.exists) {
+        txn.set(earningsSnap.ref, {
+          status,
+          adminNotes: adminNotes || null,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+
+      // If rejected, refund balance back to therapist wallet
+      if (status === 'rejected' && therapistId && amount > 0) {
+        const therapistRef = db.collection('therapist_profiles').doc(therapistId);
+        txn.set(therapistRef, {
+          walletBalance: admin.firestore.FieldValue.increment(amount),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+
+      // Write admin audit log
+      txn.set(db.collection('admin_audit_logs').doc(), {
+        action: `withdrawal_${status}`,
+        adminId: uid,
+        targetId: requestId,
+        targetType: 'withdrawal_request',
+        metadata: { amount, therapistId, adminNotes: adminNotes || null },
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+
+    return res.status(200).json({ success: true, status });
+  } catch (error) {
+    console.error('Resolve withdrawal failed:', error?.message || error);
+    return jsonError(res, 500, 'Unable to resolve withdrawal request');
   }
 });
 
@@ -1653,5 +1775,5 @@ app.post('/api/v1/subscription/reconcile-expired', async (req, res) => {
 
 const port = Number.parseInt(process.env.PORT || '8080', 10);
 app.listen(port, () => {
-  console.log(`AutiEase GoPayFast payment backend running on port ${port}`);
+  console.log(`AutiEase SafePay payment backend running on port ${port} [${safepayConfig.environment}]`);
 });

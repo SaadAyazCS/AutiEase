@@ -2688,6 +2688,51 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
   }
 
   void _showWithdrawalSheet(BuildContext context, double availableBalance) {
+    // Pre-check cooldown before showing sheet
+    AppRepositories.billing.getTherapistTransactions(widget.therapistId).then((transactions) {
+      if (!context.mounted) return;
+      final threeDaysAgo = DateTime.now().subtract(const Duration(days: 3));
+      final hasCooldown = transactions.any((tx) {
+        final type = (tx['type'] ?? '').toString();
+        final status = (tx['status'] ?? '').toString();
+        final createdAt = tx['createdAt'];
+        if (type != 'withdrawal') return false;
+        if (status == 'rejected') return false;
+        DateTime? dt;
+        if (createdAt is Timestamp) {
+          dt = createdAt.toDate();
+        }
+        return dt != null && dt.isAfter(threeDaysAgo);
+      });
+      if (hasCooldown) {
+        showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(children: [
+              Icon(Icons.timer_outlined, color: Color(0xFFD97706)),
+              SizedBox(width: 8),
+              Text('Cooldown Active', style: TextStyle(fontSize: 17)),
+            ]),
+            content: const Text(
+              'You have already submitted a withdrawal request in the last 3 days. Please wait for it to be processed before submitting another.',
+              style: TextStyle(height: 1.5),
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+          ),
+        );
+        return;
+      }
+
+      // No cooldown — open sheet
+      _openWithdrawalSheet(context, availableBalance);
+    }).catchError((e) {
+      // On error just open the sheet (server will enforce the cooldown)
+      if (context.mounted) _openWithdrawalSheet(context, availableBalance);
+    });
+  }
+
+  void _openWithdrawalSheet(BuildContext context, double availableBalance) {
     final formKey = GlobalKey<FormState>();
     final amountController = TextEditingController();
     final accountDetailsController = TextEditingController();
@@ -2739,7 +2784,7 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                       const SizedBox(height: 16),
 
                       DropdownButtonFormField<String>(
-                        value: selectedMethod,
+                        value: selectedMethod, // ignore: deprecated_member_use
                         decoration: const InputDecoration(
                           labelText: 'Payment Method',
                           border: OutlineInputBorder(),
@@ -2748,6 +2793,7 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                         items: const [
                           DropdownMenuItem(value: 'EasyPaisa', child: Text('EasyPaisa')),
                           DropdownMenuItem(value: 'JazzCash', child: Text('JazzCash')),
+                          DropdownMenuItem(value: 'Raast', child: Text('Raast (Instant Transfer)')),
                           DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
                         ],
                         onChanged: submitting
@@ -2757,6 +2803,30 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                   setSheetState(() => selectedMethod = val);
                                 }
                               },
+                      ),
+                      const SizedBox(height: 12),
+
+                      // 3-day payout cooldown warning banner
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7ED),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFFFEDD5)),
+                        ),
+                        child: const Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.info_outline_rounded, color: Color(0xFFD97706), size: 20),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Important: Payouts are limited to once every 3 days. Once submitted, please wait 3 days for processing before requesting another withdrawal.',
+                                style: TextStyle(fontSize: 12, color: Color(0xFFC2410C), height: 1.4, fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 12),
 
@@ -2777,6 +2847,9 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                           final val = double.tryParse(value);
                           if (val == null || val <= 0) {
                             return 'Enter a valid positive number';
+                          }
+                          if (val < 500) {
+                            return 'Minimum withdrawal amount is Rs. 500';
                           }
                           if (val > availableBalance) {
                             return 'Amount exceeds available balance';
@@ -2904,8 +2977,14 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
 
   void _showTherapistTransactionModal(BuildContext context, Map<String, dynamic> tx) {
     final isEarning = tx['type'] == 'subscription';
-    final amount = double.tryParse((tx['amount'] ?? 0.0).toString()) ?? 0.0;
+    // For earnings, prefer netAmount (the amount credited to wallet)
+    final grossAmount = double.tryParse((tx['grossAmount'] ?? 0.0).toString()) ?? 0.0;
+    final platformFee = double.tryParse((tx['platformFee'] ?? 0.0).toString()) ?? 0.0;
+    final safepayFee = double.tryParse((tx['safepayFee'] ?? 0.0).toString()) ?? 0.0;
+    final netAmount = double.tryParse((tx['netAmount'] ?? tx['amount'] ?? 0.0).toString()) ?? 0.0;
+    final amount = isEarning ? netAmount : (double.tryParse((tx['amount'] ?? 0.0).toString()) ?? 0.0);
     final amountStr = formatPrice(amount);
+    final hasBreakdown = isEarning && grossAmount > 0 && (platformFee > 0 || safepayFee > 0);
     final dateVal = tx['createdAt'];
     String formattedDate = '';
     if (dateVal is Timestamp) {
@@ -2978,6 +3057,16 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                       _buildModalDetailRow('Basket Order ID', basketId),
                       const Divider(),
                       _buildModalDetailRow('From Parent', parentName.isNotEmpty ? parentName : 'Parent Member'),
+                      if (hasBreakdown) ...[
+                        const Divider(),
+                        _buildModalDetailRow('Gross Subscription', formatPrice(grossAmount)),
+                        const Divider(),
+                        _buildModalDetailRow('SafePay Processing Fee', '-${formatPrice(safepayFee)}', valueColor: const Color(0xFFDC2626)),
+                        const Divider(),
+                        _buildModalDetailRow('Platform Service Fee (7%)', '-${formatPrice(platformFee)}', valueColor: const Color(0xFFDC2626)),
+                        const Divider(),
+                        _buildModalDetailRow('Net Credited to Wallet', formatPrice(netAmount), valueColor: const Color(0xFF059669), isBoldValue: true),
+                      ],
                     ] else ...[
                       _buildModalDetailRow('Payment Method', method.isNotEmpty ? method : 'Bank/Wallet'),
                       const Divider(),

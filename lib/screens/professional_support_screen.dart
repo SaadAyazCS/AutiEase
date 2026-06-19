@@ -2176,7 +2176,7 @@ class SupportTherapistDetailsScreenState
                           const SizedBox(height: 10),
                           Text(
                             widget.paymentsEnabled
-                                ? 'Secure payment powered by Gopayfast. Cancel your subscription anytime from your account settings.'
+                                ? 'Secure payment powered by SafePay. Cancel your subscription anytime from your account settings.'
                                 : 'Coming soon',
                             textAlign: TextAlign.center,
                             style: const TextStyle(
@@ -3265,7 +3265,7 @@ class _ParentSubscriptionsHistoryScreenState
                     const Divider(),
                     _buildModalDetailRow('Payment Date', dateStr),
                     const Divider(),
-                    _buildModalDetailRow('Payment Provider', 'GoPayFast Pakistan'),
+                    _buildModalDetailRow('Payment Provider', 'SafePay Pakistan'),
                     const SizedBox(height: 20),
                     Row(
                       children: [

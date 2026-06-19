@@ -157,7 +157,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
             debugPrint('Error syncing checkout status on resume: $e');
           }
           // After user returns from browser, check the current subscription status.
-          // 'payment_failed' means PayFast redirected to FAILURE_URL — treat as terminal
+          // 'payment_failed' means SafePay redirected to failure URL — treat as terminal
           // so the polling loop exits immediately and shows the error snackbar fast.
           // 'pending' is NOT terminal — user may still be in the browser.
           final sub = await AppRepositories.billing.getSubscriptionForTherapist(therapistId);
