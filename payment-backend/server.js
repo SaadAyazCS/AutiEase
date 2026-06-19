@@ -796,7 +796,7 @@ app.use((req, _res, next) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.0.6-safepay-hosted-redirect' });
+  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.0.7-safepay-amount-fix' });
 });
 
 app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
@@ -972,7 +972,7 @@ app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
       body: JSON.stringify({
         client: safepayConfig.apiKey,
         environment: safepayConfig.environment,
-        amount: Math.round(amount * 100), // SafePay expects amount in paisas (smallest currency unit)
+        amount: Math.round(amount), // SafePay expects amount in PKR (Rupees)
         currency: 'PKR',
         order_id: basketId,
         source: 'app',

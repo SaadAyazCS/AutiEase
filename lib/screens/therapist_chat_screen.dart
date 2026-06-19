@@ -1287,57 +1287,63 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                             _isPaymentFailed = false;
                                             _isCheckoutUrlLaunched = false;
                                             _isProgrammaticPop = false;
+                                            bool isDialogOpen = false;
 
-                                            showDialog<void>(
-                                              context: context,
-                                              barrierDismissible: true,
-                                              builder: (BuildContext dialogCtx) {
-                                                return PopScope(
-                                                  canPop: true,
-                                                  onPopInvokedWithResult: (didPop, _) {
-                                                    if (didPop && !_isProgrammaticPop) {
-                                                      setState(() {
-                                                        _isCheckoutCancelled = true;
-                                                      });
-                                                    }
-                                                  },
-                                                  child: AlertDialog(
-                                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                                    contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-                                                    content: const Column(
-                                                      mainAxisSize: MainAxisSize.min,
-                                                      children: [
-                                                        CircularProgressIndicator(color: Color(0xFF00C853)),
-                                                        SizedBox(height: 16),
-                                                        Text(
-                                                          'Checkout opened in browser',
-                                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                                                          textAlign: TextAlign.center,
-                                                        ),
-                                                        SizedBox(height: 6),
-                                                        Text(
-                                                          'Complete your payment in the browser. This screen will update automatically when payment is confirmed.',
-                                                          style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-                                                          textAlign: TextAlign.center,
+                                            if (mounted) {
+                                              isDialogOpen = true;
+                                              showDialog<void>(
+                                                context: context,
+                                                barrierDismissible: true,
+                                                builder: (BuildContext dialogCtx) {
+                                                  return PopScope(
+                                                    canPop: true,
+                                                    onPopInvokedWithResult: (didPop, _) {
+                                                      if (didPop && !_isProgrammaticPop) {
+                                                        isDialogOpen = false;
+                                                        setState(() {
+                                                          _isCheckoutCancelled = true;
+                                                        });
+                                                      }
+                                                    },
+                                                    child: AlertDialog(
+                                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                                      contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                                                      content: const Column(
+                                                        mainAxisSize: MainAxisSize.min,
+                                                        children: [
+                                                          CircularProgressIndicator(color: Color(0xFF00C853)),
+                                                          SizedBox(height: 16),
+                                                          Text(
+                                                            'Checkout opened in browser',
+                                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                                            textAlign: TextAlign.center,
+                                                          ),
+                                                          SizedBox(height: 6),
+                                                          Text(
+                                                            'Complete your payment in the browser. This screen will update automatically when payment is confirmed.',
+                                                            style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                                                            textAlign: TextAlign.center,
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      actions: [
+                                                        TextButton(
+                                                          onPressed: () {
+                                                            isDialogOpen = false;
+                                                            setState(() {
+                                                              _isCheckoutCancelled = true;
+                                                            });
+                                                            Navigator.of(dialogCtx, rootNavigator: true).pop();
+                                                          },
+                                                          style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
+                                                          child: const Text('Cancel Payment'),
                                                         ),
                                                       ],
                                                     ),
-                                                    actions: [
-                                                      TextButton(
-                                                        onPressed: () {
-                                                          setState(() {
-                                                            _isCheckoutCancelled = true;
-                                                          });
-                                                          Navigator.pop(dialogCtx);
-                                                        },
-                                                        style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
-                                                        child: const Text('Cancel Payment'),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                );
-                                              },
-                                            );
+                                                  );
+                                                },
+                                              );
+                                            }
                                             try {
                                               final success = await AppRepositories.billing
                                                   .purchaseTherapistSubscription(
@@ -1351,11 +1357,12 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                       }
                                                     },
                                                   );
-                                              if (context.mounted && Navigator.canPop(context)) {
+                                              if (isDialogOpen && context.mounted) {
+                                                isDialogOpen = false;
                                                 setState(() {
                                                   _isProgrammaticPop = true;
                                                 });
-                                                Navigator.pop(context);
+                                                Navigator.of(context, rootNavigator: true).pop();
                                               }
                                               if (_isCheckoutCancelled) {
                                                 AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
@@ -1404,8 +1411,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                 _isCheckoutCancelled = true;
                                                 _isProgrammaticPop = true;
                                               });
-                                              if (context.mounted && Navigator.canPop(context)) {
-                                                Navigator.pop(context);
+                                              if (isDialogOpen && context.mounted) {
+                                                isDialogOpen = false;
+                                                Navigator.of(context, rootNavigator: true).pop();
                                               }
                                               AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
                                               if (context.mounted) {
