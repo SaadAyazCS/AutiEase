@@ -454,8 +454,8 @@ const safepayConfig = {
     ? 'https://api.getsafepay.com'
     : 'https://sandbox.api.getsafepay.com',
   checkoutBaseUrl: SAFEPAY_ENV === 'production'
-    ? 'https://getsafepay.com'
-    : 'https://sandbox.getsafepay.com',
+    ? 'https://www.getsafepay.com'
+    : 'https://sandbox.api.getsafepay.com',
 };
 
 function ensureSafepayConfigured() {
@@ -796,7 +796,7 @@ app.use((req, _res, next) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.0.4-safepay-debug' });
+  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.0.5-safepay-url-fix' });
 });
 
 app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
