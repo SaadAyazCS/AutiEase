@@ -2687,49 +2687,16 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
     });
   }
 
-  void _showWithdrawalSheet(BuildContext context, double availableBalance) {
-    // Pre-check cooldown before showing sheet
-    AppRepositories.billing.getTherapistTransactions(widget.therapistId).then((transactions) {
-      if (!context.mounted) return;
-      final threeDaysAgo = DateTime.now().subtract(const Duration(days: 3));
-      final hasCooldown = transactions.any((tx) {
-        final type = (tx['type'] ?? '').toString();
-        final status = (tx['status'] ?? '').toString();
-        final createdAt = tx['createdAt'];
-        if (type != 'withdrawal') return false;
-        if (status == 'rejected') return false;
-        DateTime? dt;
-        if (createdAt is Timestamp) {
-          dt = createdAt.toDate();
-        }
-        return dt != null && dt.isAfter(threeDaysAgo);
-      });
-      if (hasCooldown) {
-        showDialog<void>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Row(children: [
-              Icon(Icons.timer_outlined, color: Color(0xFFD97706)),
-              SizedBox(width: 8),
-              Text('Cooldown Active', style: TextStyle(fontSize: 17)),
-            ]),
-            content: const Text(
-              'You have already submitted a withdrawal request in the last 3 days. Please wait for it to be processed before submitting another.',
-              style: TextStyle(height: 1.5),
-            ),
-            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
-          ),
-        );
-        return;
-      }
-
-      // No cooldown — open sheet
-      _openWithdrawalSheet(context, availableBalance);
-    }).catchError((e) {
-      // On error just open the sheet (server will enforce the cooldown)
-      if (context.mounted) _openWithdrawalSheet(context, availableBalance);
-    });
+  String _formatCooldown(Duration d) {
+    if (d.inDays > 0) {
+      final hours = d.inHours % 24;
+      return '${d.inDays}d ${hours}h left';
+    } else if (d.inHours > 0) {
+      final minutes = d.inMinutes % 60;
+      return '${d.inHours}h ${minutes}m left';
+    } else {
+      return '${d.inMinutes}m left';
+    }
   }
 
   void _openWithdrawalSheet(BuildContext context, double availableBalance) {
@@ -3137,10 +3104,10 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _walletFuture,
-      builder: (context, walletSnapshot) {
-        if (walletSnapshot.connectionState == ConnectionState.waiting) {
+    return FutureBuilder<List<dynamic>>(
+      future: Future.wait([_walletFuture, _transactionsFuture]),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
           return Container(
             margin: const EdgeInsets.only(bottom: 14),
             padding: const EdgeInsets.all(24.0),
@@ -3148,17 +3115,49 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
             child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
           );
         }
-        if (walletSnapshot.hasError) {
+        if (snapshot.hasError) {
           return Container(
             margin: const EdgeInsets.only(bottom: 14),
             padding: const EdgeInsets.all(16.0),
             decoration: _cardDeco,
-            child: Text('Error loading wallet: ${walletSnapshot.error}'),
+            child: Text('Error loading wallet: ${snapshot.error}'),
           );
         }
-        final walletData = walletSnapshot.data ?? {'walletBalance': 0.0, 'totalEarnings': 0.0};
+        
+        final walletData = (snapshot.data?[0] as Map<String, dynamic>?) ?? {'walletBalance': 0.0, 'totalEarnings': 0.0};
+        final transactions = (snapshot.data?[1] as List<Map<String, dynamic>>?) ?? [];
+
         final balance = double.tryParse(walletData['walletBalance'].toString()) ?? 0.0;
         final earnings = double.tryParse(walletData['totalEarnings'].toString()) ?? 0.0;
+
+        // Calculate cooldown remaining time
+        final threeDaysAgo = DateTime.now().subtract(const Duration(days: 3));
+        DateTime? lastWithdrawalTime;
+        for (final tx in transactions) {
+          final type = (tx['type'] ?? '').toString();
+          final status = (tx['status'] ?? '').toString();
+          if (type == 'withdrawal' && status != 'rejected') {
+            final createdAt = tx['createdAt'];
+            DateTime? dt;
+            if (createdAt is Timestamp) {
+              dt = createdAt.toDate();
+            }
+            if (dt != null) {
+              if (lastWithdrawalTime == null || dt.isAfter(lastWithdrawalTime)) {
+                lastWithdrawalTime = dt;
+              }
+            }
+          }
+        }
+
+        Duration? cooldownRemaining;
+        if (lastWithdrawalTime != null) {
+          final cooldownEnd = lastWithdrawalTime.add(const Duration(days: 3));
+          final now = DateTime.now();
+          if (cooldownEnd.isAfter(now)) {
+            cooldownRemaining = cooldownEnd.difference(now);
+          }
+        }
 
         return Container(
           margin: const EdgeInsets.only(bottom: 14),
@@ -3240,16 +3239,26 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                           ],
                         ),
                         ElevatedButton.icon(
-                          onPressed: balance > 0
-                              ? () => _showWithdrawalSheet(context, balance)
+                          onPressed: (balance > 0 && cooldownRemaining == null)
+                              ? () => _openWithdrawalSheet(context, balance)
                               : null,
-                          icon: const Icon(Icons.arrow_upward_rounded, size: 16),
-                          label: const Text('Withdraw Funds', style: TextStyle(fontWeight: FontWeight.bold)),
+                          icon: Icon(
+                            cooldownRemaining != null ? Icons.lock_outline_rounded : Icons.arrow_upward_rounded,
+                            size: 16,
+                          ),
+                          label: Text(
+                            cooldownRemaining != null 
+                                ? 'Locked (${_formatCooldown(cooldownRemaining)})' 
+                                : 'Withdraw Funds',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.white,
                             foregroundColor: const Color(0xFF0D9488),
                             disabledBackgroundColor: Colors.white.withValues(alpha: 0.3),
-                            disabledForegroundColor: Colors.white.withValues(alpha: 0.5),
+                            disabledForegroundColor: cooldownRemaining != null 
+                                ? Colors.white.withValues(alpha: 0.8) 
+                                : Colors.white.withValues(alpha: 0.5),
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
@@ -3269,139 +3278,124 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                       style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF374151)),
                     ),
                     const SizedBox(height: 8),
-                    FutureBuilder<List<Map<String, dynamic>>>(
-                      future: _transactionsFuture,
-                      builder: (context, txSnapshot) {
-                        if (txSnapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(
+                    if (transactions.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: Center(
+                          child: Text(
+                            'No transaction history yet.',
+                            style: TextStyle(color: Colors.grey, fontSize: 13, fontStyle: FontStyle.italic),
+                          ),
+                        ),
+                      )
+                    else
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: transactions.length,
+                        separatorBuilder: (context, index) => const Divider(height: 12),
+                        itemBuilder: (context, index) {
+                          final tx = transactions[index];
+                          final isEarning = tx['type'] == 'subscription';
+                          final amount = double.tryParse((tx['amount'] ?? 0.0).toString()) ?? 0.0;
+                          final dateVal = tx['createdAt'];
+                          String formattedDate = '';
+                          if (dateVal is Timestamp) {
+                            final dt = dateVal.toDate().toLocal();
+                            formattedDate = '${dt.day}/${dt.month}/${dt.year} ${_formatTime(dt)}';
+                          }
+                          final status = (tx['status'] ?? 'pending').toString().toLowerCase();
+                          final details = (tx['accountDetails'] ?? '').toString();
+                          final method = (tx['paymentMethod'] ?? '').toString();
+                          final parentName = (tx['parentName'] ?? '').toString();
+
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: () => _showTherapistTransactionModal(context, tx),
                             child: Padding(
-                              padding: EdgeInsets.symmetric(vertical: 20),
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          );
-                        }
-                        final txList = txSnapshot.data ?? [];
-                        if (txList.isEmpty) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 20),
-                            child: Center(
-                              child: Text(
-                                'No transaction history yet.',
-                                style: TextStyle(color: Colors.grey, fontSize: 13, fontStyle: FontStyle.italic),
-                              ),
-                            ),
-                          );
-                        }
-
-                        return ListView.separated(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: txList.length,
-                          separatorBuilder: (context, index) => const Divider(height: 12),
-                          itemBuilder: (context, index) {
-                            final tx = txList[index];
-                            final isEarning = tx['type'] == 'subscription';
-                            final amount = double.tryParse((tx['amount'] ?? 0.0).toString()) ?? 0.0;
-                            final dateVal = tx['createdAt'];
-                            String formattedDate = '';
-                            if (dateVal is Timestamp) {
-                              final dt = dateVal.toDate().toLocal();
-                              formattedDate = '${dt.day}/${dt.month}/${dt.year} ${_formatTime(dt)}';
-                            }
-                            final status = (tx['status'] ?? 'pending').toString().toLowerCase();
-                            final details = (tx['accountDetails'] ?? '').toString();
-                            final method = (tx['paymentMethod'] ?? '').toString();
-                            final parentName = (tx['parentName'] ?? '').toString();
-
-                            return InkWell(
-                              borderRadius: BorderRadius.circular(8),
-                              onTap: () => _showTherapistTransactionModal(context, tx),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-                                child: Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 16,
-                                      backgroundColor: isEarning ? const Color(0xFFD1FAE5) : const Color(0xFFF3F4F6),
-                                      child: Icon(
-                                        isEarning ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
-                                        size: 16,
-                                        color: isEarning ? const Color(0xFF059669) : const Color(0xFF4B5563),
-                                      ),
+                              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 16,
+                                    backgroundColor: isEarning ? const Color(0xFFD1FAE5) : const Color(0xFFF3F4F6),
+                                    child: Icon(
+                                      isEarning ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                                      size: 16,
+                                      color: isEarning ? const Color(0xFF059669) : const Color(0xFF4B5563),
                                     ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          isEarning 
+                                              ? 'Subscription received ${parentName.isNotEmpty ? "from $parentName" : ""}'
+                                              : 'Withdrawal to ${method.toUpperCase()}',
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1F2937)),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        if (formattedDate.isNotEmpty)
                                           Text(
-                                            isEarning 
-                                                ? 'Subscription received ${parentName.isNotEmpty ? "from $parentName" : ""}'
-                                                : 'Withdrawal to ${method.toUpperCase()}',
-                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1F2937)),
+                                            formattedDate,
+                                            style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                          ),
+                                        if (!isEarning && details.isNotEmpty)
+                                          Text(
+                                            'Acc: $details',
+                                            style: const TextStyle(fontSize: 11, color: Colors.black54),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                           ),
-                                          if (formattedDate.isNotEmpty)
-                                            Text(
-                                              formattedDate,
-                                              style: const TextStyle(fontSize: 11, color: Colors.grey),
-                                            ),
-                                          if (!isEarning && details.isNotEmpty)
-                                            Text(
-                                              'Acc: $details',
-                                              style: const TextStyle(fontSize: 11, color: Colors.black54),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          '${isEarning ? "+" : "-"}${formatPrice(amount).replaceAll(" PKR", "")}',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 13,
-                                            color: isEarning ? const Color(0xFF059669) : const Color(0xFFDC2626),
-                                          ),
-                                        ),
-                                        Container(
-                                          margin: const EdgeInsets.only(top: 2),
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: status == 'completed' || status == 'paid'
-                                                ? const Color(0xFFD1FAE5)
-                                                : status == 'pending'
-                                                    ? const Color(0xFFFEF3C7)
-                                                    : const Color(0xFFFEE2E2),
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                          child: Text(
-                                            status.toUpperCase(),
-                                            style: TextStyle(
-                                              fontSize: 9,
-                                              fontWeight: FontWeight.bold,
-                                              color: status == 'completed' || status == 'paid'
-                                                  ? const Color(0xFF065F46)
-                                                  : status == 'pending'
-                                                      ? const Color(0xFF92400E)
-                                                      : const Color(0xFF991B1B),
-                                            ),
-                                          ),
-                                        ),
                                       ],
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        '${isEarning ? "+" : "-"}${formatPrice(amount).replaceAll(" PKR", "")}',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                          color: isEarning ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                                        ),
+                                      ),
+                                      Container(
+                                        margin: const EdgeInsets.only(top: 2),
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: status == 'completed' || status == 'paid'
+                                              ? const Color(0xFFD1FAE5)
+                                              : status == 'pending'
+                                                  ? const Color(0xFFFEF3C7)
+                                                  : const Color(0xFFFEE2E2),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          status.toUpperCase(),
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                            color: status == 'completed' || status == 'paid'
+                                                ? const Color(0xFF065F46)
+                                                : status == 'pending'
+                                                    ? const Color(0xFF92400E)
+                                                    : const Color(0xFF991B1B),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
-                            );
-                          },
-                        );
-                      },
-                    ),
+                            ),
+                          );
+                        },
+                      ),
                   ],
                 ),
               ),
