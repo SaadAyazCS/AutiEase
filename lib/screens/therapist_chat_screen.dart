@@ -147,32 +147,32 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _activeCheckoutTherapistId != null && _isCheckoutUrlLaunched) {
+    if (state == AppLifecycleState.resumed && _activeCheckoutTherapistId != null && _isCheckoutUrlLaunched && !_isCheckoutCancelled) {
       final therapistId = _activeCheckoutTherapistId!;
-      Future.delayed(const Duration(milliseconds: 800), () async {
-        if (_activeCheckoutTherapistId == therapistId && !_isCheckoutCancelled) {
-          try {
-            await AppRepositories.billing.syncSubscriptionStatus(therapistId);
-          } catch (e) {
-            debugPrint('Error syncing checkout status on resume: $e');
-          }
-          // After user returns from browser, check the current subscription status.
-          // 'payment_failed' means SafePay redirected to failure URL — treat as terminal
-          // so the polling loop exits immediately and shows the error snackbar fast.
-          // 'pending' is NOT terminal — user may still be in the browser.
-          final sub = await AppRepositories.billing.getSubscriptionForTherapist(therapistId);
-          final status = sub?.status.trim().toLowerCase() ?? '';
-          final isPaymentFailed = status == 'payment_failed';
-          final isTerminalFailure = const ['canceled', 'expired', 'payment_failed'].contains(status);
-          if (isTerminalFailure) {
-            if (mounted) {
-              setState(() {
-                _isPaymentFailed = isPaymentFailed;
-                _isCheckoutCancelled = true;
-              });
-            }
+      // Give backend 4 seconds to process the SafePay redirect before checking.
+      // Do NOT cancel if subscription is null or pending — the polling loop will detect success.
+      Future.delayed(const Duration(milliseconds: 4000), () async {
+        if (_activeCheckoutTherapistId != therapistId || _isCheckoutCancelled) return;
+        try {
+          await AppRepositories.billing.syncSubscriptionStatus(therapistId);
+        } catch (e) {
+          debugPrint('Error syncing checkout status on resume: $e');
+        }
+        final sub = await AppRepositories.billing.getSubscriptionForTherapist(therapistId);
+        final status = sub?.status.trim().toLowerCase() ?? '';
+        // Only cancel on definitive failure — NOT for 'pending', 'active', or null (timing issue)
+        final isPaymentFailed = status == 'payment_failed';
+        final isTerminalFailure = const ['canceled', 'expired', 'payment_failed'].contains(status);
+        if (isTerminalFailure) {
+          debugPrint('Checkout cancelled on resume: subscription status = $status');
+          if (mounted) {
+            setState(() {
+              _isPaymentFailed = isPaymentFailed;
+              _isCheckoutCancelled = true;
+            });
           }
         }
+        // If pending/active/null, let polling loop handle it
       });
     }
   }
@@ -1294,17 +1294,16 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                               isDialogOpen = true;
                                               showDialog<void>(
                                                 context: context,
-                                                barrierDismissible: true,
+                                                barrierDismissible: false, // Cannot dismiss while checkout is in progress
                                                 builder: (BuildContext dialogCtx) {
                                                   dialogContext = dialogCtx;
                                                   return PopScope(
-                                                    canPop: true,
+                                                    canPop: false, // Prevent accidental dismiss — only Cancel button or payment result closes this
                                                     onPopInvokedWithResult: (didPop, _) {
+                                                      // Do NOT cancel checkout on back/barrier — SafePay may have redirected naturally.
+                                                      // Only the explicit 'Cancel Payment' button sets _isCheckoutCancelled.
                                                       if (didPop && !_isProgrammaticPop) {
                                                         isDialogOpen = false;
-                                                        setState(() {
-                                                          _isCheckoutCancelled = true;
-                                                        });
                                                       }
                                                     },
                                                     child: AlertDialog(
