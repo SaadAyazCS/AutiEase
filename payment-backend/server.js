@@ -1022,23 +1022,21 @@ app.use(
 );
 
 // Capture raw body bytes for SafePay HMAC webhook signature verification.
-// Must be set up BEFORE express.json() so the verify callback fires.
-let rawBodyStore = null;
-
-app.use(express.urlencoded({ extended: false }));
 app.use(
   express.json({
     verify: (req, _res, buf) => {
-      rawBodyStore = buf.toString('utf8');
+      req.rawBody = buf.toString('utf8');
     },
   }),
 );
-// Expose rawBody on every request (webhook handler reads req.rawBody)
-app.use((req, _res, next) => {
-  req.rawBody = rawBodyStore;
-  rawBodyStore = null;
-  next();
-});
+app.use(
+  express.urlencoded({
+    extended: false,
+    verify: (req, _res, buf) => {
+      req.rawBody = buf.toString('utf8');
+    },
+  }),
+);
 
 app.get('/health', (_req, res) => {
   res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.1.1-safepay-test-endpoint' });
@@ -1328,7 +1326,8 @@ app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
       `&order_id=${basketId}` +
       `&redirect_url=${encodeURIComponent(successRedirectUrl)}` +
       `&cancel_url=${encodeURIComponent(cancelRedirectUrl)}` +
-      `&source=custom`;
+      `&source=custom` +
+      `&webhooks=true`;
 
     // Save checkout session to Firestore
     await db.collection('checkout_sessions').doc(basketId).set({
