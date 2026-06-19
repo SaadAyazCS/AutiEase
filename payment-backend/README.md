@@ -22,7 +22,7 @@ External payment backend for AutiEase subscription billing, utilizing the SafePa
 - `SAFEPAY_API_KEY`: API key from SafePay Dashboard → Credentials
 - `SAFEPAY_SECRET_KEY`: Secret key from SafePay Dashboard → Credentials
 - `SAFEPAY_WEBHOOK_SECRET`: Base64-encoded webhook secret from SafePay Dashboard → Webhooks
-- `BACKEND_PUBLIC_BASE_URL`: Full public URL of this backend (e.g. `https://autiease-payment-backend.onrender.com`)
+- `BACKEND_PUBLIC_BASE_URL`: Full public URL of this backend (e.g. `https://autiease.onrender.com`)
 - `PAYMENTS_MOCK_MODE`: If `true`, bypasses SafePay API calls and activates subscription in Firestore instantly
 
 ## Fee Structure
