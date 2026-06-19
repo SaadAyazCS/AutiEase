@@ -1288,6 +1288,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                             _isCheckoutUrlLaunched = false;
                                             _isProgrammaticPop = false;
                                             bool isDialogOpen = false;
+                                            BuildContext? dialogContext;
 
                                             if (mounted) {
                                               isDialogOpen = true;
@@ -1295,6 +1296,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                 context: context,
                                                 barrierDismissible: true,
                                                 builder: (BuildContext dialogCtx) {
+                                                  dialogContext = dialogCtx;
                                                   return PopScope(
                                                     canPop: true,
                                                     onPopInvokedWithResult: (didPop, _) {
@@ -1333,7 +1335,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                             setState(() {
                                                               _isCheckoutCancelled = true;
                                                             });
-                                                            Navigator.of(dialogCtx, rootNavigator: true).pop();
+                                                            if (dialogContext != null) {
+                                                              Navigator.pop(dialogContext!);
+                                                            }
                                                           },
                                                           style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
                                                           child: const Text('Cancel Payment'),
@@ -1357,12 +1361,12 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                       }
                                                     },
                                                   );
-                                              if (isDialogOpen && context.mounted) {
+                                              if (isDialogOpen && dialogContext != null) {
                                                 isDialogOpen = false;
                                                 setState(() {
                                                   _isProgrammaticPop = true;
                                                 });
-                                                Navigator.of(context, rootNavigator: true).pop();
+                                                Navigator.pop(dialogContext!);
                                               }
                                               if (_isCheckoutCancelled) {
                                                 AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
@@ -1411,9 +1415,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                 _isCheckoutCancelled = true;
                                                 _isProgrammaticPop = true;
                                               });
-                                              if (isDialogOpen && context.mounted) {
+                                              if (isDialogOpen && dialogContext != null) {
                                                 isDialogOpen = false;
-                                                Navigator.of(context, rootNavigator: true).pop();
+                                                Navigator.pop(dialogContext!);
                                               }
                                               AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
                                               if (context.mounted) {

@@ -796,7 +796,7 @@ app.use((req, _res, next) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.0.7-safepay-amount-fix' });
+  res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.0.8-safepay-redirect-fix' });
 });
 
 app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
@@ -1504,7 +1504,7 @@ app.get('/api/v1/payment/return/success', async (req, res) => {
     }
   }
 
-  res.status(200).send(buildStatusPageHtml(true, 'Your SafePay payment was completed successfully. You can close this browser page and return to the AutiEase app to start chatting with your therapist.'));
+  res.redirect(`autiease://payment-result?status=success&basket_id=${encodeURIComponent(basketId || '')}`);
 });
 
 app.get('/api/v1/payment/return/failure', async (req, res) => {
@@ -1550,7 +1550,7 @@ app.get('/api/v1/payment/return/failure', async (req, res) => {
     }
   }
 
-  res.status(200).send(buildStatusPageHtml(false, 'Your SafePay payment was not completed or was cancelled. If money was deducted, please wait a few minutes and tap Refresh Status in the app. Otherwise, please try again.'));
+  res.redirect(`autiease://payment-result?status=failure&basket_id=${encodeURIComponent(basketId || '')}`);
 });
 
 app.post('/api/v1/subscription/cancel', requireAuth, async (req, res) => {

@@ -121,7 +121,16 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
             debugPrint('Error syncing checkout status on resume: $e');
           }
           final sub = await AppRepositories.billing.getSubscriptionForTherapist(therapistId);
-          if (sub == null || !sub.isActive) {
+          if (sub != null) {
+            final status = sub.status.trim().toLowerCase();
+            if (status == 'payment_failed' || status == 'canceled' || status == 'expired') {
+              if (mounted) {
+                setState(() {
+                  _isCheckoutCancelled = true;
+                });
+              }
+            }
+          } else {
             if (mounted) {
               setState(() {
                 _isCheckoutCancelled = true;
@@ -577,12 +586,14 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
 
     // Show a dismissible checkout dialog with a Cancel button
     bool isDialogOpen = false;
+    BuildContext? dialogContext;
     if (mounted) {
       isDialogOpen = true;
       showDialog<void>(
         context: context,
         barrierDismissible: true,
         builder: (BuildContext dialogCtx) {
+          dialogContext = dialogCtx;
           return PopScope(
             canPop: true,
             onPopInvokedWithResult: (didPop, _) {
@@ -621,7 +632,9 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                     setState(() {
                       _isCheckoutCancelled = true;
                     });
-                    Navigator.of(dialogCtx, rootNavigator: true).pop();
+                    if (dialogContext != null) {
+                      Navigator.pop(dialogContext!);
+                    }
                   },
                   style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
                   child: const Text('Cancel Payment'),
@@ -641,9 +654,9 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
       );
 
       // Close the dialog if still open
-      if (isDialogOpen && mounted) {
+      if (isDialogOpen && dialogContext != null) {
         isDialogOpen = false;
-        Navigator.of(context, rootNavigator: true).pop();
+        Navigator.pop(dialogContext!);
       }
 
       if (_isCheckoutCancelled) {
@@ -694,9 +707,9 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
       setState(() {
         _isCheckoutCancelled = true;
       });
-      if (isDialogOpen && mounted) {
+      if (isDialogOpen && dialogContext != null) {
         isDialogOpen = false;
-        Navigator.of(context, rootNavigator: true).pop();
+        Navigator.pop(dialogContext!);
       }
       // Clean up any pending subscription created before the error
       AppRepositories.billing.deletePendingSubscription(therapist.id);
