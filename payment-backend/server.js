@@ -1054,6 +1054,75 @@ app.get('/api/v1/test-tracker/:tracker_token', async (req, res) => {
   }
 });
 
+app.get('/api/v1/diagnose-keys', async (req, res) => {
+  try {
+    const mask = (str) => {
+      if (!str) return 'not set';
+      if (str.length <= 8) return '***';
+      return `${str.slice(0, 6)}...${str.slice(-4)}`;
+    };
+
+    const diagnostics = {
+      environment: safepayConfig.environment,
+      apiKeyMasked: mask(safepayConfig.apiKey),
+      secretKeyMasked: mask(safepayConfig.secretKey),
+      webhookSecretMasked: mask(safepayConfig.webhookSecret),
+      baseUrl: safepayConfig.baseUrl,
+    };
+
+    // Run a quick order init and status check to verify keys are matching
+    let flowTest = { success: false, initStatus: null, reporterStatus: null, error: null };
+    try {
+      const initUrl = `${safepayConfig.baseUrl}/order/v1/init`;
+      const initRes = await fetch(initUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${safepayConfig.secretKey}`
+        },
+        body: JSON.stringify({
+          client: safepayConfig.apiKey,
+          environment: 'sandbox',
+          amount: 1000,
+          currency: 'PKR',
+          order_id: 'diagnose-' + Date.now(),
+          source: 'app',
+          cancel_url: 'https://example.com/cancel',
+          redirect_url: 'https://example.com/success'
+        })
+      });
+
+      flowTest.initStatus = initRes.status;
+      const initData = await initRes.json();
+      const token = initData?.data?.token || initData?.token;
+
+      if (token) {
+        const reporterUrl = `${safepayConfig.baseUrl}/reporter/api/v1/payments/${token}`;
+        const reporterRes = await fetch(reporterUrl, {
+          method: 'GET',
+          headers: {
+            'X-SFPY-MERCHANT-SECRET': safepayConfig.secretKey
+          }
+        });
+        flowTest.reporterStatus = reporterRes.status;
+        const reporterData = await reporterRes.json();
+        flowTest.reporterResponse = reporterData;
+        if (reporterRes.status === 200) {
+          flowTest.success = true;
+        }
+      } else {
+        flowTest.error = `Order init response did not return a token: ${JSON.stringify(initData)}`;
+      }
+    } catch (flowErr) {
+      flowTest.error = flowErr.message || String(flowErr);
+    }
+
+    res.status(200).json({ diagnostics, flowTest });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
   try {
     const uid = req.user.uid;
