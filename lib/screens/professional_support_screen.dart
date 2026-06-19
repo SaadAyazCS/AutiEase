@@ -111,33 +111,32 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _activeCheckoutTherapistId != null) {
+    if (state == AppLifecycleState.resumed && _activeCheckoutTherapistId != null && !_isCheckoutCancelled) {
       final therapistId = _activeCheckoutTherapistId!;
-      Future.delayed(const Duration(milliseconds: 1000), () async {
-        if (_activeCheckoutTherapistId == therapistId && !_isCheckoutCancelled) {
-          try {
-            await AppRepositories.billing.syncSubscriptionStatus(therapistId);
-          } catch (e) {
-            debugPrint('Error syncing checkout status on resume: $e');
-          }
-          final sub = await AppRepositories.billing.getSubscriptionForTherapist(therapistId);
-          if (sub != null) {
-            final status = sub.status.trim().toLowerCase();
-            if (status == 'payment_failed' || status == 'canceled' || status == 'expired') {
-              if (mounted) {
-                setState(() {
-                  _isCheckoutCancelled = true;
-                });
-              }
-            }
-          } else {
+      // Give the backend 4 seconds to process the SafePay redirect before checking.
+      // Do NOT cancel if still pending — the polling loop will detect success.
+      Future.delayed(const Duration(milliseconds: 4000), () async {
+        if (_activeCheckoutTherapistId != therapistId || _isCheckoutCancelled) return;
+        try {
+          await AppRepositories.billing.syncSubscriptionStatus(therapistId);
+        } catch (e) {
+          debugPrint('Error syncing checkout status on resume: $e');
+        }
+        final sub = await AppRepositories.billing.getSubscriptionForTherapist(therapistId);
+        if (sub != null) {
+          final status = sub.status.trim().toLowerCase();
+          // Only cancel if we have a definitive failure — NOT for 'pending' or null
+          if (status == 'payment_failed' || status == 'canceled' || status == 'expired') {
+            debugPrint('Checkout cancelled on resume: subscription status = $status');
             if (mounted) {
               setState(() {
                 _isCheckoutCancelled = true;
               });
             }
           }
+          // If status is 'active' or 'pending', let the polling loop handle it normally
         }
+        // Do NOT set _isCheckoutCancelled when sub is null — could be timing issue
       });
     }
   }
@@ -591,17 +590,17 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
       isDialogOpen = true;
       showDialog<void>(
         context: context,
-        barrierDismissible: true,
+        barrierDismissible: false, // Cannot dismiss while checkout is in progress
         builder: (BuildContext dialogCtx) {
           dialogContext = dialogCtx;
           return PopScope(
-            canPop: true,
+            canPop: false, // Prevent accidental dismiss — only Cancel button or payment result should close
             onPopInvokedWithResult: (didPop, _) {
+              // Do NOT cancel checkout on barrier dismiss or back button —
+              // SafePay may have redirected back to the app naturally.
+              // Only the explicit 'Cancel Payment' button sets _isCheckoutCancelled.
               if (didPop) {
                 isDialogOpen = false;
-                setState(() {
-                  _isCheckoutCancelled = true;
-                });
               }
             },
             child: AlertDialog(
