@@ -3236,10 +3236,16 @@ class _ParentSubscriptionsHistoryScreenState
   }
 
   void _showReceiptModal(BuildContext context, Map<String, dynamic> txn) {
-    final amountStr = formatPrice((txn['amount'] ?? 0.0).toDouble());
+    final grossAmount = double.tryParse((txn['grossAmount'] ?? 0.0).toString()) ?? 0.0;
+    final platformFee = double.tryParse((txn['platformFee'] ?? 0.0).toString()) ?? 0.0;
+    final safepayFee = double.tryParse((txn['safepayFee'] ?? 0.0).toString()) ?? 0.0;
+    final netAmount = double.tryParse((txn['netAmount'] ?? txn['amount'] ?? 0.0).toString()) ?? 0.0;
+    final displayAmount = grossAmount > 0 ? grossAmount : netAmount;
+    final amountStr = formatPrice(displayAmount);
+
     final date = dateTimeFromFirestore(txn['createdAt']) ?? DateTime.now();
     final dateStr = '${date.day}/${date.month}/${date.year} at ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-    final txnId = (txn['transactionId'] ?? txn['id'] ?? 'N/A').toString();
+    final hasBreakdown = grossAmount > 0 && (platformFee > 0 || safepayFee > 0);
 
     showDialog<void>(
       context: context,
@@ -3279,11 +3285,19 @@ class _ParentSubscriptionsHistoryScreenState
                   children: [
                     _buildModalDetailRow('Status', 'SUCCESSFUL', valueColor: const Color(0xFF00C853), isBoldValue: true),
                     const Divider(),
-                    _buildModalDetailRow('Transaction ID', txnId),
-                    const Divider(),
                     _buildModalDetailRow('Payment Date', dateStr),
                     const Divider(),
                     _buildModalDetailRow('Payment Provider', 'SafePay Pakistan'),
+                    if (hasBreakdown) ...[
+                      const Divider(),
+                      _buildModalDetailRow('Gross Subscription', formatPrice(grossAmount)),
+                      const Divider(),
+                      _buildModalDetailRow('SafePay Processing Fee', '-${formatPrice(safepayFee)}', valueColor: const Color(0xFFDC2626)),
+                      const Divider(),
+                      _buildModalDetailRow('Platform Service Fee (7%)', '-${formatPrice(platformFee)}', valueColor: const Color(0xFFDC2626)),
+                      const Divider(),
+                      _buildModalDetailRow('Net Credited to Wallet', formatPrice(netAmount), valueColor: const Color(0xFF059669), isBoldValue: true),
+                    ],
                     const SizedBox(height: 20),
                     Row(
                       children: [
@@ -3337,11 +3351,12 @@ class _ParentSubscriptionsHistoryScreenState
   }
 
   Widget _buildTransactionRow(Map<String, dynamic> txn) {
-    final amountStr = formatPrice((txn['amount'] ?? 0.0).toDouble());
+    final grossAmount = double.tryParse((txn['grossAmount'] ?? 0.0).toString()) ?? 0.0;
+    final netAmount = double.tryParse((txn['netAmount'] ?? txn['amount'] ?? 0.0).toString()) ?? 0.0;
+    final displayAmount = grossAmount > 0 ? grossAmount : netAmount;
+    final amountStr = formatPrice(displayAmount);
     final date = dateTimeFromFirestore(txn['createdAt']) ?? DateTime.now();
     final dateStr = '${date.day}/${date.month}/${date.year}';
-    final txnId = (txn['transactionId'] ?? txn['id'] ?? '').toString();
-    final shortTxnId = txnId.length > 12 ? '${txnId.substring(0, 12)}...' : txnId;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -3355,15 +3370,24 @@ class _ParentSubscriptionsHistoryScreenState
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: const Color(0xFFE0F2FE),
+                child: const Icon(
+                  Icons.receipt_long_rounded,
+                  size: 16,
+                  color: Color(0xFF0284C7),
+                ),
+              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'ID: $shortTxnId',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF475569)),
+                    const Text(
+                      'Subscription Payment',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -3378,7 +3402,7 @@ class _ParentSubscriptionsHistoryScreenState
                 children: [
                   Text(
                     amountStr,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
                   ),
                   const SizedBox(height: 2),
                   const Text(

@@ -1763,14 +1763,26 @@ app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
 
     // Enforce 3-day cooldown: check for any non-rejected withdrawal in the past 3 days
     const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-    const recentWithdrawals = await db
+    // Simple query to avoid composite index requirement
+    const allWithdrawals = await db
       .collection('withdrawal_requests')
       .where('therapistId', '==', uid)
-      .where('status', 'in', ['pending', 'paid'])
-      .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(threeDaysAgo))
-      .limit(1)
       .get();
-    if (!recentWithdrawals.empty) {
+
+    const hasRecent = allWithdrawals.docs.some(doc => {
+      const data = doc.data() || {};
+      if (['pending', 'paid'].includes(data.status)) {
+        const createdAt = data.createdAt && typeof data.createdAt.toDate === 'function'
+          ? data.createdAt.toDate()
+          : (data.createdAt ? new Date(data.createdAt) : null);
+        if (createdAt && createdAt >= threeDaysAgo) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    if (hasRecent) {
       return jsonError(res, 429, 'You must wait 3 days between withdrawal requests. Please wait for your current request to be processed.');
     }
 

@@ -2745,224 +2745,236 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            return Padding(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-              child: Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                ),
-                padding: const EdgeInsets.fromLTRB(20, 24, 20, 34),
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(10),
+        return ScaffoldMessenger(
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            resizeToAvoidBottomInset: false,
+            body: Builder(
+              builder: (innerContext) {
+                return StatefulBuilder(
+                  builder: (context, setSheetState) {
+                    return Padding(
+                      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                        ),
+                        padding: const EdgeInsets.fromLTRB(20, 24, 20, 34),
+                        child: Form(
+                          key: formKey,
+                          child: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Center(
+                                  child: Container(
+                                    width: 40,
+                                    height: 5,
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[300],
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                const Text(
+                                  'Withdraw Funds',
+                                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Available Balance: ${formatPrice(availableBalance)}',
+                                  style: const TextStyle(fontSize: 14, color: Color(0xFF0D9488), fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 16),
+
+                                DropdownButtonFormField<String>(
+                                  value: selectedMethod, // ignore: deprecated_member_use
+                                  decoration: const InputDecoration(
+                                    labelText: 'Payment Method',
+                                    border: OutlineInputBorder(),
+                                    prefixIcon: Icon(Icons.payment),
+                                  ),
+                                  items: const [
+                                    DropdownMenuItem(value: 'EasyPaisa', child: Text('EasyPaisa')),
+                                    DropdownMenuItem(value: 'JazzCash', child: Text('JazzCash')),
+                                    DropdownMenuItem(value: 'Raast', child: Text('Raast (Instant Transfer)')),
+                                    DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
+                                  ],
+                                  onChanged: submitting
+                                      ? null
+                                      : (val) {
+                                          if (val != null) {
+                                            setSheetState(() => selectedMethod = val);
+                                          }
+                                        },
+                                ),
+                                const SizedBox(height: 12),
+
+                                // 3-day payout cooldown warning banner
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFFF7ED),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: const Color(0xFFFFEDD5)),
+                                  ),
+                                  child: const Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Icon(Icons.info_outline_rounded, color: Color(0xFFD97706), size: 20),
+                                      SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Important: Payouts are limited to once every 3 days. Once submitted, please wait 3 days for processing before requesting another withdrawal.',
+                                          style: TextStyle(fontSize: 12, color: Color(0xFFC2410C), height: 1.4, fontWeight: FontWeight.w500),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+
+                                TextFormField(
+                                  controller: amountController,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  enabled: !submitting,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Amount (PKR)',
+                                    hintText: 'Enter amount to withdraw',
+                                    border: OutlineInputBorder(),
+                                    prefixIcon: Icon(Icons.money),
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return 'Please enter an amount';
+                                    }
+                                    final val = double.tryParse(value);
+                                    if (val == null || val <= 0) {
+                                      return 'Enter a valid positive number';
+                                    }
+                                    if (val < 500) {
+                                      return 'Minimum withdrawal amount is Rs. 500';
+                                    }
+                                    if (val > availableBalance) {
+                                      return 'Amount exceeds available balance';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 12),
+
+                                TextFormField(
+                                  controller: accountTitleController,
+                                  enabled: !submitting,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Account Title',
+                                    hintText: 'Full name on account',
+                                    border: OutlineInputBorder(),
+                                    prefixIcon: Icon(Icons.person_outline),
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return 'Please enter account title';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 12),
+
+                                TextFormField(
+                                  controller: accountDetailsController,
+                                  enabled: !submitting,
+                                  decoration: InputDecoration(
+                                    labelText: selectedMethod == 'Bank Transfer'
+                                        ? 'IBAN / Account Number'
+                                        : 'Mobile Account Number',
+                                    hintText: selectedMethod == 'Bank Transfer'
+                                        ? 'Enter full IBAN or Bank Account Number'
+                                        : 'e.g. 03001234567',
+                                    border: const OutlineInputBorder(),
+                                    prefixIcon: const Icon(Icons.pin),
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return 'Please enter account details';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 24),
+
+                                ElevatedButton(
+                                  onPressed: submitting
+                                      ? null
+                                      : () async {
+                                          if (formKey.currentState?.validate() != true) {
+                                            return;
+                                          }
+                                          setSheetState(() => submitting = true);
+
+                                          final double withdrawAmt = double.parse(amountController.text.trim());
+                                          final String accTitle = accountTitleController.text.trim();
+                                          final String accNum = accountDetailsController.text.trim();
+                                          final String fullDetailsStr = '$accTitle - $accNum';
+
+                                          try {
+                                            await AppRepositories.billing.requestWithdrawal(
+                                              widget.therapistId,
+                                              withdrawAmt,
+                                              selectedMethod,
+                                              fullDetailsStr,
+                                            );
+
+                                            if (context.mounted) {
+                                              Navigator.pop(innerContext);
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text('Withdrawal request submitted successfully!'),
+                                                  backgroundColor: Color(0xFF059669),
+                                                ),
+                                              );
+                                            }
+                                            _refresh();
+                                          } catch (e) {
+                                            setSheetState(() => submitting = false);
+                                            if (innerContext.mounted) {
+                                              ScaffoldMessenger.of(innerContext).showSnackBar(
+                                                SnackBar(
+                                                  content: Text('Withdrawal request failed: $e'),
+                                                  backgroundColor: const Color(0xFFDC2626),
+                                                ),
+                                              );
+                                            }
+                                          }
+                                        },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF0D9488),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                  child: submitting
+                                      ? const SizedBox(
+                                          height: 20,
+                                          width: 20,
+                                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                        )
+                                      : const Text('Submit Withdrawal Request', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        'Withdraw Funds',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Available Balance: ${formatPrice(availableBalance)}',
-                        style: const TextStyle(fontSize: 14, color: Color(0xFF0D9488), fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 16),
-
-                      DropdownButtonFormField<String>(
-                        value: selectedMethod, // ignore: deprecated_member_use
-                        decoration: const InputDecoration(
-                          labelText: 'Payment Method',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.payment),
-                        ),
-                        items: const [
-                          DropdownMenuItem(value: 'EasyPaisa', child: Text('EasyPaisa')),
-                          DropdownMenuItem(value: 'JazzCash', child: Text('JazzCash')),
-                          DropdownMenuItem(value: 'Raast', child: Text('Raast (Instant Transfer)')),
-                          DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
-                        ],
-                        onChanged: submitting
-                            ? null
-                            : (val) {
-                                if (val != null) {
-                                  setSheetState(() => selectedMethod = val);
-                                }
-                              },
-                      ),
-                      const SizedBox(height: 12),
-
-                      // 3-day payout cooldown warning banner
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFF7ED),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFFFFEDD5)),
-                        ),
-                        child: const Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(Icons.info_outline_rounded, color: Color(0xFFD97706), size: 20),
-                            SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Important: Payouts are limited to once every 3 days. Once submitted, please wait 3 days for processing before requesting another withdrawal.',
-                                style: TextStyle(fontSize: 12, color: Color(0xFFC2410C), height: 1.4, fontWeight: FontWeight.w500),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      TextFormField(
-                        controller: amountController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        enabled: !submitting,
-                        decoration: const InputDecoration(
-                          labelText: 'Amount (PKR)',
-                          hintText: 'Enter amount to withdraw',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.money),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Please enter an amount';
-                          }
-                          final val = double.tryParse(value);
-                          if (val == null || val <= 0) {
-                            return 'Enter a valid positive number';
-                          }
-                          if (val < 500) {
-                            return 'Minimum withdrawal amount is Rs. 500';
-                          }
-                          if (val > availableBalance) {
-                            return 'Amount exceeds available balance';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 12),
-
-                      TextFormField(
-                        controller: accountTitleController,
-                        enabled: !submitting,
-                        decoration: const InputDecoration(
-                          labelText: 'Account Title',
-                          hintText: 'Full name on account',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.person_outline),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Please enter account title';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 12),
-
-                      TextFormField(
-                        controller: accountDetailsController,
-                        enabled: !submitting,
-                        decoration: InputDecoration(
-                          labelText: selectedMethod == 'Bank Transfer'
-                              ? 'IBAN / Account Number'
-                              : 'Mobile Account Number',
-                          hintText: selectedMethod == 'Bank Transfer'
-                              ? 'Enter full IBAN or Bank Account Number'
-                              : 'e.g. 03001234567',
-                          border: const OutlineInputBorder(),
-                          prefixIcon: const Icon(Icons.pin),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Please enter account details';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 24),
-
-                      ElevatedButton(
-                        onPressed: submitting
-                            ? null
-                            : () async {
-                                if (formKey.currentState?.validate() != true) {
-                                  return;
-                                }
-                                setSheetState(() => submitting = true);
-
-                                final double withdrawAmt = double.parse(amountController.text.trim());
-                                final String accTitle = accountTitleController.text.trim();
-                                final String accNum = accountDetailsController.text.trim();
-                                final String fullDetailsStr = '$accTitle - $accNum';
-
-                                try {
-                                  await AppRepositories.billing.requestWithdrawal(
-                                    widget.therapistId,
-                                    withdrawAmt,
-                                    selectedMethod,
-                                    fullDetailsStr,
-                                  );
-
-                                  if (context.mounted) {
-                                    Navigator.pop(context);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Withdrawal request submitted successfully!'),
-                                        backgroundColor: Color(0xFF059669),
-                                      ),
-                                    );
-                                  }
-                                  _refresh();
-                                } catch (e) {
-                                  setSheetState(() => submitting = false);
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Withdrawal request failed: $e'),
-                                        backgroundColor: const Color(0xFFDC2626),
-                                      ),
-                                    );
-                                  }
-                                }
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0D9488),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        child: submitting
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                              )
-                            : const Text('Submit Withdrawal Request', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
         );
       },
     );
@@ -2995,8 +3007,6 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
     final details = (tx['accountDetails'] ?? '').toString();
     final method = (tx['paymentMethod'] ?? '').toString();
     final parentName = (tx['parentName'] ?? '').toString();
-    final txnId = (tx['transactionId'] ?? tx['id'] ?? 'N/A').toString();
-    final basketId = (tx['basketId'] ?? 'N/A').toString();
 
     showDialog<void>(
       context: context,
@@ -3051,11 +3061,7 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                       isBoldValue: true,
                     ),
                     const Divider(),
-                    _buildModalDetailRow('Transaction ID', txnId),
-                    const Divider(),
                     if (isEarning) ...[
-                      _buildModalDetailRow('Basket Order ID', basketId),
-                      const Divider(),
                       _buildModalDetailRow('From Parent', parentName.isNotEmpty ? parentName : 'Parent Member'),
                       if (hasBreakdown) ...[
                         const Divider(),
