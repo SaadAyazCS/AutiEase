@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: autiease-payment-backend
+    runtime: node
+    rootDir: payment-backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: SAFEPAY_ENVIRONMENT
+        value: "sandbox"
+      - key: SAFEPAY_API_KEY
+        sync: false
+      - key: SAFEPAY_SECRET_KEY
+        sync: false
+      - key: SAFEPAY_WEBHOOK_SECRET
+        sync: false
+      - key: BACKEND_PUBLIC_BASE_URL
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
