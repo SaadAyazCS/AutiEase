@@ -551,14 +551,14 @@ function calculateFees(grossAmount, rawPayload = {}) {
 
   // Determine rate based on payment channel
   if (channel === 'wallet' || channel === 'easypaisa' || channel === 'jazzcash' || channel === 'mobile_wallet') {
-    gatewayRate = 0.025;
+    gatewayRate = 0.015;
     gatewayFlat = 0;
   } else if (channel === 'bank' || channel === 'raast' || channel === 'direct_debit' || channel === 'bank_account') {
-    gatewayRate = 0.018;
+    gatewayRate = 0.015;
     gatewayFlat = 0;
   } else if (channel === 'card') {
     if (isInternational) {
-      gatewayRate = 0.035;
+      gatewayRate = 0.032;
       gatewayFlat = 30;
     } else {
       gatewayRate = 0.029;
