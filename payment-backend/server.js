@@ -517,27 +517,34 @@ function verifySafepayWebhook(req) {
 /**
  * Calculate SafePay fees and AutiEase platform revenue.
  *
- * Confirmed from SafePay sandbox dashboard (Jun 2026):
- *   - Local Mastercard/Visa PKR card: 2.9% processing fee + 13% Pakistan GST on that fee
- *   - International card: 3.2% processing fee + 13% GST on that fee
- *   - Mobile wallets (EasyPaisa/JazzCash): 1.5%, no GST flat
- *   - Bank / Raast: 1.5%, no GST flat
- *   NO flat Rs.30 fee — SafePay does NOT charge a flat fee for cards in PK.
+ * SafePay pricing (from getsafepay.pk/pricing):
+ *   - Local card (Visa/Mastercard PKR): 2.9% + Rs.30 flat + 13% Pakistan GST on total fee
+ *   - International card:               3.2% + Rs.30 flat + 13% Pakistan GST on total fee
+ *   - Mobile wallets (EasyPaisa/JazzCash): 1.5%, no flat fee, no GST
+ *   - Bank / Raast:                     1.5%, no flat fee, no GST
  *
- * Example verified from dashboard for PKR 10,000 local Mastercard:
- *   Processing = 10,000 × 2.9% = PKR 290
- *   GST (13%)  = 290 × 13%     = PKR 37.70
- *   Total fee  = PKR 327.70
- *   Net        = PKR 9,672.30  ✅ matches dashboard
+ * Sandbox vs Production:
+ *   SANDBOX  — Rs.30 flat fee is WAIVED by SafePay (confirmed from dashboard Jun 2026):
+ *              10,000 × 2.9% = Rs.290 processing + 290 × 13% = Rs.37.70 GST → total Rs.327.70
+ *   PRODUCTION — Rs.30 flat fee IS charged:
+ *              10,000 × 2.9% = Rs.290 + Rs.30 flat = Rs.320 sub-total
+ *              Rs.320 × 13% GST = Rs.41.60 → total fee Rs.361.60
+ *
+ * Auto-detected via SAFEPAY_ENVIRONMENT env var ("production" = live, anything else = sandbox).
+ * Can be overridden per-variable: SAFEPAY_GATEWAY_RATE, SAFEPAY_GATEWAY_FLAT, SAFEPAY_GST_RATE.
  *
  * @param {number} grossAmount - Full subscription amount paid by parent
- * @param {object} rawPayload - Webhook payload or SafePay API transaction data
+ * @param {object} rawPayload  - Webhook payload or SafePay API transaction data
  * @returns {{ safepayFee: number, safepayGst: number, platformFee: number, netAmount: number }}
  */
 function calculateFees(grossAmount, rawPayload = {}) {
-  // Default: local Pakistan card (2.9% + 13% GST on processing fee)
+  // Detect environment — sandbox waives the Rs.30 flat fee
+  const isProduction = normalizeValue(process.env.SAFEPAY_ENVIRONMENT).toLowerCase() === 'production';
+
+  // Default: local Pakistan card (2.9% + Rs.30 in production, 2.9% only in sandbox)
   let gatewayRate = 0.029;
-  let gstRate = 0.13; // Pakistan standard GST on SafePay's processing fee
+  let gatewayFlat = isProduction ? 30 : 0; // Rs.30 flat only in production
+  let gstRate = 0.13;  // Pakistan mandatory GST on the total processing fee
   let applyGst = true;
 
   const payload = rawPayload || {};
@@ -561,29 +568,36 @@ function calculateFees(grossAmount, rawPayload = {}) {
   // Determine rate based on payment channel
   if (channel === 'wallet' || channel === 'easypaisa' || channel === 'jazzcash' || channel === 'mobile_wallet') {
     gatewayRate = 0.015;
-    applyGst = false; // Wallets: flat 1.5%, no GST component
+    gatewayFlat = 0;   // Wallets: no flat fee
+    applyGst = false;  // Wallets: no GST component
   } else if (channel === 'bank' || channel === 'raast' || channel === 'direct_debit' || channel === 'bank_account') {
     gatewayRate = 0.015;
+    gatewayFlat = 0;
     applyGst = false;
   } else if (channel === 'card') {
     gatewayRate = isInternational ? 0.032 : 0.029;
+    gatewayFlat = isProduction ? 30 : 0;
     applyGst = true;
   }
 
-  // Allow manual overrides via env variables (useful for negotiated rates in production)
+  // Allow manual overrides via env variables (e.g. for negotiated rates)
   const envRate = parseFloat(process.env.SAFEPAY_GATEWAY_RATE);
-  const envGst = parseFloat(process.env.SAFEPAY_GST_RATE);
+  const envFlat = parseFloat(process.env.SAFEPAY_GATEWAY_FLAT);
+  const envGst  = parseFloat(process.env.SAFEPAY_GST_RATE);
   if (!isNaN(envRate)) gatewayRate = envRate;
-  if (!isNaN(envGst)) gstRate = envGst;
+  if (!isNaN(envFlat)) gatewayFlat = envFlat; // explicit override wins over auto-detection
+  if (!isNaN(envGst))  gstRate = envGst;
 
-  // Calculate: processing fee + 13% GST on that fee (confirmed from SafePay dashboard)
-  const processingFee = parseFloat((grossAmount * gatewayRate).toFixed(2));
-  const safepayGst = applyGst ? parseFloat((processingFee * gstRate).toFixed(2)) : 0;
-  const safepayFee = parseFloat((processingFee + safepayGst).toFixed(2));
+  // Formula: (% of amount + flat fee) + GST on that total
+  // Sandbox:    (290 + 0)   × (1 + 13%) = 327.70  ✅ matches dashboard
+  // Production: (290 + 30)  × (1 + 13%) = 361.60
+  const processingFee = parseFloat((grossAmount * gatewayRate + gatewayFlat).toFixed(2));
+  const safepayGst    = applyGst ? parseFloat((processingFee * gstRate).toFixed(2)) : 0;
+  const safepayFee    = parseFloat((processingFee + safepayGst).toFixed(2));
 
   const afterGateway = parseFloat((grossAmount - safepayFee).toFixed(2));
-  const platformFee = parseFloat((afterGateway * 0.07).toFixed(2));
-  const netAmount = parseFloat((afterGateway - platformFee).toFixed(2));
+  const platformFee  = parseFloat((afterGateway * 0.07).toFixed(2));
+  const netAmount    = parseFloat((afterGateway - platformFee).toFixed(2));
 
   return { safepayFee, safepayGst, platformFee, netAmount };
 }
