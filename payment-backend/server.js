@@ -515,21 +515,30 @@ function verifySafepayWebhook(req) {
 }
 
 /**
- * Calculate dynamic SafePay fees and platform revenue based on payment channel/method.
- * - Local card: 2.9% + Rs.30
- * - International card: 3.2% + Rs.30
- * - Mobile wallets (EasyPaisa/JazzCash): 1.5% (no flat fee)
- * - Bank Account / Raast: 1.5% (no flat fee)
- * Can be overridden via SAFEPAY_GATEWAY_RATE and SAFEPAY_GATEWAY_FLAT environment variables.
+ * Calculate SafePay fees and AutiEase platform revenue.
+ *
+ * Confirmed from SafePay sandbox dashboard (Jun 2026):
+ *   - Local Mastercard/Visa PKR card: 2.9% processing fee + 13% Pakistan GST on that fee
+ *   - International card: 3.2% processing fee + 13% GST on that fee
+ *   - Mobile wallets (EasyPaisa/JazzCash): 1.5%, no GST flat
+ *   - Bank / Raast: 1.5%, no GST flat
+ *   NO flat Rs.30 fee — SafePay does NOT charge a flat fee for cards in PK.
+ *
+ * Example verified from dashboard for PKR 10,000 local Mastercard:
+ *   Processing = 10,000 × 2.9% = PKR 290
+ *   GST (13%)  = 290 × 13%     = PKR 37.70
+ *   Total fee  = PKR 327.70
+ *   Net        = PKR 9,672.30  ✅ matches dashboard
  *
  * @param {number} grossAmount - Full subscription amount paid by parent
- * @param {object} rawPayload - Webhook payload or Reporter API transaction data
- * @returns {{ safepayFee: number, platformFee: number, netAmount: number }}
+ * @param {object} rawPayload - Webhook payload or SafePay API transaction data
+ * @returns {{ safepayFee: number, safepayGst: number, platformFee: number, netAmount: number }}
  */
 function calculateFees(grossAmount, rawPayload = {}) {
-  // Default to standard local card rate
+  // Default: local Pakistan card (2.9% + 13% GST on processing fee)
   let gatewayRate = 0.029;
-  let gatewayFlat = 30;
+  let gstRate = 0.13; // Pakistan standard GST on SafePay's processing fee
+  let applyGst = true;
 
   const payload = rawPayload || {};
   const data = payload.data || payload;
@@ -552,36 +561,31 @@ function calculateFees(grossAmount, rawPayload = {}) {
   // Determine rate based on payment channel
   if (channel === 'wallet' || channel === 'easypaisa' || channel === 'jazzcash' || channel === 'mobile_wallet') {
     gatewayRate = 0.015;
-    gatewayFlat = 0;
+    applyGst = false; // Wallets: flat 1.5%, no GST component
   } else if (channel === 'bank' || channel === 'raast' || channel === 'direct_debit' || channel === 'bank_account') {
     gatewayRate = 0.015;
-    gatewayFlat = 0;
+    applyGst = false;
   } else if (channel === 'card') {
-    if (isInternational) {
-      gatewayRate = 0.032;
-      gatewayFlat = 30;
-    } else {
-      gatewayRate = 0.029;
-      gatewayFlat = 30;
-    }
+    gatewayRate = isInternational ? 0.032 : 0.029;
+    applyGst = true;
   }
 
-  // Allow manual overrides via env variables
+  // Allow manual overrides via env variables (useful for negotiated rates in production)
   const envRate = parseFloat(process.env.SAFEPAY_GATEWAY_RATE);
-  const envFlat = parseFloat(process.env.SAFEPAY_GATEWAY_FLAT);
-  if (!isNaN(envRate)) {
-    gatewayRate = envRate;
-  }
-  if (!isNaN(envFlat)) {
-    gatewayFlat = envFlat;
-  }
+  const envGst = parseFloat(process.env.SAFEPAY_GST_RATE);
+  if (!isNaN(envRate)) gatewayRate = envRate;
+  if (!isNaN(envGst)) gstRate = envGst;
 
-  const safepayFee = parseFloat(((grossAmount * gatewayRate) + gatewayFlat).toFixed(2));
+  // Calculate: processing fee + 13% GST on that fee (confirmed from SafePay dashboard)
+  const processingFee = parseFloat((grossAmount * gatewayRate).toFixed(2));
+  const safepayGst = applyGst ? parseFloat((processingFee * gstRate).toFixed(2)) : 0;
+  const safepayFee = parseFloat((processingFee + safepayGst).toFixed(2));
+
   const afterGateway = parseFloat((grossAmount - safepayFee).toFixed(2));
   const platformFee = parseFloat((afterGateway * 0.07).toFixed(2));
   const netAmount = parseFloat((afterGateway - platformFee).toFixed(2));
 
-  return { safepayFee, platformFee, netAmount };
+  return { safepayFee, safepayGst, platformFee, netAmount };
 }
 
 function addDays(date, days) {
