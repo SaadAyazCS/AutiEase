@@ -1676,28 +1676,18 @@ app.post('/api/v1/subscription/cancel', requireAuth, async (req, res) => {
 
     await subscriptionRef.set(
       {
+        status: 'canceled',
+        isActive: false,
         cancelAtPeriodEnd: true,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true },
     );
 
-    const currentPeriodEnd = subscription.currentPeriodEnd;
-    const shouldDeactivateNow = !(currentPeriodEnd instanceof admin.firestore.Timestamp) || currentPeriodEnd.toDate() <= new Date();
-    if (shouldDeactivateNow) {
-      await subscriptionRef.set(
-        {
-          status: 'canceled',
-          isActive: false,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
-      await updateTherapistThreadAccess(uid, normalizeValue(subscription.therapistId), false);
-    }
+    await updateTherapistThreadAccess(uid, normalizeValue(subscription.therapistId), false);
     await syncUserSubscriptionEntitlements(uid);
 
-    return res.status(200).json({ status: shouldDeactivateNow ? 'canceled' : 'cancel_scheduled' });
+    return res.status(200).json({ status: 'canceled' });
   } catch (error) {
     console.error('Cancel subscription failed:', error?.message || error);
     return jsonError(res, 500, 'Unable to cancel subscription');
@@ -1750,7 +1740,7 @@ app.post('/api/v1/subscription/reactivate', requireAuth, async (req, res) => {
 app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
   try {
     const uid = req.user.uid;
-    const { amount, paymentMethod, accountDetails } = req.body || {};
+    const { amount, paymentMethod, accountDetails, isAppeal } = req.body || {};
 
     if (!amount || !paymentMethod || !accountDetails) {
       return jsonError(res, 400, 'amount, paymentMethod, and accountDetails are required');
@@ -1769,9 +1759,9 @@ app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
       .where('therapistId', '==', uid)
       .get();
 
-    const hasRecent = allWithdrawals.docs.some(doc => {
+    const hasRecentAppeal = allWithdrawals.docs.some(doc => {
       const data = doc.data() || {};
-      if (['pending', 'paid'].includes(data.status)) {
+      if (data.isAppeal === true) {
         const createdAt = data.createdAt && typeof data.createdAt.toDate === 'function'
           ? data.createdAt.toDate()
           : (data.createdAt ? new Date(data.createdAt) : null);
@@ -1782,8 +1772,27 @@ app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
       return false;
     });
 
-    if (hasRecent) {
-      return jsonError(res, 429, 'You must wait 3 days between withdrawal requests. Please wait for your current request to be processed.');
+    if (isAppeal) {
+      if (hasRecentAppeal) {
+        return jsonError(res, 400, 'You have already used your 1-time appeal request for this 3-day cooldown period.');
+      }
+    } else {
+      const hasRecent = allWithdrawals.docs.some(doc => {
+        const data = doc.data() || {};
+        if (['pending', 'paid'].includes(data.status)) {
+          const createdAt = data.createdAt && typeof data.createdAt.toDate === 'function'
+            ? data.createdAt.toDate()
+            : (data.createdAt ? new Date(data.createdAt) : null);
+          if (createdAt && createdAt >= threeDaysAgo) {
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (hasRecent) {
+        return jsonError(res, 429, 'You must wait 3 days between withdrawal requests. Please wait for your current request to be processed.');
+      }
     }
 
     const therapistRef = db.collection('therapist_profiles').doc(uid);
@@ -1812,6 +1821,7 @@ app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
         paymentMethod,
         accountDetails,
         status: 'pending',
+        isAppeal: isAppeal === true,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
@@ -1823,6 +1833,7 @@ app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
         paymentMethod,
         accountDetails,
         status: 'pending',
+        isAppeal: isAppeal === true,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -1913,11 +1924,11 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, async (req, res) => {
 
       // Write admin audit log
       txn.set(db.collection('admin_audit_logs').doc(), {
-        action: `withdrawal_${status}`,
-        adminId: uid,
-        targetId: requestId,
-        targetType: 'withdrawal_request',
-        metadata: { amount, therapistId, adminNotes: adminNotes || null },
+        adminUid: uid,
+        adminEmail: req.user.email || '',
+        targetUid: therapistId || '',
+        actionType: `withdrawal_${status}`,
+        details: `Status changed to ${status}. Amount: Rs. ${amount}. Notes: ${adminNotes || 'None'}`,
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
       });
     });

@@ -2699,7 +2699,162 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
     }
   }
 
-  void _openWithdrawalSheet(BuildContext context, double availableBalance) {
+  void _openCooldownAppealDialog(
+    BuildContext context, {
+    required double balance,
+    required Duration cooldownRemaining,
+    required DateTime lastWithdrawalTime,
+    required List<Map<String, dynamic>> transactions,
+  }) {
+    bool hasRecentAppeal = false;
+    final threeDaysAgo = DateTime.now().subtract(const Duration(days: 3));
+    for (final tx in transactions) {
+      if (tx['isAppeal'] == true) {
+        final createdAt = tx['createdAt'];
+        DateTime? dt;
+        if (createdAt is Timestamp) {
+          dt = createdAt.toDate();
+        }
+        if (dt != null && dt.isAfter(threeDaysAgo)) {
+          hasRecentAppeal = true;
+          break;
+        }
+      }
+    }
+
+    final unlockTime = lastWithdrawalTime.add(const Duration(days: 3));
+    final unlockStr = '${unlockTime.day}/${unlockTime.month}/${unlockTime.year} at ${unlockTime.hour.toString().padLeft(2, '0')}:${unlockTime.minute.toString().padLeft(2, '0')}';
+    final lastStr = '${lastWithdrawalTime.day}/${lastWithdrawalTime.month}/${lastWithdrawalTime.year} at ${lastWithdrawalTime.hour.toString().padLeft(2, '0')}:${lastWithdrawalTime.minute.toString().padLeft(2, '0')}';
+
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          titlePadding: EdgeInsets.zero,
+          title: Container(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+            decoration: const BoxDecoration(
+              color: Color(0xFFFFF3CD),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  hasRecentAppeal ? Icons.lock : Icons.lock_open,
+                  color: const Color(0xFFD97706),
+                  size: 24,
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Withdrawal Cooldown',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF92400E),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Standard payouts are limited to once every 3 days to prevent system abuse and ensure security.',
+                  style: TextStyle(fontSize: 13.5, color: Color(0xFF374151), height: 1.4),
+                ),
+                const SizedBox(height: 16),
+                _buildInfoRow('Last Withdrawal Request:', lastStr),
+                const SizedBox(height: 8),
+                _buildInfoRow('Cooldown Ends (Unlock):', unlockStr, isHighlight: true),
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 12),
+                if (hasRecentAppeal) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFCA5A5)),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Appeal Limit Reached: You have already submitted an appeal request during this 3-day cooldown. You must wait for the cooldown to end or for the previous appeal to be resolved.',
+                            style: TextStyle(fontSize: 12, color: Color(0xFF991B1B), height: 1.4, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  const Text(
+                    'Need funds urgently? You can request exactly ONE bypass appeal during this cooldown. Please note that appeals are subject to administrative review.',
+                    style: TextStyle(fontSize: 12.5, color: Color(0xFF4B5563), height: 1.4),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Color(0xFF6B7280), fontWeight: FontWeight.w600),
+              ),
+            ),
+            if (!hasRecentAppeal)
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  _openWithdrawalSheet(context, balance, isAppeal: true);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0D9488),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text('Request Appeal', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value, {bool isHighlight = false}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w700,
+            color: isHighlight ? const Color(0xFFC2410C) : const Color(0xFF1F2937),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _openWithdrawalSheet(BuildContext context, double availableBalance, {bool isAppeal = false}) {
     final formKey = GlobalKey<FormState>();
     final amountController = TextEditingController();
     final accountDetailsController = TextEditingController();
@@ -2748,9 +2903,9 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                     ),
                                   ),
                                   const SizedBox(height: 20),
-                                  const Text(
-                                    'Withdraw Funds',
-                                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                                  Text(
+                                    isAppeal ? 'Withdraw Funds (Emergency Appeal)' : 'Withdraw Funds',
+                                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
@@ -2786,19 +2941,30 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                   Container(
                                     padding: const EdgeInsets.all(12),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFFFFF7ED),
+                                      color: isAppeal ? const Color(0xFFFEF2F2) : const Color(0xFFFFF7ED),
                                       borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: const Color(0xFFFFEDD5)),
+                                      border: Border.all(color: isAppeal ? const Color(0xFFFCA5A5) : const Color(0xFFFFEDD5)),
                                     ),
-                                    child: const Row(
+                                    child: Row(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Icon(Icons.info_outline_rounded, color: Color(0xFFD97706), size: 20),
-                                        SizedBox(width: 8),
+                                        Icon(
+                                          isAppeal ? Icons.warning_amber_rounded : Icons.info_outline_rounded,
+                                          color: isAppeal ? const Color(0xFFDC2626) : const Color(0xFFD97706),
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
-                                            'Important: Payouts are limited to once every 3 days. Once submitted, please wait 3 days for processing before requesting another withdrawal.',
-                                            style: TextStyle(fontSize: 12, color: Color(0xFFC2410C), height: 1.4, fontWeight: FontWeight.w500),
+                                            isAppeal
+                                                ? 'Emergency Cooldown Appeal: You are bypassing the standard 3-day cooldown. Limit of exactly 1 appeal request per cooldown period.'
+                                                : 'Important: Payouts are limited to once every 3 days. Once submitted, please wait 3 days for processing before requesting another withdrawal.',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: isAppeal ? const Color(0xFF991B1B) : const Color(0xFFC2410C),
+                                              height: 1.4,
+                                              fontWeight: FontWeight.w500,
+                                            ),
                                           ),
                                         ),
                                       ],
@@ -2895,6 +3061,7 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                                 withdrawAmt,
                                                 selectedMethod,
                                                 fullDetailsStr,
+                                                isAppeal: isAppeal,
                                               );
 
                                               if (context.mounted) {
@@ -3131,7 +3298,6 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
         final earnings = double.tryParse(walletData['totalEarnings'].toString()) ?? 0.0;
 
         // Calculate cooldown remaining time
-        final threeDaysAgo = DateTime.now().subtract(const Duration(days: 3));
         DateTime? lastWithdrawalTime;
         for (final tx in transactions) {
           final type = (tx['type'] ?? '').toString();
@@ -3239,8 +3405,20 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                           ],
                         ),
                         ElevatedButton.icon(
-                          onPressed: (balance > 0 && cooldownRemaining == null)
-                              ? () => _openWithdrawalSheet(context, balance)
+                          onPressed: (balance > 0)
+                              ? () {
+                                  if (cooldownRemaining != null) {
+                                    _openCooldownAppealDialog(
+                                      context,
+                                      balance: balance,
+                                      cooldownRemaining: cooldownRemaining,
+                                      lastWithdrawalTime: lastWithdrawalTime!,
+                                      transactions: transactions,
+                                    );
+                                  } else {
+                                    _openWithdrawalSheet(context, balance);
+                                  }
+                                }
                               : null,
                           icon: Icon(
                             cooldownRemaining != null ? Icons.lock_outline_rounded : Icons.arrow_upward_rounded,

@@ -70,17 +70,17 @@ class _TherapistPlaceholderAvatar extends StatelessWidget {
 class ProfessionalSupportScreen extends StatefulWidget {
   const ProfessionalSupportScreen({super.key});
 
+  static final Set<String> sessionSubscribedTherapistIds = <String>{};
+  static final Set<String> sessionHiddenTherapistIds = <String>{};
+
   @override
   State<ProfessionalSupportScreen> createState() =>
       _ProfessionalSupportScreenState();
 }
 
 class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> with WidgetsBindingObserver {
-  static final Set<String> _sessionSubscribedTherapistIds = <String>{};
-  static final Set<String> _sessionHiddenTherapistIds = <String>{};
-
-  final Set<String> _subscribedTherapistIds = _sessionSubscribedTherapistIds;
-  final Set<String> _hiddenTherapistIds = _sessionHiddenTherapistIds;
+  final Set<String> _subscribedTherapistIds = ProfessionalSupportScreen.sessionSubscribedTherapistIds;
+  final Set<String> _hiddenTherapistIds = ProfessionalSupportScreen.sessionHiddenTherapistIds;
   bool _showFindTherapist = false;
   bool _stateLoaded = false;
 
@@ -679,6 +679,26 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
           _hiddenTherapistIds.remove(therapist.id);
         });
         await _persistTherapistState();
+
+        // Auto-create chat thread in the background
+        Future.microtask(() async {
+          try {
+            final child = await AppRepositories.users.getActiveChildForCurrentParent();
+            final subscription = await AppRepositories.billing.getSubscriptionForTherapist(therapist.id);
+            if (child != null) {
+              await AppRepositories.support.ensureThread(
+                therapistId: therapist.id,
+                childId: child.id,
+                subscriptionId: (subscription != null && subscription.isActive)
+                    ? subscription.id
+                    : 'local-bypass',
+              );
+            }
+          } catch (e) {
+            debugPrint('Failed to auto-create chat thread: $e');
+          }
+        });
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -928,12 +948,12 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
     TherapistThread thread,
     TherapistProfile therapist, {
     required bool chatEnabled,
-  }) {
+  }) async {
     if (!chatEnabled) {
       _showComingSoon();
       return;
     }
-    Navigator.push(
+    final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => TherapistChatScreen(
@@ -944,6 +964,9 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
         ),
       ),
     );
+    if (result != null && result.toString().startsWith('show_review_')) {
+      _showReviewDialog(context, therapist);
+    }
   }
 
   Future<void> _openTherapistChat(
@@ -991,7 +1014,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
             : 'local-bypass',
       );
       if (!mounted) return;
-      await Navigator.push(
+      final result = await Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => TherapistChatScreen(
@@ -1003,6 +1026,9 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
         ),
       );
       await _refreshState();
+      if (result != null && result.toString().startsWith('show_review_')) {
+        _showReviewDialog(context, therapist);
+      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1689,6 +1715,7 @@ class SupportTherapistDetailsScreenState
   String? _certificateBase64;
   List<_SupportServicePackage> _packages = const <_SupportServicePackage>[];
   int _activePackageIndex = 0;
+  int? _subscribedPackageIndex;
 
   String get _formattedExperience {
     if (_yearsFromProfile == 0 && _monthsFromProfile == 0) {
@@ -1713,6 +1740,21 @@ class SupportTherapistDetailsScreenState
           .get();
       final data = doc.data() ?? <String, dynamic>{};
       final parsed = _parsePackages(data['servicePackages']);
+
+      int? subscribedPkgIdx;
+      final subscription = await AppRepositories.billing.getSubscriptionForTherapist(widget.therapist.id);
+      if (subscription != null && subscription.isActive) {
+        final prodId = subscription.productId;
+        if (prodId.startsWith('auto_${widget.therapist.id}_')) {
+          final parts = prodId.split('_');
+          if (parts.length >= 3) {
+            subscribedPkgIdx = int.tryParse(parts.last);
+          }
+        } else if (prodId == 'bypass-plan' || prodId == 'local-bypass' || prodId == 'cached-offline') {
+          subscribedPkgIdx = 0;
+        }
+      }
+
       if (!mounted) {
         return;
       }
@@ -1722,6 +1764,7 @@ class SupportTherapistDetailsScreenState
         _credentialsFromProfile = (data['credentials'] ?? '').toString();
         _certificateBase64 = (data['certificateBase64'] ?? '').toString();
         _packages = parsed;
+        _subscribedPackageIndex = subscribedPkgIdx;
         _loadingTherapistMeta = false;
       });
     } catch (_) {
@@ -2069,6 +2112,8 @@ class SupportTherapistDetailsScreenState
                           _PackageSelectionList(
                             packages: visiblePackages,
                             currentIndex: safePackageIndex,
+                            isSubscribed: _isSubscribed,
+                            subscribedPackageIndex: _subscribedPackageIndex,
                             onPackageSelected: (index) {
                               if (!mounted) {
                                 return;
@@ -2221,11 +2266,15 @@ class _PackageSelectionList extends StatelessWidget {
     required this.packages,
     required this.currentIndex,
     required this.onPackageSelected,
+    this.subscribedPackageIndex,
+    required this.isSubscribed,
   });
 
   final List<_SupportServicePackage> packages;
   final int currentIndex;
   final ValueChanged<int> onPackageSelected;
+  final int? subscribedPackageIndex;
+  final bool isSubscribed;
 
   @override
   Widget build(BuildContext context) {
@@ -2236,8 +2285,42 @@ class _PackageSelectionList extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 10),
             child: _PackageListItem(
               package: packages[i],
-              isSelected: i == currentIndex,
-              onTap: () => onPackageSelected(i),
+              isSelected: isSubscribed
+                  ? (subscribedPackageIndex == i)
+                  : (i == currentIndex),
+              isLocked: isSubscribed && (subscribedPackageIndex != i),
+              onTap: () {
+                if (isSubscribed && (subscribedPackageIndex != i)) {
+                  showDialog<void>(
+                    context: context,
+                    builder: (BuildContext ctx) {
+                      return AlertDialog(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        title: const Row(
+                          children: [
+                            Icon(Icons.lock_outline, color: Colors.orange, size: 24),
+                            SizedBox(width: 8),
+                            Text('Package Locked', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        content: const Text(
+                          'You already have an active subscription to one of this therapist\'s packages. '
+                          'Please cancel your existing subscription or wait for it to complete before subscribing to another package.',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('OK', style: TextStyle(color: Color(0xFF00C853), fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                } else if (!isSubscribed) {
+                  onPackageSelected(i);
+                }
+              },
             ),
           ),
       ],
@@ -2250,11 +2333,13 @@ class _PackageListItem extends StatelessWidget {
     required this.package,
     required this.isSelected,
     required this.onTap,
+    this.isLocked = false,
   });
 
   final _SupportServicePackage package;
   final bool isSelected;
   final VoidCallback onTap;
+  final bool isLocked;
 
   @override
   Widget build(BuildContext context) {
@@ -2266,9 +2351,11 @@ class _PackageListItem extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
         decoration: BoxDecoration(
-          color: isSelected
-              ? Colors.white.withValues(alpha: 0.15)
-              : const Color(0xFF3ACB6D),
+          color: isLocked
+              ? const Color(0xFF81C784)
+              : (isSelected
+                  ? Colors.white.withValues(alpha: 0.15)
+                  : const Color(0xFF3ACB6D)),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.3),
@@ -2284,32 +2371,36 @@ class _PackageListItem extends StatelessWidget {
                 Expanded(
                   child: Text(
                     package.title,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: isLocked ? Colors.white70 : Colors.white,
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
+                      decoration: isLocked ? TextDecoration.lineThrough : null,
                     ),
                   ),
                 ),
                 if (isSelected)
-                  const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                  const Icon(Icons.check_circle, color: Colors.white, size: 20)
+                else if (isLocked)
+                  const Icon(Icons.lock_outline, color: Colors.white70, size: 20),
               ],
             ),
             const SizedBox(height: 4),
             RichText(
               text: TextSpan(
                 text: package.priceLabel,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: isLocked ? Colors.white70 : Colors.white,
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
                 ),
-                children: const [
+                children: [
                   TextSpan(
                     text: '/month',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w400,
+                      color: isLocked ? Colors.white70 : Colors.white,
                     ),
                   ),
                 ],
@@ -2948,6 +3039,27 @@ class _ParentSubscriptionsHistoryScreenState
 
     // 3. Post-Cancellation Updates
     if (mounted) {
+      // Modify static sets so the changes reflect immediately in parent home
+      ProfessionalSupportScreen.sessionSubscribedTherapistIds.remove(therapist.id);
+      if (choice == 'delete') {
+        ProfessionalSupportScreen.sessionHiddenTherapistIds.add(therapist.id);
+      }
+      
+      // Persist therapist state for current user
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        try {
+          await FirebaseFirestore.instance
+              .collection(FirestoreCollections.users)
+              .doc(uid)
+              .set({
+            'proSupportSubscribedTherapistIds': ProfessionalSupportScreen.sessionSubscribedTherapistIds.toList(),
+            'proSupportHiddenTherapistIds': ProfessionalSupportScreen.sessionHiddenTherapistIds.toList(),
+            'proSupportUpdatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        } catch (_) {}
+      }
+
       setState(() {}); // Reload history screen list
       
       final messenger = ScaffoldMessenger.of(context);
@@ -2966,7 +3078,143 @@ class _ParentSubscriptionsHistoryScreenState
           ),
         );
       }
+
+      _showReviewDialog(context, therapist);
     }
+  }
+
+  void _showReviewDialog(BuildContext context, TherapistProfile therapist) {
+    int selectedRating = 5;
+    final publicController = TextEditingController();
+    final privateController = TextEditingController();
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: Text(
+                'Rate & Review\n${therapist.displayName}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1F2937),
+                ),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'How was your experience with this therapist?',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, color: Color(0xFF4B5563)),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(5, (index) {
+                        final starValue = index + 1;
+                        return IconButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              selectedRating = starValue;
+                            });
+                          },
+                          icon: Icon(
+                            starValue <= selectedRating
+                                ? Icons.star
+                                : Icons.star_border,
+                            color: Colors.amber,
+                            size: 32,
+                          ),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: publicController,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: 'Written Feedback (Optional)',
+                        hintText: 'Share your experience with other parents...',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: privateController,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: 'Private Notes (Optional)',
+                        hintText: 'Feedback visible only to admin/platform...',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Maybe Later', style: TextStyle(color: Color(0xFF6B7280))),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    try {
+                      await AppRepositories.support.submitReview(
+                        therapistId: therapist.id,
+                        rating: selectedRating,
+                        feedback: publicController.text.trim(),
+                        privateFeedback: privateController.text.trim(),
+                      );
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(
+                            content: Text('Thank you! Your review has been submitted.'),
+                            backgroundColor: Color(0xFF00C853),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(
+                            content: Text('Failed to submit review: $e'),
+                            backgroundColor: AppColors.errorRed,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00C853),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text('Submit'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _reactivateSubscription(TherapistProfile therapist) async {
@@ -3034,8 +3282,8 @@ class _ParentSubscriptionsHistoryScreenState
     Color statusColor;
     String statusText;
     if (sub.status == 'active') {
-      statusColor = sub.cancelAtPeriodEnd ? Colors.amber : const Color(0xFF00C853);
-      statusText = sub.cancelAtPeriodEnd ? 'Cancels soon' : 'Active';
+      statusColor = sub.cancelAtPeriodEnd ? Colors.red : const Color(0xFF00C853);
+      statusText = sub.cancelAtPeriodEnd ? 'Canceled' : 'Active';
     } else if (sub.status == 'pending') {
       statusColor = Colors.orange;
       statusText = 'Pending Verification';

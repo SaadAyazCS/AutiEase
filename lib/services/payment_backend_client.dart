@@ -120,6 +120,7 @@ class PaymentBackendClient {
     required double amount,
     required String paymentMethod,
     required String accountDetails,
+    bool isAppeal = false,
   }) async {
     await _postJson(
       '/api/v1/therapist/withdraw',
@@ -127,6 +128,7 @@ class PaymentBackendClient {
         'amount': amount,
         'paymentMethod': paymentMethod,
         'accountDetails': accountDetails,
+        'isAppeal': isAppeal,
       },
     );
   }

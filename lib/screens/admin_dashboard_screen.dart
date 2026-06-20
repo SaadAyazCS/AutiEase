@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 import 'dart:async';
 import '../models/app_models.dart';
@@ -2924,8 +2925,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             matchesStatus = status == 'canceled' || status == 'cancels soon' || status == 'cancels_soon';
           } else if (_subFilterStatus == 'Expired') {
             matchesStatus = status == 'expired';
-          } else if (_subFilterStatus == 'Payment Failed') {
-            matchesStatus = status == 'payment_failed';
           }
 
           if (!matchesStatus) return false;
@@ -2992,7 +2991,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
-                      children: ['All', 'Active', 'Pending', 'Canceled', 'Expired', 'Payment Failed'].map((status) {
+                      children: ['All', 'Active', 'Pending', 'Canceled', 'Expired'].map((status) {
                         final isSelected = _subFilterStatus == status;
                         return Padding(
                           padding: const EdgeInsets.only(right: 8),
@@ -3597,6 +3596,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
+                                    if (data['isAppeal'] == true) ...[
+                                      Container(
+                                        margin: const EdgeInsets.only(bottom: 10),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFEF2F2),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: const Color(0xFFFCA5A5)),
+                                        ),
+                                        child: const Row(
+                                          children: [
+                                            Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 16),
+                                            SizedBox(width: 6),
+                                            Expanded(
+                                              child: Text(
+                                                'Appeal Request: Therapist bypassing 3-day cooldown.',
+                                                style: TextStyle(
+                                                  color: Color(0xFF991B1B),
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                     Row(
                                       children: [
                                         Expanded(
@@ -3920,6 +3946,23 @@ class _AdminMessageSenderState extends State<_AdminMessageSender> {
         message: text,
         category: 'system',
       );
+
+      // Audit manual admin message
+      final adminId = FirebaseAuth.instance.currentUser?.uid;
+      final adminEmail = FirebaseAuth.instance.currentUser?.email ?? '';
+      if (adminId != null) {
+        final logRef = FirebaseFirestore.instance.collection('admin_audit_logs').doc();
+        await logRef.set({
+          'id': logRef.id,
+          'adminUid': adminId,
+          'adminEmail': adminEmail,
+          'targetUid': widget.recipientId,
+          'actionType': 'send_message',
+          'details': 'Sent admin message: "$text" to ${widget.recipientType}',
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      }
+
       _controller.clear();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

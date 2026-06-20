@@ -200,7 +200,7 @@ abstract class BillingRepository {
 
   // Therapist Wallet Operations
   Future<Map<String, dynamic>> getTherapistWallet(String therapistId);
-  Future<void> requestWithdrawal(String therapistId, double amount, String paymentMethod, String accountDetails);
+  Future<void> requestWithdrawal(String therapistId, double amount, String paymentMethod, String accountDetails, {bool isAppeal = false});
 
   // Ledgers
   Future<List<Map<String, dynamic>>> getTherapistTransactions(String therapistId);
@@ -2261,8 +2261,9 @@ class FirebaseBillingRepository implements BillingRepository {
     String therapistId,
     double amount,
     String paymentMethod,
-    String accountDetails,
-  ) async {
+    String accountDetails, {
+    bool isAppeal = false,
+  }) async {
     if (AppRuntimeConfig.bypassProSupportPaywall) {
       final normalizedId = therapistId.trim();
       try {
@@ -2285,6 +2286,7 @@ class FirebaseBillingRepository implements BillingRepository {
           'paymentMethod': paymentMethod,
           'accountDetails': accountDetails,
           'status': 'pending',
+          'isAppeal': isAppeal,
           'createdAt': DateTime.now().millisecondsSinceEpoch,
         });
         await prefs.setString(key, jsonEncode(list));
@@ -2302,6 +2304,7 @@ class FirebaseBillingRepository implements BillingRepository {
       amount: amount,
       paymentMethod: paymentMethod,
       accountDetails: accountDetails,
+      isAppeal: isAppeal,
     );
   }
 

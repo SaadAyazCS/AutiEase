@@ -666,6 +666,151 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     }
   }
 
+  Future<TherapistProfile?> _resolveTherapistProfile() async {
+    if (widget.therapistProfile != null) {
+      return widget.therapistProfile;
+    }
+    try {
+      return await AppRepositories.support.getTherapistById(widget.thread.therapistId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _showReviewDialog(BuildContext context, TherapistProfile therapist) {
+    int selectedRating = 5;
+    final publicController = TextEditingController();
+    final privateController = TextEditingController();
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: Text(
+                'Rate & Review\n${therapist.displayName}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1F2937),
+                ),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'How was your experience with this therapist?',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, color: Color(0xFF4B5563)),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(5, (index) {
+                        final starValue = index + 1;
+                        return IconButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              selectedRating = starValue;
+                            });
+                          },
+                          icon: Icon(
+                            starValue <= selectedRating
+                                ? Icons.star
+                                : Icons.star_border,
+                            color: Colors.amber,
+                            size: 32,
+                          ),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: publicController,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: 'Written Feedback (Optional)',
+                        hintText: 'Share your experience with other parents...',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: privateController,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: 'Private Notes (Optional)',
+                        hintText: 'Feedback visible only to admin/platform...',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Maybe Later', style: TextStyle(color: Color(0xFF6B7280))),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    try {
+                      await AppRepositories.support.submitReview(
+                        therapistId: therapist.id,
+                        rating: selectedRating,
+                        feedback: publicController.text.trim(),
+                        privateFeedback: privateController.text.trim(),
+                      );
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(
+                            content: Text('Thank you! Your review has been submitted.'),
+                            backgroundColor: Color(0xFF00C853),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(
+                            content: Text('Failed to submit review: $e'),
+                            backgroundColor: AppColors.errorRed,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00C853),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text('Submit'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<bool> _showCancelSubscriptionFlow(BuildContext dialogContext) async {
     final confirm = await showDialog<bool>(
       context: dialogContext,
@@ -690,7 +835,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         if (context.mounted) {
           final messenger = ScaffoldMessenger.of(context);
           if (choice == 'delete') {
-            Navigator.pop(context); // Close chat screen itself
+            Navigator.pop(context, 'show_review_${widget.thread.therapistId}'); // Close chat screen itself and return result
             messenger.showSnackBar(
               const SnackBar(
                 content: Text('Subscription cancelled and chat history deleted.'),
@@ -704,6 +849,10 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                 backgroundColor: Color(0xFF3B82F6),
               ),
             );
+            final therapist = await _resolveTherapistProfile();
+            if (therapist != null && context.mounted) {
+              _showReviewDialog(context, therapist);
+            }
           }
         }
         return true;
@@ -2034,7 +2183,13 @@ class _ChatHistoryChoicesDialogState extends State<ChatHistoryChoicesDialog> {
         keepAndLockChats: choice == 'keep',
       );
 
-      // 2. Remove from subscribed list and add to hidden list (if deleting)
+      // 2. Modify static sets so the changes reflect immediately in parent home
+      ProfessionalSupportScreen.sessionSubscribedTherapistIds.remove(widget.therapistId);
+      if (choice == 'delete') {
+        ProfessionalSupportScreen.sessionHiddenTherapistIds.add(widget.therapistId);
+      }
+
+      // 3. Remove from subscribed list and add to hidden list (if deleting)
       final userDoc = await FirebaseFirestore.instance
           .collection(FirestoreCollections.users)
           .doc(parentId)
