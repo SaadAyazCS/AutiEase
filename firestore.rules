@@ -132,7 +132,7 @@ service cloud.firestore {
             get(/databases/$(database)/documents/therapist_threads/$(threadId)).data
           ) &&
           resource.data.senderId == request.auth.uid &&
-          request.resource.data.keys().hasOnly(['body', 'isDeleted']) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'isDeleted']) &&
           request.resource.data.isDeleted == true;
         allow delete: if isParent() &&
           get(/databases/$(database)/documents/therapist_threads/$(threadId)).data.parentId == request.auth.uid;
@@ -191,12 +191,12 @@ service cloud.firestore {
 
     match /therapist_reviews/{reviewId} {
       allow read: if signedIn();
-      allow create: if isParent();
+      allow create: if isParent() && request.resource.data.parentId == request.auth.uid;
       allow update, delete: if isAdmin() || (signedIn() && resource.data.parentId == request.auth.uid);
     }
 
     match /cancellation_analytics/{analyticsId} {
-      allow create: if signedIn();
+      allow create: if signedIn() && request.resource.data.parentId == request.auth.uid;
       allow read: if isAdmin();
     }
 
@@ -224,9 +224,9 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow read, update: if signedIn() && resource.data.userId == request.auth.uid;
-      allow create: if signedIn();
-      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
+      allow read, update: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if signedIn() && (isAdmin() || request.resource.data.userId == request.auth.uid);
+      allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
     }
   }
 }
