@@ -138,7 +138,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
   // ─── Part 2: Voice note ─────────────────────────────────────────────────
   bool _isRecording = false;
-  bool _holdingMic = false;
   Timer? _recordingTimer;
   int _recordingSeconds = 0;
   // Simulated waveform bars
@@ -153,9 +152,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   bool _searchMode = false;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
-
-  // ─── Part 2: Selected messages (long press) ──────────────────────────────
-  String? _selectedMessageId;
 
   @override
   void initState() {
@@ -1062,7 +1058,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   void _startRecording() {
     setState(() {
       _isRecording = true;
-      _holdingMic = true;
       _recordingSeconds = 0;
     });
     _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -1084,7 +1079,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     _waveformTimer?.cancel();
     setState(() {
       _isRecording = false;
-      _holdingMic = false;
     });
 
     if (_recordingSeconds < 1) return; // too short, ignore
@@ -1111,7 +1105,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     _waveformTimer?.cancel();
     setState(() {
       _isRecording = false;
-      _holdingMic = false;
       _recordingSeconds = 0;
       for (int i = 0; i < _waveformBars.length; i++) {
         _waveformBars[i] = 0.3;
@@ -1207,7 +1200,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
           .collection('messages')
           .doc(messageId)
           .update({'body': 'This message was deleted.', 'isDeleted': true});
-      setState(() => _selectedMessageId = null);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1222,7 +1214,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Message copied to clipboard'), duration: Duration(seconds: 2)),
     );
-    setState(() => _selectedMessageId = null);
   }
 
   // ─── Part 2: Image Zoom Viewer ─────────────────────────────────────────
@@ -1438,7 +1429,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
             icon: const Icon(Icons.picture_as_pdf, color: Colors.white),
             label: const Text('Open PDF Report', style: TextStyle(color: Colors.white)),
             style: ElevatedButton.styleFrom(
-              backgroundColor: isMine ? Colors.white.withOpacity(0.25) : AppColors.primaryBlue,
+              backgroundColor: isMine ? Colors.white.withValues(alpha: 0.25) : AppColors.primaryBlue,
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -2430,286 +2421,6 @@ class _ChatStateBanner extends StatelessWidget {
   }
 }
 
-class _TherapistProfileDialog extends StatelessWidget {
-  const _TherapistProfileDialog({
-    required this.therapist,
-    this.photoUrlBase64,
-    required this.onCancelSubscription,
-  });
-
-  final TherapistProfile? therapist;
-  final String? photoUrlBase64;
-  final VoidCallback onCancelSubscription;
-
-  String _specialization(TherapistProfile? profile) {
-    if (profile == null || profile.specializations.isEmpty) {
-      return 'Speech & Language Therapy';
-    }
-    return profile.specializations.first;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final displayName = therapist?.displayName ?? 'Dr. Sarah Johnson';
-    final specialization = _specialization(therapist);
-    final rating = therapist?.rating ?? 4.9;
-    final totalReviews = therapist?.totalReviews ?? 127;
-    final formattedExperience = therapist?.formattedExperience ?? '12 years of practice';
-    final credentials = therapist?.credentials != null && therapist!.credentials.isNotEmpty
-        ? therapist!.credentials
-        : 'Board Certified, Licensed Therapist';
-    final bio = therapist?.bio != null && therapist!.bio.isNotEmpty
-        ? therapist!.bio
-        : 'Specialized in autism spectrum disorders and speech development. Passionate about helping children communicate effectively.';
-
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Green Header Card
-          Stack(
-            children: [
-              Container(
-                color: const Color(0xFF22C55E), // Vibrant Green
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-                child: Column(
-                  children: [
-                    // Avatar with Gradient Ring
-                    Container(
-                      width: 82,
-                      height: 82,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: SweepGradient(
-                          colors: [Color(0xFF22C55E), Color(0xFFFFB800), Color(0xFF22C55E)],
-                        ),
-                      ),
-                      padding: const EdgeInsets.all(3),
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                        ),
-                        child: ClipOval(
-                          child: _TherapistPlaceholderAvatar(
-                            size: 76,
-                            photoUrlBase64: photoUrlBase64,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      displayName,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      specialization,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Close button
-              Positioned(
-                top: 12,
-                right: 12,
-                child: GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    padding: const EdgeInsets.all(6),
-                    child: const Icon(
-                      Icons.close,
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          
-          // Body Content
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Star rating row
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.star, color: Colors.amber, size: 18),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${rating.toStringAsFixed(1)} ($totalReviews reviews)',
-                      style: const TextStyle(
-                        color: Color(0xFF475569),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Divider(),
-                const SizedBox(height: 10),
-                
-                // Experience Row
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.access_time_rounded, color: Color(0xFF22C55E), size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Experience',
-                            style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            formattedExperience,
-                            style: const TextStyle(
-                              color: Color(0xFF1E293B),
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                
-                // Certifications Row
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.verified_user_outlined, color: Color(0xFF22C55E), size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Certifications',
-                            style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            credentials,
-                            style: const TextStyle(
-                              color: Color(0xFF1E293B),
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Divider(),
-                const SizedBox(height: 10),
-                
-                // About
-                const Text(
-                  'About',
-                  style: TextStyle(
-                    color: Color(0xFF1E293B),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14.5,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  bio,
-                  style: const TextStyle(
-                    color: Color(0xFF475569),
-                    fontSize: 13,
-                    height: 1.45,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Divider(),
-                const SizedBox(height: 10),
-                
-                // Status dot row
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF22C55E),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    const Text(
-                      'Active now',
-                      style: TextStyle(
-                        color: Color(0xFF64748B),
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                
-                // Cancel Subscription button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: onCancelSubscription,
-                    icon: const Icon(Icons.cancel_outlined, size: 18),
-                    label: const Text(
-                      'Cancel Subscription',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFEF4444),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class CancelSubscriptionDialog extends StatefulWidget {
   const CancelSubscriptionDialog({
@@ -2787,7 +2498,7 @@ class _CancelSubscriptionDialogState extends State<CancelSubscriptionDialog> {
                 
                 // Dropdown of churn reasons
                 DropdownButtonFormField<String>(
-                  value: _selectedReason,
+                  initialValue: _selectedReason,
                   decoration: const InputDecoration(
                     labelText: 'Reason for Cancellation',
                     border: OutlineInputBorder(),
@@ -3192,7 +2903,7 @@ class _ChatBackgroundPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFFE2E8F0).withOpacity(0.3)
+      ..color = const Color(0xFFE2E8F0).withValues(alpha: 0.3)
       ..strokeWidth = 1.0;
 
     const double spacing = 20.0;

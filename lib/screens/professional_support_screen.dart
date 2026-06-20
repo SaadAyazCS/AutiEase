@@ -1727,6 +1727,7 @@ class _MessageHomeCard extends StatelessWidget {
 
 class SupportTherapistDetailsScreen extends StatefulWidget {
   const SupportTherapistDetailsScreen({
+    super.key,
     required this.therapist,
     required this.initiallySubscribed,
     required this.chatEnabled,
@@ -2397,7 +2398,7 @@ class SupportTherapistDetailsScreenState
     if (_isSwitching)
       Positioned.fill(
         child: Container(
-          color: Colors.black.withOpacity(0.5),
+          color: Colors.black.withValues(alpha: 0.5),
           child: const Center(
             child: CircularProgressIndicator(
               color: Color(0xFF00C853),

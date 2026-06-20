@@ -487,7 +487,6 @@ class _SettingsRow extends StatefulWidget {
     required this.onTap,
     this.titleColor,
     this.iconColor,
-    this.iconBackgroundColor,
   });
 
   final IconData icon;
@@ -496,7 +495,6 @@ class _SettingsRow extends StatefulWidget {
   final VoidCallback onTap;
   final Color? titleColor;
   final Color? iconColor;
-  final Color? iconBackgroundColor;
 
   @override
   State<_SettingsRow> createState() => _SettingsRowState();
@@ -509,7 +507,7 @@ class _SettingsRowState extends State<_SettingsRow> {
   Widget build(BuildContext context) {
     final r = context.responsive;
     final primaryColor = widget.iconColor ?? const Color(0xFF4EA9E3);
-    final bgColor = widget.iconBackgroundColor ?? primaryColor.withValues(alpha: 0.1);
+    final bgColor = primaryColor.withValues(alpha: 0.1);
 
     return AnimatedScale(
       scale: _isPressed ? 0.98 : 1.0,
