@@ -2881,6 +2881,11 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                       child: Padding(
                         padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
                         child: Container(
+                          constraints: BoxConstraints(
+                            maxHeight: MediaQuery.of(context).size.height -
+                                MediaQuery.of(context).viewInsets.bottom -
+                                48,
+                          ),
                           decoration: const BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),

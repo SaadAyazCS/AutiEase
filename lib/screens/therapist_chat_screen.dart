@@ -2453,156 +2453,158 @@ class _CancelSubscriptionDialogState extends State<CancelSubscriptionDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Red Alert Header Card
-          Container(
-            color: const Color(0xFFEF4444),
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 24),
-            child: const Column(
-              children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.white,
-                  size: 48,
-                ),
-                SizedBox(height: 12),
-                Text(
-                  'Cancel Subscription?',
-                  style: TextStyle(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Red Alert Header Card
+            Container(
+              color: const Color(0xFFEF4444),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: const Column(
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
                     color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
+                    size: 48,
                   ),
-                ),
-              ],
+                  SizedBox(height: 12),
+                  Text(
+                    'Cancel Subscription?',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          // Content
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                const Text(
-                  'Are you sure you want to cancel your subscription?',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Color(0xFF1E293B),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
+            // Content
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  const Text(
+                    'Are you sure you want to cancel your subscription?',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFF1E293B),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                
-                // Dropdown of churn reasons
-                DropdownButtonFormField<String>(
-                  initialValue: _selectedReason,
-                  decoration: const InputDecoration(
-                    labelText: 'Reason for Cancellation',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  const SizedBox(height: 16),
+                  
+                  // Dropdown of churn reasons
+                  DropdownButtonFormField<String>(
+                    initialValue: _selectedReason,
+                    decoration: const InputDecoration(
+                      labelText: 'Reason for Cancellation',
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    items: _cancellationReasons.map((reason) {
+                      return DropdownMenuItem<String>(
+                        value: reason,
+                        child: Text(reason, style: const TextStyle(fontSize: 13.5)),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() {
+                          _selectedReason = val;
+                        });
+                      }
+                    },
                   ),
-                  items: _cancellationReasons.map((reason) {
-                    return DropdownMenuItem<String>(
-                      value: reason,
-                      child: Text(reason, style: const TextStyle(fontSize: 13.5)),
-                    );
-                  }).toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      setState(() {
-                        _selectedReason = val;
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Warning note box
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFFBEB), // Amber 50
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFFDE68A)), // Amber 200
+                  const SizedBox(height: 16),
+  
+                  // Warning note box
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFFBEB), // Amber 50
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFDE68A)), // Amber 200
+                    ),
+                    child: const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Please note: You will lose access to:',
+                          style: TextStyle(
+                            color: Color(0xFF78350F), // Amber 900
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          '• Direct messaging with the therapist\n'
+                          '• 24-hour response time\n'
+                          '• Progress tracking & reports\n'
+                          '• Future session scheduling',
+                          style: TextStyle(
+                            color: Color(0xFF92400E), // Amber 800
+                            fontSize: 12.5,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  const SizedBox(height: 20),
+                  // Buttons row
+                  Row(
                     children: [
-                      Text(
-                        'Please note: You will lose access to:',
-                        style: TextStyle(
-                          color: Color(0xFF78350F), // Amber 900
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFE2E8F0),
+                            foregroundColor: const Color(0xFF475569),
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: const Text(
+                            'Keep Subscription',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
                         ),
                       ),
-                      SizedBox(height: 8),
-                      Text(
-                        '• Direct messaging with the therapist\n'
-                        '• 24-hour response time\n'
-                        '• Progress tracking & reports\n'
-                        '• Future session scheduling',
-                        style: TextStyle(
-                          color: Color(0xFF92400E), // Amber 800
-                          fontSize: 12.5,
-                          height: 1.5,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            widget.onConfirmCancel(_selectedReason);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFEF4444),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: const Text(
+                            'Yes, Cancel',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 20),
-                // Buttons row
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFE2E8F0),
-                          foregroundColor: const Color(0xFF475569),
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        child: const Text(
-                          'Keep Subscription',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          widget.onConfirmCancel(_selectedReason);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFEF4444),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        child: const Text(
-                          'Yes, Cancel',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2708,190 +2710,192 @@ class _ChatHistoryChoicesDialogState extends State<ChatHistoryChoicesDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Purple/Blue Gradient Banner
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF8B5CF6), Color(0xFF3B82F6)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Expanded(
-                  child: Text(
-                    'What about your chat history?',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                if (!_isLoading)
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close, color: Colors.white, size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-              ],
-            ),
-          ),
-          
-          if (_isLoading)
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Purple/Blue Gradient Banner
             Container(
-              padding: const EdgeInsets.symmetric(vertical: 40),
-              child: const Column(
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text(
-                    'Processing...',
-                    style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w500),
-                  ),
-                ],
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF8B5CF6), Color(0xFF3B82F6)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
               ),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    "Choose what you'd like to do with your conversation history and shared content",
-                    style: TextStyle(
-                      color: Color(0xFF475569),
-                      fontSize: 13.5,
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  
-                  // Option 1: Delete everything card
-                  InkWell(
-                    onTap: () => _handleChoice('delete'),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFEF2F2), // Red 50
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFFCA5A5)), // Red 200
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFFEE2E2),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.delete_outline_rounded,
-                              color: Color(0xFFEF4444),
-                              size: 20,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Delete Everything',
-                                  style: TextStyle(
-                                    color: Color(0xFF991B1B), // Red 800
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                SizedBox(height: 4),
-                                Text(
-                                  'Remove all messages, images, videos, and documents. The therapist will be completely removed from your messages list.',
-                                  style: TextStyle(
-                                    color: Color(0xFF7F1D1D),
-                                    fontSize: 11.5,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                  const Expanded(
+                    child: Text(
+                      'What about your chat history?',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  
-                  // Option 2: Keep & Lock Chats card
-                  InkWell(
-                    onTap: () => _handleChoice('keep'),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEFF6FF), // Blue 50
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFBFDBFE)), // Blue 200
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFDBEAFE),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.lock_outline_rounded,
-                              color: Color(0xFF3B82F6),
-                              size: 20,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Keep & Lock Chats',
-                                  style: TextStyle(
-                                    color: Color(0xFF1E3A8A), // Blue 800
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                SizedBox(height: 4),
-                                Text(
-                                  "Save all conversation history. You can view messages but won't be able to send new ones. The therapist remains in your messages list (read-only).",
-                                  style: TextStyle(
-                                    color: Color(0xFF1E40AF),
-                                    fontSize: 11.5,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                  if (!_isLoading)
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close, color: Colors.white, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
                     ),
-                  ),
                 ],
               ),
             ),
-        ],
+            
+            if (_isLoading)
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: const Column(
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text(
+                      'Processing...',
+                      style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Choose what you'd like to do with your conversation history and shared content",
+                      style: TextStyle(
+                        color: Color(0xFF475569),
+                        fontSize: 13.5,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    
+                    // Option 1: Delete everything card
+                    InkWell(
+                      onTap: () => _handleChoice('delete'),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2), // Red 50
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFCA5A5)), // Red 200
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFFEE2E2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.delete_outline_rounded,
+                                color: Color(0xFFEF4444),
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Delete Everything',
+                                    style: TextStyle(
+                                      color: Color(0xFF991B1B), // Red 800
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Remove all messages, images, videos, and documents. The therapist will be completely removed from your messages list.',
+                                    style: TextStyle(
+                                      color: Color(0xFF7F1D1D),
+                                      fontSize: 11.5,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    
+                    // Option 2: Keep & Lock Chats card
+                    InkWell(
+                      onTap: () => _handleChoice('keep'),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF), // Blue 50
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFBFDBFE)), // Blue 200
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFDBEAFE),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.lock_outline_rounded,
+                                color: Color(0xFF3B82F6),
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Keep & Lock Chats',
+                                    style: TextStyle(
+                                      color: Color(0xFF1E3A8A), // Blue 800
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    "Save all conversation history. You can view messages but won't be able to send new ones. The therapist remains in your messages list (read-only).",
+                                    style: TextStyle(
+                                      color: Color(0xFF1E40AF),
+                                      fontSize: 11.5,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
