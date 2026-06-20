@@ -1838,7 +1838,10 @@ class SupportTherapistDetailsScreenState
     if (!mounted) return;
     setState(() {
       _isSubscribing = false;
-      if (subscribed) _isSubscribed = true;
+      if (subscribed) {
+        _isSubscribed = true;
+        _subscribedPackageIndex = safePackageIndex;
+      }
     });
   }
 
@@ -2288,9 +2291,9 @@ class _PackageSelectionList extends StatelessWidget {
               isSelected: isSubscribed
                   ? (subscribedPackageIndex == i)
                   : (i == currentIndex),
-              isLocked: isSubscribed && (subscribedPackageIndex != i),
+              isLocked: isSubscribed && subscribedPackageIndex != null && (subscribedPackageIndex != i),
               onTap: () {
-                if (isSubscribed && (subscribedPackageIndex != i)) {
+                if (isSubscribed && subscribedPackageIndex != null && (subscribedPackageIndex != i)) {
                   showDialog<void>(
                     context: context,
                     builder: (BuildContext ctx) {
