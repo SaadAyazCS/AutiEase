@@ -1136,6 +1136,10 @@ class TherapistThread {
     this.emergencyRequestedAt,
     this.emergencyRespondedAt,
     this.postCancelVisible = true,
+    this.parentTyping = false,
+    this.therapistTyping = false,
+    this.parentLastRead,
+    this.therapistLastRead,
   });
 
   final String id;
@@ -1153,6 +1157,10 @@ class TherapistThread {
   final DateTime? emergencyRequestedAt;
   final DateTime? emergencyRespondedAt;
   final bool postCancelVisible;
+  final bool parentTyping;
+  final bool therapistTyping;
+  final DateTime? parentLastRead;
+  final DateTime? therapistLastRead;
 
   bool get hasOpenEmergency => emergencyStatus == 'requested';
   bool get emergencyResponded => emergencyStatus == 'responded';
@@ -1174,6 +1182,10 @@ class TherapistThread {
       emergencyRequestedAt: dateTimeFromFirestore(data['emergencyRequestedAt']),
       emergencyRespondedAt: dateTimeFromFirestore(data['emergencyRespondedAt']),
       postCancelVisible: data['postCancelVisible'] != false,
+      parentTyping: data['parentTyping'] == true,
+      therapistTyping: data['therapistTyping'] == true,
+      parentLastRead: dateTimeFromFirestore(data['parentLastRead']),
+      therapistLastRead: dateTimeFromFirestore(data['therapistLastRead']),
     );
   }
 
@@ -1188,6 +1200,10 @@ class TherapistThread {
     DateTime? emergencyRequestedAt,
     DateTime? emergencyRespondedAt,
     bool? postCancelVisible,
+    bool? parentTyping,
+    bool? therapistTyping,
+    DateTime? parentLastRead,
+    DateTime? therapistLastRead,
   }) {
     return TherapistThread(
       id: id,
@@ -1205,6 +1221,10 @@ class TherapistThread {
       emergencyRequestedAt: emergencyRequestedAt ?? this.emergencyRequestedAt,
       emergencyRespondedAt: emergencyRespondedAt ?? this.emergencyRespondedAt,
       postCancelVisible: postCancelVisible ?? this.postCancelVisible,
+      parentTyping: parentTyping ?? this.parentTyping,
+      therapistTyping: therapistTyping ?? this.therapistTyping,
+      parentLastRead: parentLastRead ?? this.parentLastRead,
+      therapistLastRead: therapistLastRead ?? this.therapistLastRead,
     );
   }
 
@@ -1239,6 +1259,7 @@ class TherapistMessage {
     this.messageType = 'text',
     this.deliveryStatus = 'sent',
     this.deliveryError,
+    this.isDeleted = false,
   });
 
   final String id;
@@ -1250,6 +1271,7 @@ class TherapistMessage {
   final String messageType;
   final String deliveryStatus;
   final String? deliveryError;
+  final bool isDeleted;
 
   factory TherapistMessage.fromMap(String id, Map<String, dynamic> data) {
     return TherapistMessage(
@@ -1262,6 +1284,7 @@ class TherapistMessage {
       messageType: (data['messageType'] ?? 'text').toString(),
       deliveryStatus: (data['deliveryStatus'] ?? 'sent').toString(),
       deliveryError: data['deliveryError']?.toString(),
+      isDeleted: data['isDeleted'] == true,
     );
   }
 }

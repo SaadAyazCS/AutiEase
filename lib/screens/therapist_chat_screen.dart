@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:printing/printing.dart';
@@ -127,6 +129,34 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   bool _isCheckoutUrlLaunched = false;
   bool _isProgrammaticPop = false;
 
+  // ─── Part 2: Typing indicator ───────────────────────────────────────────
+  Timer? _typingDebounce;
+  bool _isSelfTyping = false;
+
+  // ─── Part 2: Read receipts ──────────────────────────────────────────────
+  Timer? _lastReadTimer;
+
+  // ─── Part 2: Voice note ─────────────────────────────────────────────────
+  bool _isRecording = false;
+  bool _holdingMic = false;
+  Timer? _recordingTimer;
+  int _recordingSeconds = 0;
+  // Simulated waveform bars
+  final List<double> _waveformBars = List.generate(20, (_) => 0.3);
+  Timer? _waveformTimer;
+  // Playing back voice notes
+  String? _playingVoiceId;
+  double _voicePlayProgress = 0.0;
+  Timer? _voicePlayTimer;
+
+  // ─── Part 2: Search ─────────────────────────────────────────────────────
+  bool _searchMode = false;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  // ─── Part 2: Selected messages (long press) ──────────────────────────────
+  String? _selectedMessageId;
+
   @override
   void initState() {
     super.initState();
@@ -134,14 +164,25 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     _peerTherapistProfile = widget.therapistProfile;
     _checkBlockedStatus();
     _loadPeerProfile();
+    _controller.addListener(_onComposerChanged);
+    _scheduleLastReadSync();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _controller.removeListener(_onComposerChanged);
     _controller.dispose();
     _scrollController.dispose();
     _resolvedBannerTimer?.cancel();
+    _typingDebounce?.cancel();
+    _lastReadTimer?.cancel();
+    _recordingTimer?.cancel();
+    _waveformTimer?.cancel();
+    _voicePlayTimer?.cancel();
+    _searchController.dispose();
+    // Clear typing indicator when leaving
+    _clearTypingFlag();
     super.dispose();
   }
 
@@ -948,11 +989,593 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   Future<void> _endEmergency() async {
     await _resolveEmergency();
   }
+  // ─── Part 2: Typing Indicator ───────────────────────────────────────────
+  void _onComposerChanged() {
+    final hasText = _controller.text.trim().isNotEmpty;
+    if (hasText && !_isSelfTyping) {
+      _isSelfTyping = true;
+      _setTypingFlag(true);
+    }
+    _typingDebounce?.cancel();
+    if (hasText) {
+      _typingDebounce = Timer(const Duration(seconds: 3), () {
+        _isSelfTyping = false;
+        _setTypingFlag(false);
+      });
+    } else {
+      _isSelfTyping = false;
+      _setTypingFlag(false);
+    }
+  }
 
+  Future<void> _setTypingFlag(bool typing) async {
+    try {
+      final field = widget.senderRole == 'parent' ? 'parentTyping' : 'therapistTyping';
+      await FirebaseFirestore.instance
+          .collection(FirestoreCollections.therapistThreads)
+          .doc(widget.thread.id)
+          .update({field: typing});
+    } catch (_) {}
+  }
 
+  Future<void> _clearTypingFlag() async {
+    await _setTypingFlag(false);
+  }
 
+  // ─── Part 2: Read Receipts ──────────────────────────────────────────────
+  void _scheduleLastReadSync() {
+    _updateLastRead();
+    _lastReadTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      _updateLastRead();
+    });
+  }
 
+  Future<void> _updateLastRead() async {
+    try {
+      final field = widget.senderRole == 'parent' ? 'parentLastRead' : 'therapistLastRead';
+      await FirebaseFirestore.instance
+          .collection(FirestoreCollections.therapistThreads)
+          .doc(widget.thread.id)
+          .update({field: FieldValue.serverTimestamp()});
+    } catch (_) {}
+  }
 
+  Widget _buildReadReceipt(TherapistMessage message, TherapistThread thread) {
+    final peerLastRead = widget.senderRole == 'parent'
+        ? thread.therapistLastRead
+        : thread.parentLastRead;
+    final sentAt = message.sentAt;
+
+    bool peerHasRead = false;
+    if (peerLastRead != null && sentAt != null) {
+      peerHasRead = peerLastRead.isAfter(sentAt) || peerLastRead.isAtSameMomentAs(sentAt);
+    }
+
+    if (peerHasRead) {
+      return const Icon(Icons.done_all, size: 13, color: Color(0xFF3B82F6));
+    } else {
+      return const Icon(Icons.done_all, size: 13, color: Color(0xFF94A3B8));
+    }
+  }
+
+  // ─── Part 2: Voice Notes ────────────────────────────────────────────────
+  void _startRecording() {
+    setState(() {
+      _isRecording = true;
+      _holdingMic = true;
+      _recordingSeconds = 0;
+    });
+    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _recordingSeconds++);
+    });
+    _waveformTimer = Timer.periodic(const Duration(milliseconds: 120), (_) {
+      if (mounted) {
+        setState(() {
+          for (int i = 0; i < _waveformBars.length; i++) {
+            _waveformBars[i] = 0.15 + math.Random().nextDouble() * 0.85;
+          }
+        });
+      }
+    });
+  }
+
+  Future<void> _stopAndSendVoice() async {
+    _recordingTimer?.cancel();
+    _waveformTimer?.cancel();
+    setState(() {
+      _isRecording = false;
+      _holdingMic = false;
+    });
+
+    if (_recordingSeconds < 1) return; // too short, ignore
+
+    // Simulated voice payload: "voice:<durationSeconds>"
+    final durationSec = _recordingSeconds;
+    final voicePayload = 'voice:$durationSec';
+    _recordingSeconds = 0;
+
+    try {
+      await AppRepositories.support.sendMessage(
+        threadId: widget.thread.id,
+        senderRole: widget.senderRole,
+        body: '\ud83c\udfa4 Voice message (${durationSec}s)',
+        attachments: [voicePayload],
+        messageType: 'voice',
+      );
+      _scrollToBottom();
+    } catch (_) {}
+  }
+
+  void _cancelRecording() {
+    _recordingTimer?.cancel();
+    _waveformTimer?.cancel();
+    setState(() {
+      _isRecording = false;
+      _holdingMic = false;
+      _recordingSeconds = 0;
+      for (int i = 0; i < _waveformBars.length; i++) {
+        _waveformBars[i] = 0.3;
+      }
+    });
+  }
+
+  void _toggleVoicePlay(String messageId, int durationSec) {
+    if (_playingVoiceId == messageId) {
+      _voicePlayTimer?.cancel();
+      setState(() {
+        _playingVoiceId = null;
+        _voicePlayProgress = 0.0;
+      });
+      return;
+    }
+    _voicePlayTimer?.cancel();
+    setState(() {
+      _playingVoiceId = messageId;
+      _voicePlayProgress = 0.0;
+    });
+    final totalMs = durationSec * 1000;
+    const stepMs = 80;
+    int elapsed = 0;
+    _voicePlayTimer = Timer.periodic(const Duration(milliseconds: stepMs), (t) {
+      elapsed += stepMs;
+      if (!mounted || elapsed >= totalMs) {
+        t.cancel();
+        if (mounted) setState(() { _playingVoiceId = null; _voicePlayProgress = 0; });
+        return;
+      }
+      if (mounted) setState(() => _voicePlayProgress = elapsed / totalMs);
+    });
+  }
+
+  Widget _buildVoicePlayer(TherapistMessage message, bool isMine) {
+    final raw = message.attachments.isNotEmpty ? message.attachments.first : '';
+    final durationSec = int.tryParse(raw.replaceAll('voice:', '')) ?? 10;
+    final isPlaying = _playingVoiceId == message.id;
+    return GestureDetector(
+      onTap: () => _toggleVoicePlay(message.id, durationSec),
+      child: SizedBox(
+        width: 210,
+        child: Row(
+          children: [
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: Icon(
+                isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                key: ValueKey(isPlaying),
+                color: isMine ? Colors.white : AppColors.primaryBlue,
+                size: 34,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: 3,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                      overlayShape: SliderComponentShape.noOverlay,
+                      activeTrackColor: isMine ? Colors.white : AppColors.primaryBlue,
+                      inactiveTrackColor: isMine ? Colors.white38 : Colors.grey[300],
+                      thumbColor: isMine ? Colors.white : AppColors.primaryBlue,
+                    ),
+                    child: Slider(
+                      value: isPlaying ? _voicePlayProgress : 0.0,
+                      onChanged: null,
+                    ),
+                  ),
+                  Text(
+                    '${durationSec}s',
+                    style: TextStyle(fontSize: 11, color: isMine ? Colors.white70 : Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── Part 2: Message Deletion & Copy ───────────────────────────────────
+  Future<void> _deleteMessage(String messageId) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection(FirestoreCollections.therapistThreads)
+          .doc(widget.thread.id)
+          .collection('messages')
+          .doc(messageId)
+          .update({'body': 'This message was deleted.', 'isDeleted': true});
+      setState(() => _selectedMessageId = null);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Delete failed: $e'), backgroundColor: AppColors.errorRed),
+        );
+      }
+    }
+  }
+
+  void _copyMessage(String body) {
+    Clipboard.setData(ClipboardData(text: body));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Message copied to clipboard'), duration: Duration(seconds: 2)),
+    );
+    setState(() => _selectedMessageId = null);
+  }
+
+  // ─── Part 2: Image Zoom Viewer ─────────────────────────────────────────
+  void _openImageViewer(BuildContext context, String base64Image) {
+    Navigator.push<void>(context, MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => _ImageZoomViewer(base64Image: base64Image),
+    ));
+  }
+
+  // ─── Part 2: Media Gallery ─────────────────────────────────────────────
+  void _openMediaGallery(List<TherapistMessage> messages) {
+    final imageMessages = messages.where((m) => m.messageType == 'image' && m.attachments.isNotEmpty).toList();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        maxChildSize: 0.92,
+        minChildSize: 0.3,
+        builder: (ctx, scrollCtrl) => Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFF1E293B),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white30, borderRadius: BorderRadius.circular(4))),
+              const SizedBox(height: 16),
+              const Text('Shared Media', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 12),
+              Expanded(
+                child: imageMessages.isEmpty
+                    ? const Center(child: Text('No shared images yet.', style: TextStyle(color: Colors.white54)))
+                    : GridView.builder(
+                        controller: scrollCtrl,
+                        padding: const EdgeInsets.all(12),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 4, mainAxisSpacing: 4),
+                        itemCount: imageMessages.length,
+                        itemBuilder: (ctx, i) {
+                          try {
+                            final bytes = base64Decode(imageMessages[i].attachments.first);
+                            return GestureDetector(
+                              onTap: () => _openImageViewer(ctx, imageMessages[i].attachments.first),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.memory(bytes, fit: BoxFit.cover),
+                              ),
+                            );
+                          } catch (_) {
+                            return const Icon(Icons.broken_image, color: Colors.white30);
+                          }
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─── Part 2: Date separator helper ─────────────────────────────────────
+  String _dateLabel(DateTime? dt) {
+    if (dt == null) return '';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final msgDay = DateTime(dt.year, dt.month, dt.day);
+    if (msgDay == today) return 'Today';
+    if (msgDay == yesterday) return 'Yesterday';
+    return '${dt.day}/${dt.month}/${dt.year}';
+  }
+
+  bool _showDateSeparator(int index, List<TherapistMessage> messages) {
+    if (index == 0) return true;
+    final curr = messages[index].sentAt;
+    final prev = messages[index - 1].sentAt;
+    if (curr == null || prev == null) return false;
+    return DateTime(curr.year, curr.month, curr.day) !=
+        DateTime(prev.year, prev.month, prev.day);
+  }
+
+  Widget _buildDateChip(String label) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF475569), fontWeight: FontWeight.w600)),
+      ),
+    );
+  }
+
+  // ─── Part 2: Typing bubble ─────────────────────────────────────────────
+  Widget _buildTypingBubble() {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8, left: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(18),
+            topRight: Radius.circular(18),
+            bottomRight: Radius.circular(18),
+            bottomLeft: Radius.circular(4),
+          ),
+        ),
+        child: const _TypingDots(),
+      ),
+    );
+  }
+
+  Widget _buildMessageBody(TherapistMessage message, bool isMine) {
+    if (message.isDeleted == true || message.body == 'This message was deleted.') {
+      return Text(
+        message.body,
+        style: TextStyle(
+          color: isMine ? Colors.white70 : Colors.grey[500],
+          fontSize: 15,
+          fontStyle: FontStyle.italic,
+        ),
+      );
+    }
+
+    if (message.messageType == 'image' && message.attachments.isNotEmpty) {
+      Widget img;
+      try {
+        final bytes = base64Decode(message.attachments.first);
+        img = Image.memory(
+          bytes,
+          fit: BoxFit.cover,
+          width: 200,
+          height: 200,
+          errorBuilder: (context, e, s) => const Icon(Icons.broken_image, size: 50),
+        );
+      } catch (_) {
+        img = const Icon(Icons.broken_image, size: 50);
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            onTap: () => _openImageViewer(context, message.attachments.first),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: img,
+            ),
+          ),
+          if (message.body.isNotEmpty && message.body != 'Sent an image') ...[
+            const SizedBox(height: 6),
+            _highlightedText(message.body, isMine),
+          ],
+        ],
+      );
+    } else if (message.messageType == 'file' && message.attachments.isNotEmpty) {
+      return InkWell(
+        onTap: () {
+          try {
+            final bytes = base64Decode(message.attachments.first);
+            Printing.sharePdf(bytes: bytes, filename: message.body);
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Could not open file: $e')),
+            );
+          }
+        },
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.insert_drive_file, color: isMine ? Colors.white : AppColors.primaryBlue),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message.body,
+                style: TextStyle(
+                  color: isMine ? Colors.white : Colors.black87,
+                  fontWeight: FontWeight.w600,
+                  decoration: TextDecoration.underline,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (message.messageType == 'voice') {
+      return _buildVoicePlayer(message, isMine);
+    } else if (message.messageType == 'report' && message.attachments.isNotEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _highlightedText(message.body, isMine),
+          const SizedBox(height: 12),
+          ElevatedButton.icon(
+            onPressed: () {
+              try {
+                final bytes = base64Decode(message.attachments.first);
+                Printing.sharePdf(bytes: bytes, filename: 'AutiEase_Report.pdf');
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Could not open PDF: $e')),
+                );
+              }
+            },
+            icon: const Icon(Icons.picture_as_pdf, color: Colors.white),
+            label: const Text('Open PDF Report', style: TextStyle(color: Colors.white)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isMine ? Colors.white.withOpacity(0.25) : AppColors.primaryBlue,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
+      );
+    } else {
+      return _highlightedText(message.body, isMine);
+    }
+  }
+
+  Widget _highlightedText(String text, bool isMine) {
+    final textColor = isMine ? Colors.white : Colors.black87;
+    if (!_searchMode || _searchQuery.isEmpty) {
+      return Text(
+        text,
+        style: TextStyle(color: textColor, fontSize: 15),
+      );
+    }
+
+    final lowerText = text.toLowerCase();
+    final index = lowerText.indexOf(_searchQuery);
+    if (index == -1) {
+      return Text(
+        text,
+        style: TextStyle(color: textColor, fontSize: 15),
+      );
+    }
+
+    final List<TextSpan> spans = [];
+    int start = 0;
+    while (true) {
+      final idx = lowerText.indexOf(_searchQuery, start);
+      if (idx == -1) {
+        spans.add(TextSpan(text: text.substring(start), style: TextStyle(color: textColor)));
+        break;
+      }
+      if (idx > start) {
+        spans.add(TextSpan(text: text.substring(start, idx), style: TextStyle(color: textColor)));
+      }
+      spans.add(TextSpan(
+        text: text.substring(idx, idx + _searchQuery.length),
+        style: const TextStyle(
+          color: Colors.black,
+          backgroundColor: Colors.yellowAccent,
+          fontWeight: FontWeight.bold,
+        ),
+      ));
+      start = idx + _searchQuery.length;
+    }
+
+    return RichText(
+      text: TextSpan(
+        style: TextStyle(fontSize: 15, color: textColor, fontFamily: 'Roboto'),
+        children: spans,
+      ),
+    );
+  }
+
+  void _showLongPressMenu(BuildContext context, TherapistMessage message, bool isMine) {
+    if (message.isDeleted == true) return;
+    
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 8),
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ListTile(
+                  leading: const Icon(Icons.copy, color: Color(0xFF475569)),
+                  title: const Text('Copy Text'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _copyMessage(message.body);
+                  },
+                ),
+                if (isMine)
+                  ListTile(
+                    leading: const Icon(Icons.delete_outline, color: AppColors.errorRed),
+                    title: const Text('Delete Message', style: TextStyle(color: AppColors.errorRed)),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showDeleteConfirmation(message.id);
+                    },
+                  ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showDeleteConfirmation(String messageId) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Delete message?'),
+          content: const Text('This will delete the message for both participants.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _deleteMessage(messageId);
+              },
+              child: const Text('Delete', style: TextStyle(color: AppColors.errorRed, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   String _formatTime(DateTime? value) {
     if (value == null) {
@@ -980,85 +1603,145 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
       role: SessionGuardRole.authenticated,
       child: Scaffold(
         resizeToAvoidBottomInset: true,
-        appBar: AppBar(
-          backgroundColor: AppColors.primaryBlue,
-          foregroundColor: Colors.white,
-          leadingWidth: 40,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.pop(context),
-          ),
-          titleSpacing: 0,
-          title: InkWell(
-            onTap: _openPeerProfileDetails,
-            child: Row(
-              children: [
-                _TherapistPlaceholderAvatar(size: 38, photoUrlBase64: photoUrlBase64),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.participantName,
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        overflow: TextOverflow.ellipsis,
+        backgroundColor: const Color(0xFFF6F8FC),
+        appBar: _searchMode
+            ? AppBar(
+                backgroundColor: AppColors.primaryBlue,
+                leading: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => setState(() {
+                    _searchMode = false;
+                    _searchQuery = '';
+                    _searchController.clear();
+                  }),
+                ),
+                title: TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  style: const TextStyle(color: Colors.white),
+                  cursorColor: Colors.white,
+                  decoration: const InputDecoration(
+                    hintText: 'Search messages...',
+                    hintStyle: TextStyle(color: Colors.white54),
+                    border: InputBorder.none,
+                  ),
+                  onChanged: (q) => setState(() => _searchQuery = q.toLowerCase()),
+                ),
+              )
+            : AppBar(
+                backgroundColor: AppColors.primaryBlue,
+                foregroundColor: Colors.white,
+                leadingWidth: 40,
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                titleSpacing: 0,
+                title: StreamBuilder<TherapistThread?>(
+                  stream: AppRepositories.support.watchThread(widget.thread.id),
+                  builder: (ctx, snap) {
+                    final t = snap.data ?? widget.thread;
+                    final peerTyping = widget.senderRole == 'parent' ? t.therapistTyping : t.parentTyping;
+                    return InkWell(
+                      onTap: _openPeerProfileDetails,
+                      child: Row(
+                        children: [
+                          _TherapistPlaceholderAvatar(size: 38, photoUrlBase64: photoUrlBase64),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.participantName,
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 300),
+                                  child: peerTyping
+                                      ? const Text(
+                                          'typing...',
+                                          key: ValueKey('typing'),
+                                          style: TextStyle(fontSize: 11, color: Colors.greenAccent, fontStyle: FontStyle.italic),
+                                        )
+                                      : Text(
+                                          peerRole,
+                                          key: const ValueKey('role'),
+                                          style: const TextStyle(fontSize: 11, color: Colors.white70),
+                                        ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        peerRole,
-                        style: const TextStyle(fontSize: 11, color: Colors.white70),
+                    );
+                  },
+                ),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.search, color: Colors.white),
+                    onPressed: () => setState(() => _searchMode = true),
+                    tooltip: 'Search messages',
+                  ),
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, color: Colors.white),
+                    onSelected: (value) async {
+                      if (value == 'profile') {
+                        _openPeerProfileDetails();
+                      } else if (value == 'report') {
+                        _openReportFlow();
+                      } else if (value == 'block') {
+                        _toggleBlockStatus();
+                      } else if (value == 'media') {
+                        final list = await AppRepositories.support.watchMessages(widget.thread.id).first;
+                        _openMediaGallery(list);
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'profile',
+                        child: Row(
+                          children: [
+                            Icon(Icons.person_outline, size: 20, color: Colors.black87),
+                            SizedBox(width: 8),
+                            Text('View Profile'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'media',
+                        child: Row(
+                          children: [
+                            Icon(Icons.photo_library_outlined, size: 20, color: Colors.black87),
+                            SizedBox(width: 8),
+                            Text('Shared Media'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'report',
+                        child: Row(
+                          children: [
+                            Icon(Icons.report_outlined, size: 20, color: AppColors.errorRed),
+                            SizedBox(width: 8),
+                            Text('Report User', style: TextStyle(color: AppColors.errorRed)),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'block',
+                        child: Row(
+                          children: [
+                            Icon(_isBlocked ? Icons.lock_open : Icons.block, size: 20, color: Colors.black87),
+                            SizedBox(width: 8),
+                            Text(_isBlocked ? 'Unblock User' : 'Block User'),
+                          ],
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, color: Colors.white),
-              onSelected: (value) {
-                if (value == 'profile') {
-                  _openPeerProfileDetails();
-                } else if (value == 'report') {
-                  _openReportFlow();
-                } else if (value == 'block') {
-                  _toggleBlockStatus();
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'profile',
-                  child: Row(
-                    children: [
-                      Icon(Icons.person_outline, size: 20, color: Colors.black87),
-                      SizedBox(width: 8),
-                      Text('View Profile'),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'report',
-                  child: Row(
-                    children: [
-                      Icon(Icons.report_outlined, size: 20, color: AppColors.errorRed),
-                      SizedBox(width: 8),
-                      Text('Report User', style: TextStyle(color: AppColors.errorRed)),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'block',
-                  child: Row(
-                    children: [
-                      Icon(_isBlocked ? Icons.lock_open : Icons.block, size: 20, color: Colors.black87),
-                      SizedBox(width: 8),
-                      Text(_isBlocked ? 'Unblock User' : 'Block User'),
-                    ],
-                  ),
-                ),
-              ],
-            ),
           ],
         ),
         body: StreamBuilder<TherapistThread?>(
@@ -1126,213 +1809,169 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                           // Trigger scroll to bottom on new messages
                           WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
-                          return ListView.builder(
-                            controller: _scrollController,
-                            keyboardDismissBehavior:
-                                ScrollViewKeyboardDismissBehavior.onDrag,
-                            padding: const EdgeInsets.all(16),
-                            itemCount: messages.length,
-                            itemBuilder: (context, index) {
-                              final message = messages[index];
-                              if (message.messageType == 'system') {
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 10),
-                                  child: Center(
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFE9EEF6),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Text(
-                                        message.body,
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Color(0xFF334A6E),
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }
-                              final isMine =
-                                  message.senderRole == widget.senderRole;
-                                  
-                              Widget contentWidget;
-                              if (message.messageType == 'image' && message.attachments.isNotEmpty) {
-                                Widget img;
-                                try {
-                                  final bytes = base64Decode(message.attachments.first);
-                                  img = Image.memory(
-                                    bytes,
-                                    fit: BoxFit.cover,
-                                    width: 200,
-                                    height: 200,
-                                    errorBuilder: (context, e, s) => const Icon(Icons.broken_image, size: 50),
-                                  );
-                                } catch (_) {
-                                  img = const Icon(Icons.broken_image, size: 50);
+                          var displayMessages = messages;
+                          if (_searchMode && _searchQuery.isNotEmpty) {
+                            displayMessages = messages.where((m) =>
+                              m.body.toLowerCase().contains(_searchQuery)
+                            ).toList();
+                          }
+
+                          final peerTyping = widget.senderRole == 'parent' ? thread.therapistTyping : thread.parentTyping;
+                          final showTyping = peerTyping && !_searchMode;
+                          final itemCount = displayMessages.length + (showTyping ? 1 : 0);
+
+                          return CustomPaint(
+                            painter: const _ChatBackgroundPainter(),
+                            child: ListView.builder(
+                              controller: _scrollController,
+                              keyboardDismissBehavior:
+                                  ScrollViewKeyboardDismissBehavior.onDrag,
+                              padding: const EdgeInsets.all(16),
+                              itemCount: itemCount,
+                              itemBuilder: (context, index) {
+                                if (showTyping && index == displayMessages.length) {
+                                  return _buildTypingBubble();
                                 }
-                                contentWidget = Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: img,
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      message.body,
-                                      style: TextStyle(
-                                        color: isMine ? Colors.white : Colors.black87,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              } else if (message.messageType == 'file' && message.attachments.isNotEmpty) {
-                                contentWidget = InkWell(
-                                  onTap: () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Opening file...')),
-                                    );
-                                  },
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.insert_drive_file, color: isMine ? Colors.white : AppColors.primaryBlue),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          message.body,
-                                          style: TextStyle(
-                                            color: isMine ? Colors.white : Colors.black87,
-                                            fontWeight: FontWeight.w600,
-                                            decoration: TextDecoration.underline,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
+                                final message = displayMessages[index];
+                                if (message.messageType == 'system') {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: Center(
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 6,
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              } else if (message.messageType == 'report' && message.attachments.isNotEmpty) {
-                                contentWidget = Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      message.body,
-                                      style: TextStyle(
-                                        color: isMine ? Colors.white : Colors.black87,
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 15,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        try {
-                                          final bytes = base64Decode(message.attachments.first);
-                                          Printing.sharePdf(bytes: bytes, filename: 'AutiEase_Report.pdf');
-                                        } catch (e) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(content: Text('Could not open PDF: $e')),
-                                          );
-                                        }
-                                      },
-                                      icon: const Icon(Icons.picture_as_pdf, color: Colors.white),
-                                      label: const Text('Open PDF Report', style: TextStyle(color: Colors.white)),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: isMine ? Colors.white.withValues(alpha: 0.25) : AppColors.primaryBlue,
-                                        elevation: 0,
-                                        shape: RoundedRectangleBorder(
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFE9EEF6),
                                           borderRadius: BorderRadius.circular(12),
                                         ),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              } else {
-                                contentWidget = Text(
-                                  message.body,
-                                  style: TextStyle(
-                                    color: isMine ? Colors.white : Colors.black87,
-                                    fontSize: 15,
-                                  ),
-                                );
-                              }
-                                  
-                              return Align(
-                                alignment: isMine
-                                    ? Alignment.centerRight
-                                    : Alignment.centerLeft,
-                                child: Column(
-                                  crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      margin: const EdgeInsets.only(bottom: 2),
-                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                      constraints: BoxConstraints(
-                                        maxWidth:
-                                            MediaQuery.of(context).size.width *
-                                            0.75,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: isMine
-                                            ? AppColors.primaryBlue
-                                            : const Color(0xFFF1F5F9),
-                                        borderRadius: BorderRadius.only(
-                                          topLeft: const Radius.circular(16),
-                                          topRight: const Radius.circular(16),
-                                          bottomLeft: Radius.circular(isMine ? 16 : 0),
-                                          bottomRight: Radius.circular(isMine ? 0 : 16),
+                                        child: Text(
+                                          message.body,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Color(0xFF334A6E),
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                         ),
                                       ),
-                                      child: contentWidget,
                                     ),
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
+                                  );
+                                }
+                                final isMine =
+                                    message.senderRole == widget.senderRole;
+                                
+                                final showSeparator = _showDateSeparator(index, displayMessages);
+                                final dateWidget = showSeparator
+                                    ? _buildDateChip(_dateLabel(message.sentAt))
+                                    : const SizedBox.shrink();
+
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    dateWidget,
+                                    Align(
+                                      alignment: isMine
+                                          ? Alignment.centerRight
+                                          : Alignment.centerLeft,
+                                      child: Column(
+                                        crossAxisAlignment: isMine
+                                            ? CrossAxisAlignment.end
+                                            : CrossAxisAlignment.start,
                                         children: [
-                                          Text(
-                                            _formatTime(message.sentAt),
-                                            style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                                          GestureDetector(
+                                            onLongPress: () => _showLongPressMenu(context, message, isMine),
+                                            child: Container(
+                                              margin: const EdgeInsets.only(bottom: 2),
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 16,
+                                                vertical: 12,
+                                              ),
+                                              constraints: BoxConstraints(
+                                                maxWidth: MediaQuery.of(context).size.width * 0.75,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: isMine
+                                                    ? AppColors.primaryBlue
+                                                    : const Color(0xFFF1F5F9),
+                                                borderRadius: BorderRadius.only(
+                                                  topLeft: const Radius.circular(16),
+                                                  topRight: const Radius.circular(16),
+                                                  bottomLeft: Radius.circular(isMine ? 16 : 0),
+                                                  bottomRight: Radius.circular(isMine ? 0 : 16),
+                                                ),
+                                              ),
+                                              child: _buildMessageBody(message, isMine),
+                                            ),
                                           ),
-                                          if (isMine) ...[
-                                            const SizedBox(width: 4),
-                                            const Icon(Icons.done_all, size: 12, color: Colors.blueAccent),
-                                          ],
+                                          Padding(
+                                            padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  _formatTime(message.sentAt),
+                                                  style: const TextStyle(
+                                                    fontSize: 10,
+                                                    color: Color(0xFF94A3B8),
+                                                  ),
+                                                ),
+                                                if (isMine) ...[
+                                                  const SizedBox(width: 4),
+                                                  _buildReadReceipt(message, thread),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
                                         ],
                                       ),
                                     ),
                                   ],
-                                ),
-                              );
-                            },
+                                );
+                              },
+                            ),
                           );
                         },
                       ),
                     ),
                     if (_attachmentFileName != null)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        color: const Color(0xFFF8FAFC),
+                        padding: const EdgeInsets.all(8),
+                        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey[300]!),
+                        ),
                         child: Row(
                           children: [
-                            Icon(
-                              _attachmentType == 'image' ? Icons.image : Icons.insert_drive_file,
-                              color: AppColors.primaryBlue,
-                            ),
-                            const SizedBox(width: 10),
+                            if (_attachmentType == 'image' && _attachmentBase64 != null)
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: SizedBox(
+                                  width: 60,
+                                  height: 60,
+                                  child: Image.memory(
+                                    base64Decode(_attachmentBase64!),
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              )
+                            else
+                              Container(
+                                width: 60,
+                                height: 60,
+                                decoration: BoxDecoration(
+                                  color: Colors.blue[50],
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(Icons.insert_drive_file, color: AppColors.primaryBlue, size: 30),
+                              ),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Text(
-                                _attachmentFileName!,
-                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                                _attachmentFileName ?? 'Attached item',
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
@@ -1599,94 +2238,158 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                     ],
                                   ),
                                 )
-                              else
+                              else if (_isRecording)
                                 Row(
-                                  children: [
-                                    IconButton(
-                                      icon: Icon(
-                                        Icons.sentiment_satisfied_alt_outlined,
-                                        color: _showEmojiPicker ? AppColors.primaryBlue : Colors.grey[600],
-                                      ),
-                                      onPressed: () {
-                                        setState(() {
-                                          _showEmojiPicker = !_showEmojiPicker;
-                                        });
-                                      },
-                                    ),
-                                    IconButton(
-                                      icon: Icon(Icons.attach_file, color: Colors.grey[600]),
-                                      onPressed: () {
-                                        showModalBottomSheet<void>(
-                                          context: context,
-                                          builder: (context) {
-                                            return SafeArea(
-                                              child: Column(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  ListTile(
-                                                    leading: const Icon(Icons.image, color: Colors.green),
-                                                    title: const Text('Send Image'),
-                                                    onTap: () {
-                                                      Navigator.pop(context);
-                                                      _pickImage();
-                                                    },
-                                                  ),
-                                                  ListTile(
-                                                    leading: const Icon(Icons.insert_drive_file, color: Colors.blue),
-                                                    title: const Text('Send PDF / Document'),
-                                                    onTap: () {
-                                                      Navigator.pop(context);
-                                                      _pickFile();
-                                                    },
-                                                  ),
-                                                ],
-                                              ),
-                                            );
-                                          },
-                                        );
-                                      },
-                                    ),
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _controller,
-                                        minLines: 1,
-                                        maxLines: 4,
-                                        decoration: InputDecoration(
-                                          hintText: 'Send a message',
-                                          filled: true,
-                                          fillColor: const Color(0xFFF1F5F9),
-                                          border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(18),
-                                            borderSide: BorderSide.none,
-                                          ),
-                                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                    children: [
+                                      const Icon(Icons.mic, color: Colors.red, size: 24),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        '${(_recordingSeconds ~/ 60).toString().padLeft(2, '0')}:${(_recordingSeconds % 60).toString().padLeft(2, '0')}',
+                                        style: const TextStyle(
+                                          color: Colors.red,
+                                          fontWeight: FontWeight.bold,
                                         ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    FloatingActionButton(
-                                      onPressed:
-                                          _sendState ==
-                                                  _MessageSendState.sending
-                                              ? null
-                                              : _sendMessage,
-                                      backgroundColor: AppColors.primaryBlue,
-                                      foregroundColor: Colors.white,
-                                      mini: true,
-                                      child: _sendState ==
-                                              _MessageSendState.sending
-                                          ? const SizedBox(
-                                              width: 18,
-                                              height: 18,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                color: Colors.white,
-                                              ),
-                                            )
-                                          : const Icon(Icons.send, size: 20),
-                                    ),
-                                  ],
-                                ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: SizedBox(
+                                          height: 32,
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                            children: List.generate(_waveformBars.length, (idx) {
+                                              return AnimatedContainer(
+                                                duration: const Duration(milliseconds: 120),
+                                                width: 3,
+                                                height: 32 * _waveformBars[idx],
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.primaryBlue,
+                                                  borderRadius: BorderRadius.circular(1.5),
+                                                ),
+                                              );
+                                            }),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      TextButton(
+                                        onPressed: _cancelRecording,
+                                        child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      IconButton(
+                                        icon: const Icon(Icons.send, color: AppColors.primaryBlue),
+                                        onPressed: _stopAndSendVoice,
+                                      ),
+                                    ],
+                                  )
+                                else
+                                  Row(
+                                    children: [
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.sentiment_satisfied_alt_outlined,
+                                          color: _showEmojiPicker ? AppColors.primaryBlue : Colors.grey[600],
+                                        ),
+                                        onPressed: () {
+                                          setState(() {
+                                            _showEmojiPicker = !_showEmojiPicker;
+                                          });
+                                        },
+                                      ),
+                                      IconButton(
+                                        icon: Icon(Icons.attach_file, color: Colors.grey[600]),
+                                        onPressed: () {
+                                          showModalBottomSheet<void>(
+                                            context: context,
+                                            builder: (context) {
+                                              return SafeArea(
+                                                child: Column(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    ListTile(
+                                                      leading: const Icon(Icons.image, color: Colors.green),
+                                                      title: const Text('Send Image'),
+                                                      onTap: () {
+                                                        Navigator.pop(context);
+                                                        _pickImage();
+                                                      },
+                                                    ),
+                                                    ListTile(
+                                                      leading: const Icon(Icons.insert_drive_file, color: Colors.blue),
+                                                      title: const Text('Send PDF / Document'),
+                                                      onTap: () {
+                                                        Navigator.pop(context);
+                                                        _pickFile();
+                                                      },
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                            },
+                                          );
+                                        },
+                                      ),
+                                      Expanded(
+                                        child: TextField(
+                                          controller: _controller,
+                                          minLines: 1,
+                                          maxLines: 4,
+                                          decoration: InputDecoration(
+                                            hintText: 'Send a message',
+                                            filled: true,
+                                            fillColor: const Color(0xFFF1F5F9),
+                                            border: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(18),
+                                              borderSide: BorderSide.none,
+                                            ),
+                                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      GestureDetector(
+                                        onTap: () {
+                                          if (_controller.text.trim().isEmpty && _attachmentBase64 == null) {
+                                            if (_isRecording) {
+                                              _stopAndSendVoice();
+                                            } else {
+                                              _startRecording();
+                                            }
+                                          } else {
+                                            _sendMessage();
+                                          }
+                                        },
+                                        onLongPressStart: (_) => _startRecording(),
+                                        onLongPressEnd: (_) => _stopAndSendVoice(),
+                                        child: Container(
+                                          width: 40,
+                                          height: 40,
+                                          decoration: const BoxDecoration(
+                                            color: AppColors.primaryBlue,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Center(
+                                            child: _sendState == _MessageSendState.sending
+                                                ? const SizedBox(
+                                                    width: 18,
+                                                    height: 18,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: Colors.white,
+                                                    ),
+                                                  )
+                                                : Icon(
+                                                    _controller.text.trim().isEmpty && _attachmentBase64 == null
+                                                        ? Icons.mic
+                                                        : Icons.send,
+                                                    color: Colors.white,
+                                                    size: 20,
+                                                  ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                             ],
                           ),
                         ),
@@ -2482,3 +3185,121 @@ class _ChatHistoryChoicesDialogState extends State<ChatHistoryChoicesDialog> {
     );
   }
 }
+
+class _ChatBackgroundPainter extends CustomPainter {
+  const _ChatBackgroundPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFFE2E8F0).withOpacity(0.3)
+      ..strokeWidth = 1.0;
+
+    const double spacing = 20.0;
+    for (double x = 0; x < size.width; x += spacing) {
+      for (double y = 0; y < size.height; y += spacing) {
+        canvas.drawCircle(Offset(x, y), 1.0, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _TypingDots extends StatefulWidget {
+  const _TypingDots();
+
+  @override
+  State<_TypingDots> createState() => _TypingDotsState();
+}
+
+class _TypingDotsState extends State<_TypingDots> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(3, (index) {
+        return AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            final delay = index * 0.2;
+            final progress = (_controller.value - delay) % 1.0;
+            final double scale = 0.6 + 0.4 * math.sin(progress * math.pi);
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              width: 7,
+              height: 7,
+              decoration: const BoxDecoration(
+                color: Color(0xFF64748B),
+                shape: BoxShape.circle,
+              ),
+              transform: Matrix4.translationValues(0, -scale * 3 + 1.5, 0),
+            );
+          },
+        );
+      }),
+    );
+  }
+}
+
+class _ImageZoomViewer extends StatelessWidget {
+  const _ImageZoomViewer({required this.base64Image});
+
+  final String base64Image;
+
+  @override
+  Widget build(BuildContext context) {
+    Uint8List bytes;
+    try {
+      bytes = base64Decode(base64Image);
+    } catch (_) {
+      bytes = Uint8List(0);
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: () async {
+              if (bytes.isNotEmpty) {
+                await Printing.sharePdf(bytes: bytes, filename: 'shared_image.png');
+              }
+            },
+          ),
+        ],
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 4.0,
+          child: bytes.isNotEmpty
+              ? Image.memory(bytes)
+              : const Icon(Icons.broken_image, color: Colors.white54, size: 80),
+        ),
+      ),
+    );
+  }
+}
+
