@@ -2859,6 +2859,7 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
     final amountController = TextEditingController();
     final accountDetailsController = TextEditingController();
     final accountTitleController = TextEditingController();
+    final appealReasonController = TextEditingController();
     String selectedMethod = 'EasyPaisa';
     bool submitting = false;
 
@@ -3039,6 +3040,29 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                       return null;
                                     },
                                   ),
+                                  if (isAppeal) ...[
+                                    const SizedBox(height: 12),
+                                    TextFormField(
+                                      controller: appealReasonController,
+                                      enabled: !submitting,
+                                      maxLines: 3,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Reason for Appeal (Urgent Needs)',
+                                        hintText: 'Please describe the emergency reason for this appeal (minimum 5 characters)',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.comment_outlined),
+                                      ),
+                                      validator: (value) {
+                                        if (value == null || value.trim().isEmpty) {
+                                          return 'Please enter the appeal reason';
+                                        }
+                                        if (value.trim().length < 5) {
+                                          return 'Appeal reason must be at least 5 characters';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ],
                                   const SizedBox(height: 24),
 
                                   ElevatedButton(
@@ -3062,6 +3086,7 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                                 selectedMethod,
                                                 fullDetailsStr,
                                                 isAppeal: isAppeal,
+                                                appealReason: isAppeal ? appealReasonController.text.trim() : null,
                                               );
 
                                               if (context.mounted) {

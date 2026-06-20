@@ -721,7 +721,7 @@ async function syncUserSubscriptionEntitlements(userId) {
   const activeSnapshot = await db
     .collection('subscriptions')
     .where('userId', '==', userId)
-    .where('status', 'in', ['active', 'trialing'])
+    .where('status', 'in', ['active', 'trialing', 'grace_period'])
     .limit(1)
     .get();
   const active = !activeSnapshot.empty;
@@ -825,6 +825,18 @@ async function activateSubscription(basketId, transactionId, source, additionalP
     return true;
   }
 
+  // Check if transactionId has already been credited to prevent double-spend/duplicate payout
+  if (transactionId) {
+    const existingEarnings = await db.collection('therapist_earnings')
+      .where('transactionId', '==', transactionId)
+      .limit(1)
+      .get();
+    if (!existingEarnings.empty) {
+      console.log(`activateSubscription: transactionId ${transactionId} has already been credited in therapist_earnings. Skipping.`);
+      return true;
+    }
+  }
+
   // Prevent duplicate processing of the same event
   const eventKey = `${source}:${basketId}`;
   const eventId = crypto.createHash('sha256').update(eventKey).digest('hex');
@@ -844,6 +856,7 @@ async function activateSubscription(basketId, transactionId, source, additionalP
     status: 'active',
     isActive: true,
     cancelAtPeriodEnd: false,
+    gracePeriodEnd: null,
     currentPeriodEnd: admin.firestore.Timestamp.fromDate(addDays(new Date(), 30)),
     verification: {
       verifiedByHmac: source === 'webhook',
@@ -955,21 +968,49 @@ async function verifyTransactionWithGateway(trackerToken) {
 
 async function reconcileExpiredSubscriptions() {
   const now = admin.firestore.Timestamp.now();
-  const snapshot = await db
+
+  // 1. Find subscriptions with active status whose period has ended -> Move to grace_period
+  const graceSnapshot = await db
     .collection('subscriptions')
     .where('status', 'in', ['active', 'trialing'])
     .where('currentPeriodEnd', '<=', now)
     .get();
 
-  if (snapshot.empty) {
-    return { expiredCount: 0 };
+  // 2. Find subscriptions in grace_period whose gracePeriodEnd has passed -> Move to expired
+  const expiredSnapshot = await db
+    .collection('subscriptions')
+    .where('status', '==', 'grace_period')
+    .where('gracePeriodEnd', '<=', now)
+    .get();
+
+  if (graceSnapshot.empty && expiredSnapshot.empty) {
+    return { expiredCount: 0, graceCount: 0 };
   }
 
   const updatedUserIds = new Set();
   const updatedPairs = [];
   const batch = db.batch();
 
-  for (const doc of snapshot.docs) {
+  // Process transitions to grace_period
+  for (const doc of graceSnapshot.docs) {
+    const data = doc.data() || {};
+    const userId = normalizeValue(data.userId);
+    if (!userId) {
+      continue;
+    }
+    batch.set(
+      doc.ref,
+      {
+        status: 'grace_period',
+        gracePeriodEnd: admin.firestore.Timestamp.fromDate(addDays(now.toDate(), 1)),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+
+  // Process transitions to expired
+  for (const doc of expiredSnapshot.docs) {
     const data = doc.data() || {};
     const userId = normalizeValue(data.userId);
     const therapistId = normalizeValue(data.therapistId);
@@ -1001,7 +1042,10 @@ async function reconcileExpiredSubscriptions() {
     await syncUserSubscriptionEntitlements(userId);
   }
 
-  return { expiredCount: snapshot.size };
+  return {
+    expiredCount: expiredSnapshot.size,
+    graceCount: graceSnapshot.size
+  };
 }
 
 initFirebaseAdmin();
@@ -1740,7 +1784,7 @@ app.post('/api/v1/subscription/reactivate', requireAuth, async (req, res) => {
 app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
   try {
     const uid = req.user.uid;
-    const { amount, paymentMethod, accountDetails, isAppeal } = req.body || {};
+    const { amount, paymentMethod, accountDetails, isAppeal, appealReason } = req.body || {};
 
     if (!amount || !paymentMethod || !accountDetails) {
       return jsonError(res, 400, 'amount, paymentMethod, and accountDetails are required');
@@ -1773,6 +1817,9 @@ app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
     });
 
     if (isAppeal) {
+      if (!appealReason || appealReason.trim().length < 5) {
+        return jsonError(res, 400, 'appealReason is required for cooldown appeals (minimum 5 characters)');
+      }
       if (hasRecentAppeal) {
         return jsonError(res, 400, 'You have already used your 1-time appeal request for this 3-day cooldown period.');
       }
@@ -1822,6 +1869,7 @@ app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
         accountDetails,
         status: 'pending',
         isAppeal: isAppeal === true,
+        appealReason: isAppeal ? appealReason.trim() : null,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
@@ -1834,6 +1882,7 @@ app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
         accountDetails,
         status: 'pending',
         isAppeal: isAppeal === true,
+        appealReason: isAppeal ? appealReason.trim() : null,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -1921,6 +1970,23 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, async (req, res) => {
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
       }
+
+      // Create system notification for therapist
+      const notificationId = `notif_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+      const notificationRef = db.collection('notifications').doc(notificationId);
+      txn.set(notificationRef, {
+        userId: therapistId,
+        title: status === 'paid' ? 'Withdrawal Successful' : 'Withdrawal Rejected',
+        message: status === 'paid'
+          ? `Your withdrawal request for Rs. ${amount.toFixed(0)} has been processed and paid.${adminNotes ? ' Note: ' + adminNotes : ''}`
+          : `Your withdrawal request for Rs. ${amount.toFixed(0)} was rejected.${adminNotes ? ' Reason: ' + adminNotes : ''}`,
+        category: 'subscription',
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        isRead: false,
+        navigationTarget: {
+          route: 'WalletHistory',
+        },
+      });
 
       // Write admin audit log
       txn.set(db.collection('admin_audit_logs').doc(), {

@@ -932,6 +932,7 @@ class TherapistReview {
     required this.feedback,
     required this.createdAt,
     this.privateFeedback = '',
+    this.lowRatingReasons = const <String>[],
   });
 
   final String id;
@@ -942,6 +943,7 @@ class TherapistReview {
   final String feedback;
   final DateTime createdAt;
   final String privateFeedback;
+  final List<String> lowRatingReasons;
 
   factory TherapistReview.fromMap(String id, Map<String, dynamic> data) {
     return TherapistReview(
@@ -953,6 +955,7 @@ class TherapistReview {
       feedback: (data['feedback'] ?? '').toString(),
       createdAt: dateTimeFromFirestore(data['createdAt']) ?? DateTime.now(),
       privateFeedback: (data['privateFeedback'] ?? '').toString(),
+      lowRatingReasons: (data['lowRatingReasons'] as List?)?.map((e) => e.toString()).toList() ?? const <String>[],
     );
   }
 
@@ -965,6 +968,7 @@ class TherapistReview {
       'feedback': feedback,
       'createdAt': createdAt,
       'privateFeedback': privateFeedback,
+      'lowRatingReasons': lowRatingReasons,
     };
   }
 }
@@ -1313,7 +1317,7 @@ class UserSubscription {
   final bool cancelAtPeriodEnd;
   final DateTime? currentPeriodEnd;
 
-  bool get isActive => status == 'active' || status == 'trialing';
+  bool get isActive => status == 'active' || status == 'trialing' || status == 'grace_period';
 
   factory UserSubscription.fromMap(String id, Map<String, dynamic> data) {
     return UserSubscription(

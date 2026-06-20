@@ -812,22 +812,23 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   }
 
   Future<bool> _showCancelSubscriptionFlow(BuildContext dialogContext) async {
-    final confirm = await showDialog<bool>(
+    // Cancel dialog returns the selected reason string on confirm, null on dismiss
+    final selectedReason = await showDialog<String>(
       context: dialogContext,
       barrierDismissible: false,
       builder: (dialogCtx) {
         return CancelSubscriptionDialog(
           therapistName: widget.participantName,
-          onConfirmCancel: () {
-            Navigator.pop(dialogCtx, true);
+          onConfirmCancel: (reason) {
+            Navigator.pop(dialogCtx, reason);
           },
         );
       },
     );
 
-    if (confirm == true) {
+    if (selectedReason != null) {
       if (!dialogContext.mounted) return false;
-      final choice = await _showChatHistoryChoicesDialog(dialogContext);
+      final choice = await _showChatHistoryChoicesDialog(dialogContext, cancellationReason: selectedReason);
       if (choice != null) {
         if (dialogContext.mounted) {
           Navigator.pop(dialogContext); // Close details screen
@@ -861,7 +862,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     return false;
   }
 
-  Future<String?> _showChatHistoryChoicesDialog(BuildContext parentCtx) async {
+  Future<String?> _showChatHistoryChoicesDialog(BuildContext parentCtx, {String? cancellationReason}) async {
     return showDialog<String>(
       context: parentCtx,
       barrierDismissible: false,
@@ -869,6 +870,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         return ChatHistoryChoicesDialog(
           threadId: widget.thread.id,
           therapistId: widget.thread.therapistId,
+          cancellationReason: cancellationReason,
           onComplete: (choice) {
             // Handled inside choices dialog State
           },
@@ -2006,7 +2008,7 @@ class _TherapistProfileDialog extends StatelessWidget {
   }
 }
 
-class CancelSubscriptionDialog extends StatelessWidget {
+class CancelSubscriptionDialog extends StatefulWidget {
   const CancelSubscriptionDialog({
     super.key,
     required this.therapistName,
@@ -2014,7 +2016,23 @@ class CancelSubscriptionDialog extends StatelessWidget {
   });
 
   final String therapistName;
-  final VoidCallback onConfirmCancel;
+  final ValueChanged<String> onConfirmCancel;
+
+  @override
+  State<CancelSubscriptionDialog> createState() => _CancelSubscriptionDialogState();
+}
+
+class _CancelSubscriptionDialogState extends State<CancelSubscriptionDialog> {
+  String _selectedReason = 'Price is too high';
+
+  final List<String> _cancellationReasons = [
+    'Price is too high',
+    'No longer need the service',
+    'Not satisfied with therapist response time',
+    'Therapist was not helpful',
+    'Technical issues / App glitching',
+    'Other reason',
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -2063,6 +2081,31 @@ class CancelSubscriptionDialog extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
+                
+                // Dropdown of churn reasons
+                DropdownButtonFormField<String>(
+                  value: _selectedReason,
+                  decoration: const InputDecoration(
+                    labelText: 'Reason for Cancellation',
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  items: _cancellationReasons.map((reason) {
+                    return DropdownMenuItem<String>(
+                      value: reason,
+                      child: Text(reason, style: const TextStyle(fontSize: 13.5)),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() {
+                        _selectedReason = val;
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+
                 // Warning note box
                 Container(
                   padding: const EdgeInsets.all(12),
@@ -2122,7 +2165,9 @@ class CancelSubscriptionDialog extends StatelessWidget {
                     const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: onConfirmCancel,
+                        onPressed: () {
+                          widget.onConfirmCancel(_selectedReason);
+                        },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFEF4444),
                           foregroundColor: Colors.white,
@@ -2155,11 +2200,13 @@ class ChatHistoryChoicesDialog extends StatefulWidget {
     this.threadId,
     required this.therapistId,
     required this.onComplete,
+    this.cancellationReason,
   });
 
   final String? threadId;
   final String therapistId;
   final Function(String choice) onComplete;
+  final String? cancellationReason;
 
   @override
   State<ChatHistoryChoicesDialog> createState() => _ChatHistoryChoicesDialogState();
@@ -2181,6 +2228,7 @@ class _ChatHistoryChoicesDialogState extends State<ChatHistoryChoicesDialog> {
       await AppRepositories.billing.cancelSubscriptionInStore(
         widget.therapistId,
         keepAndLockChats: choice == 'keep',
+        reason: widget.cancellationReason,
       );
 
       // 2. Modify static sets so the changes reflect immediately in parent home

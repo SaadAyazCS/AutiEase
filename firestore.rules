@@ -112,13 +112,18 @@ service cloud.firestore {
         allow read: if isThreadParticipant(
           get(/databases/$(database)/documents/therapist_threads/$(threadId)).data
         );
-        allow create: if isThreadParticipant(
-            get(/databases/$(database)/documents/therapist_threads/$(threadId)).data
+        allow create: if (
+            isThreadParticipant(get(/databases/$(database)/documents/therapist_threads/$(threadId)).data) ||
+            isThreadParticipant(getAfter(/databases/$(database)/documents/therapist_threads/$(threadId)).data)
           ) &&
-          request.resource.data.senderId == request.auth.uid &&
           (
-            (isParent() && request.resource.data.senderRole == 'parent') ||
-            (isTherapist() && request.resource.data.senderRole == 'therapist')
+            (request.resource.data.senderId == request.auth.uid &&
+             ((isParent() && request.resource.data.senderRole == 'parent') ||
+              (isTherapist() && request.resource.data.senderRole == 'therapist')))
+            ||
+            (isParent() &&
+             request.resource.data.body == "Hi! Thank you for subscribing to my support plan. Please tell me a bit about your child's goals so we can get started!" &&
+             request.resource.data.senderRole == 'therapist')
           );
         allow delete: if isParent() &&
           get(/databases/$(database)/documents/therapist_threads/$(threadId)).data.parentId == request.auth.uid;
@@ -179,6 +184,11 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if isParent();
       allow update, delete: if isAdmin() || (signedIn() && resource.data.parentId == request.auth.uid);
+    }
+
+    match /cancellation_analytics/{analyticsId} {
+      allow create: if signedIn();
+      allow read: if isAdmin();
     }
 
     match /reports/{reportId} {

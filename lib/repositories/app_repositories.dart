@@ -130,6 +130,7 @@ abstract class SupportRepository {
     required int rating,
     required String feedback,
     String privateFeedback = '',
+    List<String> lowRatingReasons = const <String>[],
   });
   Stream<List<TherapistReview>> watchReviewsForTherapist(String therapistId);
 
@@ -194,13 +195,13 @@ abstract class BillingRepository {
   Future<bool> purchaseTherapistSubscription(String therapistId, {int packageIndex = 0, bool Function()? isCancelledCheck, void Function()? onUrlLaunched});
   Future<String?> prepareCheckoutUrl(String therapistId, {int packageIndex = 0});
   Future<void> deletePendingSubscription(String therapistId);
-  Future<void> cancelSubscriptionInStore(String therapistId, {required bool keepAndLockChats});
+  Future<void> cancelSubscriptionInStore(String therapistId, {required bool keepAndLockChats, String? reason});
   Future<void> reactivateSubscriptionInStore(String therapistId);
   Future<void> syncSubscriptionStatus(String therapistId);
 
   // Therapist Wallet Operations
   Future<Map<String, dynamic>> getTherapistWallet(String therapistId);
-  Future<void> requestWithdrawal(String therapistId, double amount, String paymentMethod, String accountDetails, {bool isAppeal = false});
+  Future<void> requestWithdrawal(String therapistId, double amount, String paymentMethod, String accountDetails, {bool isAppeal = false, String? appealReason});
 
   // Ledgers
   Future<List<Map<String, dynamic>>> getTherapistTransactions(String therapistId);
@@ -1326,6 +1327,7 @@ class FirebaseSupportRepository implements SupportRepository {
     final ref = _firestore
         .collection(FirestoreCollections.therapistThreads)
         .doc();
+    final welcomeMsg = "Hi! Thank you for subscribing to my support plan. Please tell me a bit about your child's goals so we can get started!";
     final thread = TherapistThread(
       id: ref.id,
       parentId: parentId,
@@ -1335,15 +1337,29 @@ class FirebaseSupportRepository implements SupportRepository {
       status: 'active',
       parentDisplayName: parentDisplayName,
       therapistDisplayName: therapistDisplayName,
+      lastMessagePreview: welcomeMsg,
       lastMessageAt: DateTime.now(),
       emergencyStatus: 'none',
       postCancelVisible: true,
     );
-    await ref.set({
+
+    final batch = _firestore.batch();
+    batch.set(ref, {
       ...thread.toMap(),
       'lastMessageAt': FieldValue.serverTimestamp(),
       'createdAt': FieldValue.serverTimestamp(),
     });
+
+    final welcomeMsgRef = ref.collection('messages').doc();
+    batch.set(welcomeMsgRef, {
+      'senderId': therapistId,
+      'senderRole': 'therapist',
+      'body': welcomeMsg,
+      'sentAt': FieldValue.serverTimestamp(),
+      'status': 'sent',
+    });
+
+    await batch.commit();
 
     try {
       final therapistUserDoc = await _firestore.collection(FirestoreCollections.users).doc(therapistId).get();
@@ -1497,6 +1513,7 @@ class FirebaseSupportRepository implements SupportRepository {
     required int rating,
     required String feedback,
     String privateFeedback = '',
+    List<String> lowRatingReasons = const <String>[],
   }) async {
     final parentId = _auth.currentUser?.uid;
     if (parentId == null) throw StateError('No logged in user');
@@ -1515,6 +1532,7 @@ class FirebaseSupportRepository implements SupportRepository {
       feedback: feedback,
       createdAt: DateTime.now(),
       privateFeedback: privateFeedback,
+      lowRatingReasons: lowRatingReasons,
     );
     await reviewRef.set({
       ...review.toMap(),
@@ -1889,7 +1907,7 @@ class FirebaseBillingRepository implements BillingRepository {
     final activeSnapshot = await _firestore
         .collection(FirestoreCollections.subscriptions)
         .where('userId', isEqualTo: userId)
-        .where('status', whereIn: const ['active', 'trialing'])
+        .where('status', whereIn: const ['active', 'trialing', 'grace_period'])
         .limit(1)
         .get();
     final hasActive = activeSnapshot.docs.isNotEmpty;
@@ -2135,6 +2153,7 @@ class FirebaseBillingRepository implements BillingRepository {
   Future<void> cancelSubscriptionInStore(
     String therapistId, {
     required bool keepAndLockChats,
+    String? reason,
   }) async {
     final normalizedTherapistId = therapistId.trim();
     if (normalizedTherapistId.isEmpty) {
@@ -2142,6 +2161,19 @@ class FirebaseBillingRepository implements BillingRepository {
     }
     final userId = _requireAuthenticatedUser(action: 'manage subscriptions');
     final docId = _subscriptionDocId(userId, normalizedTherapistId);
+
+    if (reason != null && reason.trim().isNotEmpty) {
+      try {
+        await _firestore.collection('cancellation_analytics').add({
+          'parentId': userId,
+          'therapistId': normalizedTherapistId,
+          'reason': reason.trim(),
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        debugPrint('Failed to log cancellation analytics: $e');
+      }
+    }
 
     if (AppRuntimeConfig.bypassProSupportPaywall) {
       // In bypass mode, update Firestore directly to cancel
@@ -2263,6 +2295,7 @@ class FirebaseBillingRepository implements BillingRepository {
     String paymentMethod,
     String accountDetails, {
     bool isAppeal = false,
+    String? appealReason,
   }) async {
     if (AppRuntimeConfig.bypassProSupportPaywall) {
       final normalizedId = therapistId.trim();
@@ -2287,6 +2320,7 @@ class FirebaseBillingRepository implements BillingRepository {
           'accountDetails': accountDetails,
           'status': 'pending',
           'isAppeal': isAppeal,
+          'appealReason': appealReason,
           'createdAt': DateTime.now().millisecondsSinceEpoch,
         });
         await prefs.setString(key, jsonEncode(list));
@@ -2305,6 +2339,7 @@ class FirebaseBillingRepository implements BillingRepository {
       paymentMethod: paymentMethod,
       accountDetails: accountDetails,
       isAppeal: isAppeal,
+      appealReason: appealReason,
     );
   }
 
@@ -2414,7 +2449,7 @@ class FirebaseAdminRepository implements AdminRepository {
 
     final subsSnap = await _firestore
         .collection(FirestoreCollections.subscriptions)
-        .where('status', whereIn: ['active', 'trialing'])
+        .where('status', whereIn: ['active', 'trialing', 'grace_period'])
         .get();
 
     final reportsSnap = await _firestore.collection('reports').get();

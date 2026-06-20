@@ -748,18 +748,18 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
 
   Future<bool> _cancelTherapistSubscription(TherapistProfile therapist) async {
     // 1. Show the Warning Dialog
-    final confirm = await showDialog<bool>(
+    final cancelReason = await showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (dialogCtx) {
         return CancelSubscriptionDialog(
           therapistName: therapist.displayName,
-          onConfirmCancel: () => Navigator.pop(dialogCtx, true),
+          onConfirmCancel: (reason) => Navigator.pop(dialogCtx, reason),
         );
       },
     );
 
-    if (confirm != true) return false;
+    if (cancelReason == null) return false;
 
     // 2. Show the Chat History Choices Dialog
     if (!mounted) return false;
@@ -769,6 +769,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
       builder: (dialogCtx) {
         return ChatHistoryChoicesDialog(
           therapistId: therapist.id,
+          cancellationReason: cancelReason,
           onComplete: (choice) {
             // Handled inside choices dialog State
           },
@@ -814,6 +815,14 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
     int selectedRating = 5;
     final publicController = TextEditingController();
     final privateController = TextEditingController();
+    final List<String> lowRatingOptions = const [
+      'Poor communication',
+      'Unhelpful advice',
+      'Slow response times',
+      'Lack of empathy',
+      'Technical issues',
+    ];
+    final Set<String> selectedReasons = <String>{};
 
     showDialog<void>(
       context: context,
@@ -864,6 +873,41 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                         );
                       }),
                     ),
+                    if (selectedRating <= 2) ...[
+                      const SizedBox(height: 16),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'What went wrong? (Select all that apply)',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF374151),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ...lowRatingOptions.map((option) {
+                        final isChecked = selectedReasons.contains(option);
+                        return CheckboxListTile(
+                          title: Text(option, style: const TextStyle(fontSize: 13)),
+                          value: isChecked,
+                          dense: true,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          contentPadding: EdgeInsets.zero,
+                          activeColor: const Color(0xFF00C853),
+                          onChanged: (val) {
+                            setDialogState(() {
+                              if (val == true) {
+                                selectedReasons.add(option);
+                              } else {
+                                selectedReasons.remove(option);
+                              }
+                            });
+                          },
+                        );
+                      }),
+                    ],
                     const SizedBox(height: 16),
                     TextField(
                       controller: publicController,
@@ -906,6 +950,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                         rating: selectedRating,
                         feedback: publicController.text.trim(),
                         privateFeedback: privateController.text.trim(),
+                        lowRatingReasons: selectedRating <= 2 ? selectedReasons.toList() : const [],
                       );
                       if (ctx.mounted) {
                         Navigator.pop(ctx);
@@ -1708,6 +1753,7 @@ class SupportTherapistDetailsScreenState
     extends State<SupportTherapistDetailsScreen> {
   late bool _isSubscribed;
   bool _isSubscribing = false;
+  bool _isSwitching = false;
   bool _loadingTherapistMeta = true;
   int _yearsFromProfile = 0;
   int _monthsFromProfile = 0;
@@ -1845,6 +1891,79 @@ class SupportTherapistDetailsScreenState
     });
   }
 
+  int? _getPackageIndex(UserSubscription? sub) {
+    if (sub == null) return null;
+    final prodId = sub.productId;
+    if (prodId.startsWith('auto_${widget.therapist.id}_')) {
+      final parts = prodId.split('_');
+      if (parts.length >= 3) {
+        return int.tryParse(parts.last);
+      }
+    } else if (prodId == 'bypass-plan' || prodId == 'local-bypass' || prodId == 'cached-offline') {
+      return 0;
+    }
+    return null;
+  }
+
+  Future<void> _switchPackage(int newPackageIndex) async {
+    if (!mounted) return;
+    setState(() {
+      _isSwitching = true;
+    });
+
+    try {
+      // 1. Cancel existing subscription silently (keep and lock chats to preserve history)
+      await AppRepositories.billing.cancelSubscriptionInStore(
+        widget.therapist.id,
+        keepAndLockChats: true,
+      );
+
+      // 2. Open checkout for the new package via widget.onSubscribe
+      if (mounted) {
+        final success = await widget.onSubscribe(newPackageIndex);
+        if (mounted) {
+          if (!success) {
+            // If checkout failed or was cancelled, restore subscription status (silently sync back)
+            await AppRepositories.billing.syncSubscriptionStatus(widget.therapist.id);
+            final sub = await AppRepositories.billing.getSubscriptionForTherapist(widget.therapist.id);
+            setState(() {
+              _isSubscribed = sub != null && sub.isActive;
+              if (_isSubscribed) {
+                _subscribedPackageIndex = _getPackageIndex(sub);
+              } else {
+                _subscribedPackageIndex = null;
+              }
+            });
+          } else {
+            // Switch succeeded! The subscription is active. Sync local state.
+            final sub = await AppRepositories.billing.getSubscriptionForTherapist(widget.therapist.id);
+            setState(() {
+              _isSubscribed = true;
+              if (sub != null) {
+                _subscribedPackageIndex = _getPackageIndex(sub);
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to switch package: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSwitching = false;
+        });
+      }
+    }
+  }
+
   Future<void> _viewCertificate() async {
     if (_certificateBase64 == null || _certificateBase64!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1881,8 +2000,10 @@ class SupportTherapistDetailsScreenState
     final safePackageIndex = _selectedPackageIndexWithin(visiblePackages.length);
     final selectedPackage = visiblePackages.isNotEmpty ? visiblePackages[safePackageIndex] : null;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF1F5F3),
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: const Color(0xFFF1F5F3),
       body: SafeArea(
         child: Column(
           children: [
@@ -2123,6 +2244,18 @@ class SupportTherapistDetailsScreenState
                               }
                               setState(() => _activePackageIndex = index);
                             },
+                            onSwitchPackage: (newIndex) {
+                              _switchPackage(newIndex);
+                            },
+                            onManageSubscription: () {
+                              Navigator.pop(context); // Pop therapist details screen
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ParentSubscriptionsHistoryScreen(),
+                                ),
+                              );
+                            },
                           ),
                         const SizedBox(height: 12),
                         if (visiblePackages.isNotEmpty && selectedPackage != null) ...[
@@ -2260,8 +2393,21 @@ class SupportTherapistDetailsScreenState
           ],
         ),
       ),
-    );
-  }
+    ),
+    if (_isSwitching)
+      Positioned.fill(
+        child: Container(
+          color: Colors.black.withOpacity(0.5),
+          child: const Center(
+            child: CircularProgressIndicator(
+              color: Color(0xFF00C853),
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
 }
 
 class _PackageSelectionList extends StatelessWidget {
@@ -2271,6 +2417,8 @@ class _PackageSelectionList extends StatelessWidget {
     required this.onPackageSelected,
     this.subscribedPackageIndex,
     required this.isSubscribed,
+    required this.onSwitchPackage,
+    required this.onManageSubscription,
   });
 
   final List<_SupportServicePackage> packages;
@@ -2278,6 +2426,8 @@ class _PackageSelectionList extends StatelessWidget {
   final ValueChanged<int> onPackageSelected;
   final int? subscribedPackageIndex;
   final bool isSubscribed;
+  final ValueChanged<int> onSwitchPackage;
+  final VoidCallback onManageSubscription;
 
   @override
   Widget build(BuildContext context) {
@@ -2301,20 +2451,37 @@ class _PackageSelectionList extends StatelessWidget {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         title: const Row(
                           children: [
-                            Icon(Icons.lock_outline, color: Colors.orange, size: 24),
+                            Icon(Icons.swap_horiz, color: Colors.orange, size: 24),
                             SizedBox(width: 8),
-                            Text('Package Locked', style: TextStyle(fontWeight: FontWeight.bold)),
+                            Text('Switch Package?', style: TextStyle(fontWeight: FontWeight.bold)),
                           ],
                         ),
                         content: const Text(
                           'You already have an active subscription to one of this therapist\'s packages. '
-                          'Please cancel your existing subscription or wait for it to complete before subscribing to another package.',
+                          'Would you like to switch to this package? This will cancel your existing subscription and start checkout for the new package.',
                           style: TextStyle(fontSize: 14),
                         ),
                         actions: [
                           TextButton(
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              onManageSubscription();
+                            },
+                            child: const Text('Manage Active Subscription', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                          ),
+                          TextButton(
                             onPressed: () => Navigator.pop(ctx),
-                            child: const Text('OK', style: TextStyle(color: Color(0xFF00C853), fontWeight: FontWeight.bold)),
+                            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                          ),
+                          ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              onSwitchPackage(i);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF00C853),
+                            ),
+                            child: const Text('Switch Plan', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                           ),
                         ],
                       );
@@ -3010,18 +3177,18 @@ class _ParentSubscriptionsHistoryScreenState
 
   Future<void> _cancelSubscription(TherapistProfile therapist) async {
     // 1. Show the Warning Dialog
-    final confirm = await showDialog<bool>(
+    final cancelReason = await showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (dialogCtx) {
         return CancelSubscriptionDialog(
           therapistName: therapist.displayName,
-          onConfirmCancel: () => Navigator.pop(dialogCtx, true),
+          onConfirmCancel: (reason) => Navigator.pop(dialogCtx, reason),
         );
       },
     );
 
-    if (confirm != true) return;
+    if (cancelReason == null) return;
 
     // 2. Show the Chat History Choices Dialog
     if (!mounted) return;
@@ -3031,6 +3198,7 @@ class _ParentSubscriptionsHistoryScreenState
       builder: (dialogCtx) {
         return ChatHistoryChoicesDialog(
           therapistId: therapist.id,
+          cancellationReason: cancelReason,
           onComplete: (choice) {
             // Handled inside choices dialog State
           },
@@ -3090,6 +3258,14 @@ class _ParentSubscriptionsHistoryScreenState
     int selectedRating = 5;
     final publicController = TextEditingController();
     final privateController = TextEditingController();
+    final List<String> lowRatingOptions = const [
+      'Poor communication',
+      'Unhelpful advice',
+      'Slow response times',
+      'Lack of empathy',
+      'Technical issues',
+    ];
+    final Set<String> selectedReasons = <String>{};
 
     showDialog<void>(
       context: context,
@@ -3140,6 +3316,41 @@ class _ParentSubscriptionsHistoryScreenState
                         );
                       }),
                     ),
+                    if (selectedRating <= 2) ...[
+                      const SizedBox(height: 16),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'What went wrong? (Select all that apply)',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF374151),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ...lowRatingOptions.map((option) {
+                        final isChecked = selectedReasons.contains(option);
+                        return CheckboxListTile(
+                          title: Text(option, style: const TextStyle(fontSize: 13)),
+                          value: isChecked,
+                          dense: true,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          contentPadding: EdgeInsets.zero,
+                          activeColor: const Color(0xFF00C853),
+                          onChanged: (val) {
+                            setDialogState(() {
+                              if (val == true) {
+                                selectedReasons.add(option);
+                              } else {
+                                selectedReasons.remove(option);
+                              }
+                            });
+                          },
+                        );
+                      }),
+                    ],
                     const SizedBox(height: 16),
                     TextField(
                       controller: publicController,
@@ -3182,6 +3393,7 @@ class _ParentSubscriptionsHistoryScreenState
                         rating: selectedRating,
                         feedback: publicController.text.trim(),
                         privateFeedback: privateController.text.trim(),
+                        lowRatingReasons: selectedRating <= 2 ? selectedReasons.toList() : const [],
                       );
                       if (ctx.mounted) {
                         Navigator.pop(ctx);
@@ -3287,6 +3499,9 @@ class _ParentSubscriptionsHistoryScreenState
     if (sub.status == 'active') {
       statusColor = sub.cancelAtPeriodEnd ? Colors.red : const Color(0xFF00C853);
       statusText = sub.cancelAtPeriodEnd ? 'Canceled' : 'Active';
+    } else if (sub.status == 'grace_period') {
+      statusColor = const Color(0xFFF08C00);
+      statusText = 'Grace Period';
     } else if (sub.status == 'pending') {
       statusColor = Colors.orange;
       statusText = 'Pending Verification';
@@ -3403,6 +3618,29 @@ class _ParentSubscriptionsHistoryScreenState
                         ),
                 ),
               ],
+            ),
+          ],
+          if (sub.status == 'grace_period') ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF9DB),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFFEC99)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Color(0xFFF08C00), size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Your renewal failed. You have a 24-hour grace period to retry payment before your subscription expires.',
+                      style: TextStyle(color: Color(0xFFE67700), fontSize: 12, fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
           if (sub.status == 'pending' || sub.status == 'payment_failed') ...[
