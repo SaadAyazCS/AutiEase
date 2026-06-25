@@ -149,6 +149,24 @@ async function requireAuth(req, res, next) {
   }
 }
 
+async function requireAdmin(req, res, next) {
+  try {
+    const uid = req.user.uid;
+    if (!uid) {
+      return jsonError(res, 401, 'Unauthorized: No UID in request');
+    }
+    const adminDoc = await db.collection('users').doc(uid).get();
+    const adminData = adminDoc.data() || {};
+    if (!adminDoc.exists || adminData.role !== 'admin') {
+      return jsonError(res, 403, 'Admin access required');
+    }
+    return next();
+  } catch (error) {
+    console.error('Admin verification failed:', error?.message || error);
+    return jsonError(res, 500, 'Internal error verifying admin status');
+  }
+}
+
 function resolveCheckoutBaseUrl(req) {
   const explicit = normalizeBaseUrl(process.env.PAYMENT_REDIRECT_BASE_URL || process.env.BACKEND_PUBLIC_BASE_URL);
   if (explicit) {
@@ -1086,7 +1104,7 @@ app.get('/health', (_req, res) => {
   res.status(200).json({ ok: true, service: 'autiease-payment-backend', provider: 'safepay', mock: mockPaymentsEnabled, version: '1.1.1-safepay-test-endpoint' });
 });
 
-app.get('/api/v1/test-tracker/:tracker_token', async (req, res) => {
+app.get('/api/v1/test-tracker/:tracker_token', requireAuth, requireAdmin, async (req, res) => {
   const token = req.params.tracker_token;
   try {
     const gatewayVerification = await verifyTransactionWithGateway(token);
@@ -1096,7 +1114,7 @@ app.get('/api/v1/test-tracker/:tracker_token', async (req, res) => {
   }
 });
 
-app.get('/api/v1/diagnose-keys', async (req, res) => {
+app.get('/api/v1/diagnose-keys', requireAuth, requireAdmin, async (req, res) => {
   try {
     const mask = (str) => {
       if (!str) return 'not set';
@@ -1908,7 +1926,7 @@ app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
 
 // Admin resolve withdrawal request endpoint
 // Requires admin Firebase Auth token with admin custom claim (role==='admin')
-app.post('/api/v1/admin/withdraw/resolve', requireAuth, async (req, res) => {
+app.post('/api/v1/admin/withdraw/resolve', requireAuth, requireAdmin, async (req, res) => {
   try {
     const uid = req.user.uid;
     const { requestId, status, adminNotes } = req.body || {};
@@ -1918,13 +1936,6 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, async (req, res) => {
     }
     if (!['paid', 'rejected'].includes(status)) {
       return jsonError(res, 400, 'status must be either paid or rejected');
-    }
-
-    // Verify admin role from Firestore (since custom claims may not always be set)
-    const adminDoc = await db.collection('users').doc(uid).get();
-    const adminData = adminDoc.data() || {};
-    if (!adminDoc.exists || adminData.role !== 'admin') {
-      return jsonError(res, 403, 'Admin access required');
     }
 
     const requestRef = db.collection('withdrawal_requests').doc(requestId);

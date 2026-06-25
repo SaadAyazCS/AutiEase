@@ -33,8 +33,11 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
-      allow update: if signedIn() && (request.auth.uid == userId || isAdmin());
-      allow create, delete: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn() && request.auth.uid == userId &&
+        (!('role' in request.resource.data) || request.resource.data.role != 'admin' || request.auth.token.email == 'admin@autiease.com');
+      allow update: if signedIn() && (request.auth.uid == userId || isAdmin()) &&
+        (request.resource.data.role == resource.data.role || request.resource.data.role != 'admin' || request.auth.token.email == 'admin@autiease.com' || isAdmin());
+      allow delete: if signedIn() && request.auth.uid == userId;
     }
 
     match /child_profiles/{childId} {
@@ -51,8 +54,12 @@ service cloud.firestore {
 
     match /therapist_profiles/{therapistId} {
       allow read: if signedIn();
-      allow create: if isTherapist() && request.auth.uid == therapistId;
-      allow update: if (isTherapist() && request.auth.uid == therapistId) || isAdmin();
+      allow create: if (isTherapist() && request.auth.uid == therapistId &&
+        (!('verificationStatus' in request.resource.data) || request.resource.data.verificationStatus == 'pending') &&
+        (!('verifiedBadge' in request.resource.data) || request.resource.data.verifiedBadge == false)) || isAdmin();
+      allow update: if (isTherapist() && request.auth.uid == therapistId &&
+        (!('verificationStatus' in request.resource.data) || request.resource.data.verificationStatus == resource.data.verificationStatus) &&
+        (!('verifiedBadge' in request.resource.data) || request.resource.data.verifiedBadge == resource.data.verifiedBadge)) || isAdmin();
       allow delete: if signedIn() && request.auth.uid == therapistId;
     }
 
@@ -75,19 +82,19 @@ service cloud.firestore {
     match /dashboard_snapshots/{childId} {
       allow read: if ownsChild(childId) || isTherapist();
       allow create, update: if ownsChild(childId);
-      allow delete: if isParent() && get(/databases/$(database)/documents/child_profiles/$(childId)).data.parentId == request.auth.uid;
+      allow delete: if ownsChild(childId);
     }
 
     match /mood_logs/{logId} {
       allow read: if signedIn();
-      allow create: if isParent();
+      allow create: if isParent() && request.resource.data.parentId == request.auth.uid;
       allow delete: if isParent() && resource.data.parentId == request.auth.uid;
     }
 
     match /activity_progress/{progressId} {
       allow read: if signedIn();
-      allow create: if signedIn();
-      allow delete: if isParent() && get(/databases/$(database)/documents/child_profiles/$(resource.data.childId)).data.parentId == request.auth.uid;
+      allow create: if signedIn() && ownsChild(request.resource.data.childId);
+      allow delete: if ownsChild(resource.data.childId);
     }
 
     match /communication_sentence_settings/{childId}/items/{settingId} {
@@ -177,16 +184,15 @@ service cloud.firestore {
     }
 
     match /feedback/{feedbackId} {
-      allow create: if signedIn();
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
       allow read: if isAdmin();
       allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     match /learning_metrics/{metricId} {
-      allow create: if isParent();
+      allow create: if isParent() && ownsChild(request.resource.data.childId);
       allow read: if isTherapist();
-      allow delete: if isParent() &&
-        get(/databases/$(database)/documents/child_profiles/$(resource.data.childId)).data.parentId == request.auth.uid;
+      allow delete: if isParent() && ownsChild(resource.data.childId);
     }
 
     match /therapist_reviews/{reviewId} {
@@ -225,7 +231,14 @@ service cloud.firestore {
 
     match /notifications/{notificationId} {
       allow read, update: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if signedIn() && (isAdmin() || request.resource.data.userId == request.auth.uid);
+      allow create: if signedIn() && (
+        isAdmin() ||
+        request.resource.data.userId == request.auth.uid ||
+        (isParent() &&
+         request.resource.data.category == 'reviews' &&
+         request.resource.data.title == '📅 New Connection Request!' &&
+         request.resource.data.isRead == false)
+      );
       allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
     }
   }
