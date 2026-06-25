@@ -878,99 +878,142 @@ async function activateSubscription(basketId, transactionId, source, additionalP
     return true;
   }
 
-  // Check if transactionId has already been credited to prevent double-spend/duplicate payout
-  if (transactionId) {
-    const existingEarnings = await db.collection('therapist_earnings')
-      .where('transactionId', '==', transactionId)
-      .limit(1)
-      .get();
-    if (!existingEarnings.empty) {
-      console.log(`activateSubscription: transactionId ${transactionId} has already been credited in therapist_earnings. Skipping.`);
+  const earningsId = `earn_${basketId}`;
+  const earningsRef = db.collection('therapist_earnings').doc(earningsId);
+  const subscriptionRef = subscriptionDoc.ref;
+  const therapistRef = therapistId ? db.collection('therapist_profiles').doc(therapistId) : null;
+  const userRef = subscriptionUserId ? db.collection('users').doc(subscriptionUserId) : null;
+
+  try {
+    const txnResult = await db.runTransaction(async (txn) => {
+      // 1. Perform ALL reads first
+      const earningsSnap = await txn.get(earningsRef);
+      if (earningsSnap.exists && earningsSnap.data().status === 'completed') {
+        console.log(`activateSubscription: transaction ${earningsId} already processed (earnings doc exists). Skipping.`);
+        return { alreadyProcessed: true };
+      }
+
+      // Check if transactionId has already been credited via a query inside the transaction
+      if (transactionId) {
+        const query = db.collection('therapist_earnings')
+          .where('transactionId', '==', transactionId)
+          .limit(1);
+        const existingEarnings = await txn.get(query);
+        if (!existingEarnings.empty) {
+          console.log(`activateSubscription: transactionId ${transactionId} has already been credited in therapist_earnings. Skipping.`);
+          return { alreadyProcessed: true };
+        }
+      }
+
+      // Get latest therapist data for balance calculations
+      let previousBalance = 0;
+      let therapistName = 'Therapist';
+      if (therapistRef) {
+        const therapistSnap = await txn.get(therapistRef);
+        if (therapistSnap.exists) {
+          previousBalance = parseFloat(therapistSnap.data().walletBalance) || 0;
+          therapistName = therapistSnap.data().displayName || 'Therapist';
+        }
+      }
+
+      // Get parent name for earnings record
+      let parentName = 'Parent';
+      if (userRef) {
+        const userSnap = await txn.get(userRef);
+        if (userSnap.exists) {
+          parentName = userSnap.data().displayName || userSnap.data().email || 'Parent';
+        }
+      }
+
+      // Double-check the latest subscription status inside the transaction
+      const subSnap = await txn.get(subscriptionRef);
+      const subData = subSnap.data() || {};
+      if (subData.status === 'active' && subData.isActive === true) {
+        console.log(`activateSubscription: subscription for basket ${basketId} became active during transaction execution. Skipping.`);
+        return { alreadyProcessed: true };
+      }
+
+      // 2. Perform all writes
+      const { safepayFee, platformFee, netAmount } = calculateFees(amount, additionalPayload);
+      const newBalance = previousBalance + netAmount;
+
+      // Update subscription
+      txn.set(subscriptionRef, {
+        provider: 'safepay',
+        providerTransactionId: transactionId || basketId,
+        lastPaymentRef: transactionId || basketId,
+        status: 'active',
+        isActive: true,
+        cancelAtPeriodEnd: false,
+        gracePeriodEnd: null,
+        currentPeriodEnd: admin.firestore.Timestamp.fromDate(addDays(new Date(), 30)),
+        verification: {
+          verifiedByHmac: source === 'webhook',
+          verifiedBySuccessRedirect: source === 'success_redirect',
+          verifiedByFailureRedirectDoubleCheck: source === 'failure_redirect_doublecheck',
+          verifiedByGateway: source === 'status_check',
+          status: source,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      // Record earnings if therapist exists
+      if (therapistId && amount > 0 && therapistRef) {
+        txn.set(earningsRef, {
+          therapistId,
+          userId: subscriptionUserId,
+          parentName,
+          subscriptionId: subscriptionDoc.id,
+          type: 'subscription',
+          grossAmount: amount,
+          safepayFee,
+          platformFee,
+          netAmount,
+          amount: netAmount,
+          basketId,
+          transactionId: transactionId || basketId,
+          status: 'completed',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        txn.set(therapistRef, {
+          walletBalance: admin.firestore.FieldValue.increment(netAmount),
+          totalEarnings: admin.firestore.FieldValue.increment(netAmount),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        txn.set(db.collection('wallet_ledger').doc(), {
+          therapistId,
+          amount: netAmount,
+          type: 'credit',
+          referenceId: basketId,
+          previousBalance,
+          newBalance,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        txn.set(db.collection('platform_revenue').doc('summary'), {
+          totalRevenue: admin.firestore.FieldValue.increment(platformFee),
+          lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+
+      return { alreadyProcessed: false };
+    });
+
+    if (txnResult.alreadyProcessed) {
       return true;
     }
+  } catch (error) {
+    console.error('activateSubscription transaction error:', error?.message || error);
+    throw error;
   }
 
   // Prevent duplicate processing of the same event
   const eventKey = `${source}:${basketId}`;
   const eventId = crypto.createHash('sha256').update(eventKey).digest('hex');
-  const wasInserted = await markPaymentEventProcessed(eventId, { ...additionalPayload, source });
-  if (!wasInserted) {
-    console.log(`activateSubscription: event ${eventId} already processed, skipping.`);
-    return true;
-  }
-
-  const { safepayFee, platformFee, netAmount } = calculateFees(amount, additionalPayload);
-  const batch = db.batch();
-
-  batch.set(subscriptionDoc.ref, {
-    provider: 'safepay',
-    providerTransactionId: transactionId || basketId,
-    lastPaymentRef: transactionId || basketId,
-    status: 'active',
-    isActive: true,
-    cancelAtPeriodEnd: false,
-    gracePeriodEnd: null,
-    currentPeriodEnd: admin.firestore.Timestamp.fromDate(addDays(new Date(), 30)),
-    verification: {
-      verifiedByHmac: source === 'webhook',
-      verifiedBySuccessRedirect: source === 'success_redirect',
-      verifiedByFailureRedirectDoubleCheck: source === 'failure_redirect_doublecheck',
-      verifiedByGateway: source === 'status_check',
-      status: source,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    },
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  }, { merge: true });
-
-  // Record earnings if therapist exists
-  if (therapistId && amount > 0) {
-    const therapistDoc = await db.collection('therapist_profiles').doc(therapistId).get();
-    const previousBalance = therapistDoc.exists ? (parseFloat(therapistDoc.data().walletBalance) || 0) : 0;
-    const newBalance = previousBalance + netAmount;
-
-    const userSnap = await db.collection('users').doc(subscriptionUserId).get();
-    const parentName = userSnap.exists ? (userSnap.data().displayName || userSnap.data().email || 'Parent') : 'Parent';
-    const earningsId = `earn_${basketId}`;
-    batch.set(db.collection('therapist_earnings').doc(earningsId), {
-      therapistId,
-      userId: subscriptionUserId,
-      parentName,
-      subscriptionId: subscriptionDoc.id,
-      type: 'subscription',
-      grossAmount: amount,
-      safepayFee,
-      platformFee,
-      netAmount,
-      amount: netAmount,
-      basketId,
-      transactionId: transactionId || basketId,
-      status: 'completed',
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    batch.set(db.collection('therapist_profiles').doc(therapistId), {
-      walletBalance: admin.firestore.FieldValue.increment(netAmount),
-      totalEarnings: admin.firestore.FieldValue.increment(netAmount),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
-
-    batch.set(db.collection('wallet_ledger').doc(), {
-      therapistId,
-      amount: netAmount,
-      type: 'credit',
-      referenceId: basketId,
-      previousBalance,
-      newBalance,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    batch.set(db.collection('platform_revenue').doc('summary'), {
-      totalRevenue: admin.firestore.FieldValue.increment(platformFee),
-      lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
-  }
-
-  await batch.commit();
+  await markPaymentEventProcessed(eventId, { ...additionalPayload, source });
 
   if (subscriptionUserId && therapistId) {
     await updateTherapistThreadAccess(subscriptionUserId, therapistId, true);
@@ -1621,6 +1664,14 @@ async function processTransactionResult(rawPayload) {
     'paid'
   ].includes(eventType.toLowerCase());
 
+  // Protect already-activated subscriptions from being overwritten by out-of-order non-success events
+  if (subscription.status === 'active' && subscription.isActive === true) {
+    if (!isSuccess) {
+      console.log(`processTransactionResult: subscription for basket ${normalized.basketId} is already active. Ignoring non-success webhook event of type "${eventType}".`);
+      return { received: true, status: 'active', message: 'Subscription is already active.' };
+    }
+  }
+
   if (isSuccess) {
     // Re-use activateSubscription to safely update the status and record metrics
     await activateSubscription(normalized.basketId, normalized.transactionId, 'webhook', normalized.raw);
@@ -1908,60 +1959,11 @@ app.post('/api/v1/therapist/withdraw', withdrawLimiter, requireAuth, async (req,
       return jsonError(res, 400, 'Minimum withdrawal amount is Rs. 500');
     }
 
-    // Enforce 3-day cooldown: check for any non-rejected withdrawal in the past 3 days
-    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-    // Simple query to avoid composite index requirement
-    const allWithdrawals = await db
-      .collection('withdrawal_requests')
-      .where('therapistId', '==', uid)
-      .get();
-
-    const hasRecentAppeal = allWithdrawals.docs.some(doc => {
-      const data = doc.data() || {};
-      if (data.isAppeal === true) {
-        const createdAt = data.createdAt && typeof data.createdAt.toDate === 'function'
-          ? data.createdAt.toDate()
-          : (data.createdAt ? new Date(data.createdAt) : null);
-        if (createdAt && createdAt >= threeDaysAgo) {
-          return true;
-        }
-      }
-      return false;
-    });
-
-    if (isAppeal) {
-      if (!appealReason || appealReason.trim().length < 5) {
-        return jsonError(res, 400, 'appealReason is required for cooldown appeals (minimum 5 characters)');
-      }
-      if (appealReason.length > 500) {
-        return jsonError(res, 400, 'appealReason must not exceed 500 characters');
-      }
-      if (hasRecentAppeal) {
-        return jsonError(res, 400, 'You have already used your 1-time appeal request for this 3-day cooldown period.');
-      }
-    } else {
-      const hasRecent = allWithdrawals.docs.some(doc => {
-        const data = doc.data() || {};
-        if (['pending', 'paid'].includes(data.status)) {
-          const createdAt = data.createdAt && typeof data.createdAt.toDate === 'function'
-            ? data.createdAt.toDate()
-            : (data.createdAt ? new Date(data.createdAt) : null);
-          if (createdAt && createdAt >= threeDaysAgo) {
-            return true;
-          }
-        }
-        return false;
-      });
-
-      if (hasRecent) {
-        return jsonError(res, 429, 'You must wait 3 days between withdrawal requests. Please wait for your current request to be processed.');
-      }
-    }
-
     const therapistRef = db.collection('therapist_profiles').doc(uid);
 
-    // Use Firestore transaction to atomically check balance and deduct
+    // Use Firestore transaction to atomically check cooldown, balance and deduct
     const txnResult = await db.runTransaction(async (txn) => {
+      // 1. Perform ALL reads first
       const therapistSnap = await txn.get(therapistRef);
       if (!therapistSnap.exists) {
         throw new Error('Therapist profile not found');
@@ -1973,6 +1975,54 @@ app.post('/api/v1/therapist/withdraw', withdrawLimiter, requireAuth, async (req,
         throw new Error(`Insufficient balance. Available: Rs. ${walletBalance.toFixed(0)}`);
       }
 
+      // Enforce 3-day cooldown inside transaction
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      const query = db.collection('withdrawal_requests').where('therapistId', '==', uid);
+      const allWithdrawals = await txn.get(query);
+
+      const hasRecentAppeal = allWithdrawals.docs.some(doc => {
+        const data = doc.data() || {};
+        if (data.isAppeal === true) {
+          const createdAt = data.createdAt && typeof data.createdAt.toDate === 'function'
+            ? data.createdAt.toDate()
+            : (data.createdAt ? new Date(data.createdAt) : null);
+          if (createdAt && createdAt >= threeDaysAgo) {
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (isAppeal) {
+        if (!appealReason || appealReason.trim().length < 5) {
+          throw new Error('appealReason is required for cooldown appeals (minimum 5 characters)');
+        }
+        if (appealReason.length > 500) {
+          throw new Error('appealReason must not exceed 500 characters');
+        }
+        if (hasRecentAppeal) {
+          throw new Error('You have already used your 1-time appeal request for this 3-day cooldown period.');
+        }
+      } else {
+        const hasRecent = allWithdrawals.docs.some(doc => {
+          const data = doc.data() || {};
+          if (['pending', 'paid'].includes(data.status)) {
+            const createdAt = data.createdAt && typeof data.createdAt.toDate === 'function'
+              ? data.createdAt.toDate()
+              : (data.createdAt ? new Date(data.createdAt) : null);
+            if (createdAt && createdAt >= threeDaysAgo) {
+              return true;
+            }
+          }
+          return false;
+        });
+
+        if (hasRecent) {
+          throw new Error('cooldown-active: You must wait 3 days between withdrawal requests. Please wait for your current request to be processed.');
+        }
+      }
+
+      // 2. Perform all writes
       const txnId = `withdraw_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
       const withdrawalRef = db.collection('withdrawal_requests').doc(txnId);
       const earningsRef = db.collection('therapist_earnings').doc(txnId);
@@ -2025,8 +2075,11 @@ app.post('/api/v1/therapist/withdraw', withdrawLimiter, requireAuth, async (req,
   } catch (error) {
     const errMsg = error?.message || String(error);
     console.error('Withdrawal failed:', errMsg);
-    // Surface friendly messages for balance/profile errors
-    if (errMsg.includes('Insufficient') || errMsg.includes('not found') || errMsg.includes('Rs.')) {
+    // Surface friendly messages for balance/profile/cooldown errors
+    if (errMsg.includes('Insufficient') || errMsg.includes('not found') || errMsg.includes('Rs.') || errMsg.includes('appeal') || errMsg.includes('cooldown-active') || errMsg.includes('limit')) {
+      if (errMsg.includes('cooldown-active')) {
+        return jsonError(res, 429, errMsg.replace('cooldown-active: ', ''));
+      }
       return jsonError(res, 400, errMsg);
     }
     return jsonError(res, 500, 'Unable to request withdrawal');
@@ -2054,20 +2107,21 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, requireAdmin, async (req
     }
 
     const requestRef = db.collection('withdrawal_requests').doc(requestId);
-    const requestSnap = await requestRef.get();
-    if (!requestSnap.exists) {
-      return jsonError(res, 404, 'Withdrawal request not found');
-    }
-    const requestData = requestSnap.data() || {};
-    if (requestData.status !== 'pending') {
-      return jsonError(res, 409, `Withdrawal request is already ${requestData.status}`);
-    }
 
-    const therapistId = normalizeValue(requestData.therapistId);
-    const amount = parseAmount(requestData.amount);
+    const transactionResult = await db.runTransaction(async (txn) => {
+      // 1. Perform all reads first (Firestore transactions require all reads to precede writes)
+      const requestSnap = await txn.get(requestRef);
+      if (!requestSnap.exists) {
+        throw new Error('not-found: Withdrawal request not found');
+      }
+      const requestData = requestSnap.data() || {};
+      if (requestData.status !== 'pending') {
+        throw new Error(`already-resolved: Withdrawal request is already ${requestData.status}`);
+      }
 
-    await db.runTransaction(async (txn) => {
-      // Perform all reads first (Firestore transactions require all reads to precede writes)
+      const therapistId = normalizeValue(requestData.therapistId);
+      const amount = parseAmount(requestData.amount);
+
       const earningsSnap = await txn.get(db.collection('therapist_earnings').doc(requestId));
       let previousBalance = 0;
       let therapistRef = null;
@@ -2077,6 +2131,7 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, requireAdmin, async (req
         previousBalance = therapistSnap.exists ? (parseFloat(therapistSnap.data().walletBalance) || 0) : 0;
       }
 
+      // 2. Perform all writes
       // Update withdrawal request
       txn.set(requestRef, {
         status,
@@ -2142,11 +2197,20 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, requireAdmin, async (req
         details: `Status changed to ${status}. Amount: Rs. ${amount}. Notes: ${adminNotes || 'None'}`,
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
       });
+
+      return { status };
     });
 
-    return res.status(200).json({ success: true, status });
+    return res.status(200).json({ success: true, status: transactionResult.status });
   } catch (error) {
-    console.error('Resolve withdrawal failed:', error?.message || error);
+    const errMsg = error?.message || String(error);
+    console.error('Resolve withdrawal failed:', errMsg);
+    if (errMsg.includes('not-found')) {
+      return jsonError(res, 404, errMsg.replace('not-found: ', ''));
+    }
+    if (errMsg.includes('already-resolved')) {
+      return jsonError(res, 409, errMsg.replace('already-resolved: ', ''));
+    }
     return jsonError(res, 500, 'Unable to resolve withdrawal request');
   }
 });

@@ -56,7 +56,7 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == userId &&
         (!('role' in request.resource.data) || request.resource.data.role != 'admin' || request.auth.token.email == 'admin@autiease.com');
       allow update: if signedIn() && (request.auth.uid == userId || isAdmin()) &&
-        (request.resource.data.role == resource.data.role || request.resource.data.role != 'admin' || request.auth.token.email == 'admin@autiease.com' || isAdmin());
+        (!('role' in request.resource.data) || ('role' in resource.data && request.resource.data.role == resource.data.role) || isAdmin());
       allow delete: if signedIn() && request.auth.uid == userId;
     }
 
@@ -244,7 +244,10 @@ service cloud.firestore {
       allow create: if isParent() && request.resource.data.parentId == request.auth.uid &&
         (!('feedback' in request.resource.data) || request.resource.data.feedback.size() <= 300) &&
         (!('privateFeedback' in request.resource.data) || request.resource.data.privateFeedback.size() <= 300);
-      allow update, delete: if isAdmin() || (signedIn() && resource.data.parentId == request.auth.uid);
+      allow update: if isAdmin() || (signedIn() && resource.data.parentId == request.auth.uid &&
+                                     request.resource.data.parentId == resource.data.parentId &&
+                                     request.resource.data.therapistId == resource.data.therapistId);
+      allow delete: if isAdmin() || (signedIn() && resource.data.parentId == request.auth.uid);
     }
 
     match /cancellation_analytics/{analyticsId} {
@@ -291,35 +294,40 @@ service cloud.firestore {
     match /clinical_notes/{noteId} {
       allow read: if signedIn() && (resource.data.therapistId == request.auth.uid || resource.data.parentId == request.auth.uid || isAdmin());
       allow create: if isTherapist() && request.resource.data.therapistId == request.auth.uid;
-      allow update, delete: if isTherapist() && resource.data.therapistId == request.auth.uid;
+      allow update: if isTherapist() && resource.data.therapistId == request.auth.uid &&
+        request.resource.data.therapistId == resource.data.therapistId &&
+        request.resource.data.parentId == resource.data.parentId &&
+        request.resource.data.childId == resource.data.childId;
+      allow delete: if isTherapist() && resource.data.therapistId == request.auth.uid;
     }
 
     match /appointment_slots/{slotId} {
       allow read: if signedIn();
-      allow create, delete: if isTherapist() && (request.resource.data.therapistId == request.auth.uid || (resource != null && resource.data.therapistId == request.auth.uid));
-      allow update: if signedIn() && (
-        (isTherapist() && resource.data.therapistId == request.auth.uid) ||
-        (isParent() &&
-         request.resource.data.therapistId == resource.data.therapistId &&
-         request.resource.data.dateTime == resource.data.dateTime &&
-         request.resource.data.durationMinutes == resource.data.durationMinutes && (
-           // Case 1: Booking an available slot
-           (resource.data.status == 'available' &&
-            request.resource.data.status == 'booked' &&
-            request.resource.data.bookedByParentId == request.auth.uid) ||
-           // Case 2: Canceling or updating their own booking
-           (resource.data.status == 'booked' &&
-            resource.data.bookedByParentId == request.auth.uid && (
-              // Released back to available
-              (request.resource.data.status == 'available' &&
-               request.resource.data.get('bookedByParentId', null) == null) ||
-              // Cancelled status
-              request.resource.data.status == 'cancelled' ||
-              // Or keeping it booked by themselves (just changing notes/child details)
-              request.resource.data.bookedByParentId == request.auth.uid
-            ))
-         ))
-      );
+      allow create: if isTherapist() && request.resource.data.therapistId == request.auth.uid;
+      allow delete: if isTherapist() && resource.data.therapistId == request.auth.uid;
+      allow update: if signedIn() &&
+        request.resource.data.therapistId == resource.data.therapistId && (
+          (isTherapist() && resource.data.therapistId == request.auth.uid) ||
+          (isParent() &&
+           request.resource.data.dateTime == resource.data.dateTime &&
+           request.resource.data.durationMinutes == resource.data.durationMinutes && (
+             // Case 1: Booking an available slot
+             (resource.data.status == 'available' &&
+              request.resource.data.status == 'booked' &&
+              request.resource.data.bookedByParentId == request.auth.uid) ||
+             // Case 2: Canceling or updating their own booking
+             (resource.data.status == 'booked' &&
+              resource.data.bookedByParentId == request.auth.uid && (
+                // Released back to available
+                (request.resource.data.status == 'available' &&
+                 request.resource.data.get('bookedByParentId', null) == null) ||
+                // Cancelled status
+                request.resource.data.status == 'cancelled' ||
+                // Or keeping it booked by themselves (just changing notes/child details)
+                request.resource.data.bookedByParentId == request.auth.uid
+              ))
+           ))
+        );
     }
   }
 }
