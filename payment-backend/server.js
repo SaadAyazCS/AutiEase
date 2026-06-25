@@ -30,8 +30,40 @@ const cors = require('cors');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
 const cron = require('node-cron');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
+
+// ── Rate Limiting ─────────────────────────────────────────────────────────────
+// General API limiter: 300 requests per 15 minutes per IP
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+// Strict limiter for checkout sessions: 30 per 15 minutes per IP
+const checkoutLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many checkout requests. Please wait before trying again.' },
+});
+
+// Strict limiter for withdrawal requests: 10 per 15 minutes per IP
+const withdrawLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many withdrawal requests. Please wait before trying again.' },
+});
+
+// Apply general limiter to all API routes
+app.use('/api/', generalLimiter);
 
 function isTruthy(value) {
   if (value == null) {
@@ -1186,7 +1218,7 @@ app.get('/api/v1/diagnose-keys', requireAuth, requireAdmin, async (req, res) => 
   }
 });
 
-app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
+app.post('/api/v1/checkout/session', checkoutLimiter, requireAuth, async (req, res) => {
   try {
     const uid = req.user.uid;
     const { therapistId, productId, successUrl, cancelUrl } = req.body || {};
@@ -1271,6 +1303,13 @@ app.post('/api/v1/checkout/session', requireAuth, async (req, res) => {
         res,
         400,
         'Subscription product amount is missing. Add numeric `amount` to subscription_products.',
+      );
+    }
+    if (amount > 1000000) {
+      return jsonError(
+        res,
+        400,
+        'Checkout amount cannot exceed Rs. 1,000,000 (10 Lakhs PKR).',
       );
     }
 
@@ -1821,7 +1860,7 @@ app.post('/api/v1/subscription/reactivate', requireAuth, async (req, res) => {
 
 // Therapist withdrawal request endpoint
 // Enforces: Rs.500 minimum, 3-day cooldown, sufficient balance — all in a Firestore transaction
-app.post('/api/v1/therapist/withdraw', requireAuth, async (req, res) => {
+app.post('/api/v1/therapist/withdraw', withdrawLimiter, requireAuth, async (req, res) => {
   try {
     const uid = req.user.uid;
     const { amount, paymentMethod, accountDetails, isAppeal, appealReason } = req.body || {};

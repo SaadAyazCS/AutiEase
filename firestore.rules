@@ -31,6 +31,26 @@ service cloud.firestore {
         (threadData.parentId == request.auth.uid || threadData.therapistId == request.auth.uid);
     }
 
+    function isPackageValid(pkg) {
+      return !(pkg is map) ||
+        ((!('price' in pkg) || (pkg.price >= 0 && pkg.price <= 1000000)) &&
+         (!('durationMinutes' in pkg) || (pkg.durationMinutes >= 1 && pkg.durationMinutes <= 480)) &&
+         (!('sessionsPerWeek' in pkg) || (pkg.sessionsPerWeek >= 1 && pkg.sessionsPerWeek <= 21)));
+    }
+
+    function arePackagesValid(packages) {
+      return packages == null ||
+        !(packages is list) ||
+        packages.size() == 0 ||
+        ((packages.size() >= 1 ? isPackageValid(packages[0]) : true) &&
+         (packages.size() >= 2 ? isPackageValid(packages[1]) : true) &&
+         (packages.size() >= 3 ? isPackageValid(packages[2]) : true) &&
+         (packages.size() >= 4 ? isPackageValid(packages[3]) : true) &&
+         (packages.size() >= 5 ? isPackageValid(packages[4]) : true));
+    }
+
+
+
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
       allow create: if signedIn() && request.auth.uid == userId &&
@@ -42,17 +62,21 @@ service cloud.firestore {
 
     match /child_profiles/{childId} {
       allow read: if (isParent() && resource.data.parentId == request.auth.uid) || isTherapist() || isAdmin();
-      allow create: if isParent() && request.resource.data.parentId == request.auth.uid;
+      allow create: if isParent() && request.resource.data.parentId == request.auth.uid &&
+        (!('childName' in request.resource.data) || request.resource.data.childName.size() <= 50);
       allow update: if isParent() && request.resource.data.parentId == request.auth.uid &&
-        request.resource.data.parentId == resource.data.parentId;
+        request.resource.data.parentId == resource.data.parentId &&
+        (!('childName' in request.resource.data) || request.resource.data.childName.size() <= 50);
       allow delete: if isParent() && resource.data.parentId == request.auth.uid;
     }
 
     match /child_assignments/{childId} {
       allow read: if (isParent() && resource.data.parentId == request.auth.uid) || isTherapist();
-      allow create: if isParent() && request.resource.data.parentId == request.auth.uid;
+      allow create: if isParent() && request.resource.data.parentId == request.auth.uid &&
+        (!('childName' in request.resource.data) || request.resource.data.childName.size() <= 50);
       allow update: if isParent() && request.resource.data.parentId == request.auth.uid &&
-        request.resource.data.parentId == resource.data.parentId;
+        request.resource.data.parentId == resource.data.parentId &&
+        (!('childName' in request.resource.data) || request.resource.data.childName.size() <= 50);
       allow delete: if isParent() && resource.data.parentId == request.auth.uid;
     }
 
@@ -60,10 +84,14 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if (isTherapist() && request.auth.uid == therapistId &&
         (!('verificationStatus' in request.resource.data) || request.resource.data.verificationStatus == 'pending') &&
-        (!('verifiedBadge' in request.resource.data) || request.resource.data.verifiedBadge == false)) || isAdmin();
+        (!('verifiedBadge' in request.resource.data) || request.resource.data.verifiedBadge == false) &&
+        (!('bio' in request.resource.data) || request.resource.data.bio.size() <= 1000) &&
+        (!('servicePackages' in request.resource.data) || arePackagesValid(request.resource.data.servicePackages))) || isAdmin();
       allow update: if (isTherapist() && request.auth.uid == therapistId &&
         (!('verificationStatus' in request.resource.data) || request.resource.data.verificationStatus == resource.data.verificationStatus) &&
-        (!('verifiedBadge' in request.resource.data) || request.resource.data.verifiedBadge == resource.data.verifiedBadge)) || isAdmin();
+        (!('verifiedBadge' in request.resource.data) || request.resource.data.verifiedBadge == resource.data.verifiedBadge) &&
+        (!('bio' in request.resource.data) || request.resource.data.bio.size() <= 1000) &&
+        (!('servicePackages' in request.resource.data) || arePackagesValid(request.resource.data.servicePackages))) || isAdmin();
       allow delete: if signedIn() && request.auth.uid == therapistId;
     }
 
@@ -118,7 +146,9 @@ service cloud.firestore {
         request.resource.data.parentId == resource.data.parentId &&
         request.resource.data.therapistId == resource.data.therapistId &&
         request.resource.data.childId == resource.data.childId &&
-        request.resource.data.subscriptionId == resource.data.subscriptionId;
+        request.resource.data.subscriptionId == resource.data.subscriptionId &&
+        // Prevent altering the original creation timestamp
+        (!('createdAt' in request.resource.data) || request.resource.data.createdAt == resource.data.createdAt);
       allow delete: if isParent() && resource.data.parentId == request.auth.uid;
 
       match /messages/{messageId} {
@@ -138,13 +168,15 @@ service cloud.firestore {
              request.resource.data.body == "Hi! Thank you for subscribing to my support plan. Please tell me a bit about your child's goals so we can get started!" &&
              request.resource.data.senderRole == 'therapist')
           );
-        // Participants can soft-delete their own messages (set isDeleted: true)
+        // Participants can soft-delete their own messages (isDeleted: false -> true only)
         allow update: if isThreadParticipant(
             get(/databases/$(database)/documents/therapist_threads/$(threadId)).data
           ) &&
           resource.data.senderId == request.auth.uid &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'isDeleted']) &&
-          request.resource.data.isDeleted == true;
+          request.resource.data.isDeleted == true &&
+          // Prevent un-deleting a message
+          resource.data.isDeleted != true;
         allow delete: if isParent() &&
           get(/databases/$(database)/documents/therapist_threads/$(threadId)).data.parentId == request.auth.uid;
       }
@@ -188,7 +220,8 @@ service cloud.firestore {
     }
 
     match /feedback/{feedbackId} {
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid &&
+        request.resource.data.feedback.size() <= 500;
       allow read: if isAdmin();
       allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
     }
@@ -201,7 +234,9 @@ service cloud.firestore {
 
     match /therapist_reviews/{reviewId} {
       allow read: if signedIn();
-      allow create: if isParent() && request.resource.data.parentId == request.auth.uid;
+      allow create: if isParent() && request.resource.data.parentId == request.auth.uid &&
+        (!('feedback' in request.resource.data) || request.resource.data.feedback.size() <= 300) &&
+        (!('privateFeedback' in request.resource.data) || request.resource.data.privateFeedback.size() <= 300);
       allow update, delete: if isAdmin() || (signedIn() && resource.data.parentId == request.auth.uid);
     }
 

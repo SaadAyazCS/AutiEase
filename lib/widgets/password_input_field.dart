@@ -32,12 +32,12 @@ PasswordStrength evaluatePasswordStrength(String password) {
   final hasUpper = password.contains(RegExp(r'[A-Z]'));
   final hasLower = password.contains(RegExp(r'[a-z]'));
   final hasDigit = password.contains(RegExp(r'[0-9]'));
-  final hasSpecial = password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'));
+  final hasSpecial = password.contains(RegExp(r'[^a-zA-Z0-9]'));
   final metCriteria = [hasUpper, hasLower, hasDigit, hasSpecial]
       .where((v) => v)
       .length;
-  if (metCriteria >= 3) return PasswordStrength.strong;
-  if (metCriteria >= 2) return PasswordStrength.medium;
+  if (metCriteria >= 4) return PasswordStrength.strong;
+  if (metCriteria >= 3) return PasswordStrength.medium;
   return PasswordStrength.weak;
 }
 
@@ -278,6 +278,10 @@ class _CriteriaChecklist extends StatelessWidget {
       (
         'Has a number',
         password.contains(RegExp(r'[0-9]')),
+      ),
+      (
+        'Has a special character (!@#\$%^&* etc.)',
+        password.contains(RegExp(r'[^a-zA-Z0-9]')),
       ),
     ];
 

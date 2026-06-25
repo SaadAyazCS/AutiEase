@@ -913,6 +913,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                     TextField(
                       controller: publicController,
                       maxLines: 3,
+                      maxLength: 300,
                       decoration: InputDecoration(
                         labelText: 'Written Feedback (Optional)',
                         hintText: 'Share your experience with other parents...',
@@ -926,6 +927,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                     TextField(
                       controller: privateController,
                       maxLines: 2,
+                      maxLength: 300,
                       decoration: InputDecoration(
                         labelText: 'Private Notes (Optional)',
                         hintText: 'Feedback visible only to admin/platform...',
@@ -945,6 +947,16 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                 ),
                 ElevatedButton(
                   onPressed: () async {
+                    if (publicController.text.trim().length > 300 ||
+                        privateController.text.trim().length > 300) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Review feedback must not exceed 300 characters.'),
+                          backgroundColor: Color(0xFFEF4444),
+                        ),
+                      );
+                      return;
+                    }
                     try {
                       await AppRepositories.support.submitReview(
                         therapistId: therapist.id,
@@ -3360,6 +3372,7 @@ class _ParentSubscriptionsHistoryScreenState
                     TextField(
                       controller: publicController,
                       maxLines: 3,
+                      maxLength: 300,
                       decoration: InputDecoration(
                         labelText: 'Written Feedback (Optional)',
                         hintText: 'Share your experience with other parents...',
@@ -3373,6 +3386,7 @@ class _ParentSubscriptionsHistoryScreenState
                     TextField(
                       controller: privateController,
                       maxLines: 2,
+                      maxLength: 300,
                       decoration: InputDecoration(
                         labelText: 'Private Notes (Optional)',
                         hintText: 'Feedback visible only to admin/platform...',
@@ -3392,6 +3406,16 @@ class _ParentSubscriptionsHistoryScreenState
                 ),
                 ElevatedButton(
                   onPressed: () async {
+                    if (publicController.text.trim().length > 300 ||
+                        privateController.text.trim().length > 300) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Review feedback must not exceed 300 characters.'),
+                          backgroundColor: Color(0xFFEF4444),
+                        ),
+                      );
+                      return;
+                    }
                     try {
                       await AppRepositories.support.submitReview(
                         therapistId: therapist.id,

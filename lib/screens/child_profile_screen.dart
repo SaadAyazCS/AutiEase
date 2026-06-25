@@ -62,6 +62,15 @@ class _ChildProfileScreenState extends State<ChildProfileScreen>
       );
       return;
     }
+    if (_nameController.text.trim().length > 50) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Child name must not exceed 50 characters'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+      return;
+    }
     if (!_isCommunicationSelected && !_isLearningSelected) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -229,6 +238,7 @@ class _ChildProfileScreenState extends State<ChildProfileScreen>
                           ),
                           child: TextField(
                             controller: _nameController,
+                            maxLength: 50,
                             style: const TextStyle(color: Color(0xFF212121)),
                             decoration: const InputDecoration(
                               hintText: 'Leo',

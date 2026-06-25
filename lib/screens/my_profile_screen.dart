@@ -889,6 +889,9 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     if (password.length < 6) {
       return 'Password must be at least 6 characters long';
     }
+    if (password.length > 100) {
+      return 'Password must not exceed 100 characters';
+    }
     if (!password.contains(RegExp(r'[A-Z]'))) {
       return 'Password must contain at least one uppercase letter for strong password';
     }
@@ -897,6 +900,9 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     }
     if (!password.contains(RegExp(r'[0-9]'))) {
       return 'Password must contain at least one number for strong password';
+    }
+    if (!password.contains(RegExp(r'[^a-zA-Z0-9]'))) {
+      return 'Password must contain at least one special character (e.g. !@#\$%^&*)';
     }
     return '';
   }

@@ -3031,9 +3031,9 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                     decoration: InputDecoration(
                                       labelText: selectedMethod == 'Bank Transfer'
                                           ? 'IBAN / Account Number'
-                                          : 'Mobile Account Number',
+                                          : 'Raast Mobile Number',
                                       hintText: selectedMethod == 'Bank Transfer'
-                                          ? 'Enter full IBAN or Bank Account Number'
+                                          ? 'e.g. PK36SCBL0000001123456702'
                                           : 'e.g. 03001234567',
                                       border: const OutlineInputBorder(),
                                       prefixIcon: const Icon(Icons.pin),
@@ -3041,6 +3041,18 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                     validator: (value) {
                                       if (value == null || value.trim().isEmpty) {
                                         return 'Please enter account details';
+                                      }
+                                      final v = value.trim();
+                                      if (selectedMethod == 'Raast') {
+                                        // Pakistan mobile numbers: 03XXXXXXXXX (11 digits)
+                                        if (!RegExp(r'^03\d{9}$').hasMatch(v)) {
+                                          return 'Raast ID must be a valid Pakistani mobile number (e.g. 03001234567)';
+                                        }
+                                      } else {
+                                        // Pakistan IBAN: PK + 2 digits + 4 letters + 16 digits = 24 chars
+                                        if (!RegExp(r'^PK\d{2}[A-Z]{4}\d{16}$').hasMatch(v)) {
+                                          return 'Please enter a valid Pakistan IBAN (e.g. PK36SCBL0000001123456702)';
+                                        }
                                       }
                                       return null;
                                     },
@@ -3051,6 +3063,7 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                       controller: appealReasonController,
                                       enabled: !submitting,
                                       maxLines: 3,
+                                      maxLength: 500,
                                       decoration: const InputDecoration(
                                         labelText: 'Reason for Appeal (Urgent Needs)',
                                         hintText: 'Please describe the emergency reason for this appeal (minimum 5 characters)',
@@ -3063,6 +3076,9 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                         }
                                         if (value.trim().length < 5) {
                                           return 'Appeal reason must be at least 5 characters';
+                                        }
+                                        if (value.trim().length > 500) {
+                                          return 'Appeal reason must not exceed 500 characters';
                                         }
                                         return null;
                                       },
@@ -4583,7 +4599,7 @@ class _TherapistProfileSettingsScreenState
               subtext: 'Please provide details such as registration/license number, CNIC, or other professional credentials for verification purposes.',
             ),
             const SizedBox(height: 8),
-            _input('About You', _about, lines: 4),
+            _input('About You', _about, lines: 4, maxLength: 1000),
             const SizedBox(height: 10),
             _buildCertificateUploadGuidance(),
             const SizedBox(height: 8),
@@ -4800,7 +4816,7 @@ class _TherapistProfileSettingsScreenState
                     ),
                   ),
                   const SizedBox(height: 8),
-                  _input('About Me', _about, lines: 4),
+                  _input('About Me', _about, lines: 4, maxLength: 1000),
                 ],
               ),
             ),
@@ -5300,6 +5316,7 @@ class _TherapistProfileSettingsScreenState
     bool obscureText = false,
     Widget? suffixIcon,
     String? subtext,
+    int? maxLength,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -5316,6 +5333,7 @@ class _TherapistProfileSettingsScreenState
         TextField(
           controller: controller,
           maxLines: lines,
+          maxLength: maxLength,
           keyboardType: keyboard,
           readOnly: readOnly,
           obscureText: obscureText,
@@ -5398,6 +5416,9 @@ class _TherapistProfileSettingsScreenState
     if (password.length < 6) {
       return 'Password must be at least 6 characters long';
     }
+    if (password.length > 100) {
+      return 'Password must not exceed 100 characters';
+    }
     if (!password.contains(RegExp(r'[A-Z]'))) {
       return 'Password must contain at least one uppercase letter for strong password';
     }
@@ -5406,6 +5427,9 @@ class _TherapistProfileSettingsScreenState
     }
     if (!password.contains(RegExp(r'[0-9]'))) {
       return 'Password must contain at least one number for strong password';
+    }
+    if (!password.contains(RegExp(r'[^a-zA-Z0-9]'))) {
+      return 'Password must contain at least one special character (e.g. !@#\$%^&*)';
     }
     return '';
   }
@@ -6045,18 +6069,79 @@ class _PackageEditorState extends State<_PackageEditor> {
 
   void _save() {
     final title = _title.text.trim();
-    final price = double.tryParse(_price.text.trim()) ?? 0;
-    if (title.isEmpty || price <= 0) {
+    final description = _description.text.trim();
+    final parsedPrice = double.tryParse(_price.text.trim());
+    final parsedDuration = int.tryParse(_duration.text.trim());
+    final parsedSessions = int.tryParse(_sessions.text.trim());
+
+    if (title.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a package title.'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
       return;
     }
+
+    if (parsedPrice == null || parsedPrice < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid price of 0 or greater.'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
+
+    if (parsedPrice > 1000000) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Package price cannot exceed Rs. 1,000,000 (10 Lakhs PKR).'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
+
+    if (parsedDuration == null || parsedDuration <= 0 || parsedDuration > 480) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid session duration (between 1 and 480 minutes).'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
+
+    if (parsedSessions == null || parsedSessions <= 0 || parsedSessions > 21) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid number of sessions per week (between 1 and 21).'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
+
+    if (description.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a package description.'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
+
     Navigator.pop(
       context,
       TherapyPackage(
         title: title,
-        durationMinutes: int.tryParse(_duration.text.trim()) ?? 60,
-        sessionsPerWeek: int.tryParse(_sessions.text.trim()) ?? 3,
-        price: price,
-        description: _description.text.trim(),
+        durationMinutes: parsedDuration,
+        sessionsPerWeek: parsedSessions,
+        price: parsedPrice,
+        description: description,
         visible: widget.initial?.visible ?? true,
       ),
     );

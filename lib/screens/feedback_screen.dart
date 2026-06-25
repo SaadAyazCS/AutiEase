@@ -46,6 +46,12 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       ).showSnackBar(const SnackBar(content: Text('Please fill all fields.')));
       return;
     }
+    if (feedback.length > 500) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Feedback message must not exceed 500 characters.')),
+      );
+      return;
+    }
 
     setState(() => _isLoading = true);
     try {
@@ -162,7 +168,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
               _buildField(_emailController),
               const SizedBox(height: 12),
               _buildLabel('Feedback Message'),
-              _buildField(_feedbackController, maxLines: 7),
+              _buildField(_feedbackController, maxLines: 7, maxLength: 500),
               const SizedBox(height: 32),
               BouncingButton(
                 onTap: _isLoading ? null : _submitFeedback,
@@ -245,7 +251,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     );
   }
 
-  Widget _buildField(TextEditingController controller, {int maxLines = 1}) {
+  Widget _buildField(TextEditingController controller, {int maxLines = 1, int? maxLength}) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -261,6 +267,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       child: TextField(
         controller: controller,
         maxLines: maxLines,
+        maxLength: maxLength,
         style: const TextStyle(
           fontSize: 16,
           color: Color(0xFF0F172A),

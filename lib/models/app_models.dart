@@ -1296,7 +1296,6 @@ class SubscriptionProduct {
     required this.subtitle,
     required this.featureList,
     required this.priceLabel,
-    required this.stripePriceId,
     required this.isActive,
   });
 
@@ -1305,7 +1304,6 @@ class SubscriptionProduct {
   final String subtitle;
   final List<String> featureList;
   final String priceLabel;
-  final String stripePriceId;
   final bool isActive;
 
   factory SubscriptionProduct.fromMap(String id, Map<String, dynamic> data) {
@@ -1315,7 +1313,6 @@ class SubscriptionProduct {
       subtitle: (data['subtitle'] ?? '').toString(),
       featureList: stringListFrom(data['featureList']),
       priceLabel: formatPriceString((data['priceLabel'] ?? '').toString()),
-      stripePriceId: (data['stripePriceId'] ?? '').toString(),
       isActive: data['isActive'] != false,
     );
   }
