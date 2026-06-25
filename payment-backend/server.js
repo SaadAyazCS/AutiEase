@@ -604,6 +604,9 @@ function verifySafepayWebhook(req) {
   const secret = safepayConfig.webhookSecret;
 
   if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      return { verified: false, reason: 'Production config error: SAFEPAY_WEBHOOK_SECRET is not configured' };
+    }
     // If no webhook secret configured, skip verification in dev (log a warning)
     console.warn('SAFEPAY_WEBHOOK_SECRET not set — skipping webhook signature check.');
     return { verified: true, reason: 'no-secret-configured' };
@@ -1625,8 +1628,27 @@ app.get('/api/v1/payment/return/success/:basket_id?', async (req, res) => {
 
   if (basketId) {
     try {
-      const transactionId = normalizeValue(payload.tracker || payload.transaction_id || payload.order_ref || '');
-      await activateSubscription(basketId, transactionId, 'success_redirect', payload);
+      let trackerToken = normalizeValue(payload.tracker || payload.transaction_id || payload.order_ref || '');
+      
+      const checkoutSessionDoc = await db.collection('checkout_sessions').doc(basketId).get();
+      if (checkoutSessionDoc.exists) {
+        const checkoutSession = checkoutSessionDoc.data() || {};
+        if (checkoutSession.safepayBeacon) {
+          trackerToken = checkoutSession.safepayBeacon;
+        }
+      }
+
+      if (trackerToken) {
+        const gatewayVerification = await verifyTransactionWithGateway(trackerToken);
+        if (gatewayVerification.verified) {
+          const transactionId = gatewayVerification.payload?.data?.token || trackerToken;
+          await activateSubscription(basketId, transactionId, 'success_redirect', gatewayVerification.payload || payload);
+        } else {
+          console.warn(`Success redirect transaction verification failed for tracker ${trackerToken}: ${gatewayVerification.reason}`);
+        }
+      } else {
+        console.warn(`Success redirect processing failed: No tracker token available for basket ${basketId}`);
+      }
     } catch (error) {
       console.warn('Success redirect processing failed:', error?.message || error);
     }
@@ -2032,6 +2054,9 @@ cron.schedule('0 0 * * *', async () => {
 app.post('/api/v1/subscription/reconcile-expired', async (req, res) => {
   try {
     const expectedSecret = normalizeValue(process.env.RECONCILE_CRON_SECRET);
+    if (process.env.NODE_ENV === 'production' && !expectedSecret) {
+      return jsonError(res, 500, 'Production config error: RECONCILE_CRON_SECRET is not configured');
+    }
     if (expectedSecret) {
       const provided = normalizeValue(req.header('x-cron-secret'));
       if (!provided || provided !== expectedSecret) {

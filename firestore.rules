@@ -42,13 +42,17 @@ service cloud.firestore {
 
     match /child_profiles/{childId} {
       allow read: if (isParent() && resource.data.parentId == request.auth.uid) || isTherapist() || isAdmin();
-      allow create, update: if isParent() && request.resource.data.parentId == request.auth.uid;
+      allow create: if isParent() && request.resource.data.parentId == request.auth.uid;
+      allow update: if isParent() && request.resource.data.parentId == request.auth.uid &&
+        request.resource.data.parentId == resource.data.parentId;
       allow delete: if isParent() && resource.data.parentId == request.auth.uid;
     }
 
     match /child_assignments/{childId} {
       allow read: if (isParent() && resource.data.parentId == request.auth.uid) || isTherapist();
-      allow create, update: if isParent() && request.resource.data.parentId == request.auth.uid;
+      allow create: if isParent() && request.resource.data.parentId == request.auth.uid;
+      allow update: if isParent() && request.resource.data.parentId == request.auth.uid &&
+        request.resource.data.parentId == resource.data.parentId;
       allow delete: if isParent() && resource.data.parentId == request.auth.uid;
     }
 
@@ -207,7 +211,7 @@ service cloud.firestore {
     }
 
     match /reports/{reportId} {
-      allow create: if signedIn();
+      allow create: if signedIn() && request.resource.data.reporterId == request.auth.uid;
       allow read, update, delete: if isAdmin();
     }
 
