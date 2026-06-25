@@ -563,6 +563,7 @@ class FirebaseUserRepository implements UserRepository {
       'verificationStatus': profile.verificationStatus,
       'experience_years': profile.yearsOfExperience,
       'experience_months': profile.experienceMonths,
+      'isAcceptingClients': profile.isAcceptingClients,
       'updatedAt': FieldValue.serverTimestamp(),
       'createdAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));

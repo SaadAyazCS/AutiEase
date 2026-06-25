@@ -2031,6 +2031,33 @@ class SupportTherapistDetailsScreenState
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(14, 10, 14, 16),
                 children: [
+                  if (therapist.isAcceptingClients == false) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFFCA5A5)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 24),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'This therapist is currently at capacity or away. New subscriptions are temporarily disabled.',
+                              style: TextStyle(
+                                color: Color(0xFF991B1B),
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   _SupportDetailCard(
                     child: Column(
                       children: [
@@ -2351,7 +2378,7 @@ class SupportTherapistDetailsScreenState
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton(
-                                onPressed: _isSubscribing
+                                onPressed: _isSubscribing || therapist.isAcceptingClients == false
                                     ? null
                                     : (widget.paymentsEnabled
                                           ? _subscribe
@@ -2384,7 +2411,9 @@ class SupportTherapistDetailsScreenState
                                         ),
                                       )
                                     : Text(
-                                        'Subscribe ${selectedPackage.priceLabel}/month',
+                                        therapist.isAcceptingClients == false
+                                            ? 'Subscriptions Disabled (Busy)'
+                                            : 'Subscribe ${selectedPackage.priceLabel}/month',
                                       ),
                               ),
                             ),

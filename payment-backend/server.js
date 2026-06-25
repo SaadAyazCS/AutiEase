@@ -924,6 +924,10 @@ async function activateSubscription(basketId, transactionId, source, additionalP
 
   // Record earnings if therapist exists
   if (therapistId && amount > 0) {
+    const therapistDoc = await db.collection('therapist_profiles').doc(therapistId).get();
+    const previousBalance = therapistDoc.exists ? (parseFloat(therapistDoc.data().walletBalance) || 0) : 0;
+    const newBalance = previousBalance + netAmount;
+
     const userSnap = await db.collection('users').doc(subscriptionUserId).get();
     const parentName = userSnap.exists ? (userSnap.data().displayName || userSnap.data().email || 'Parent') : 'Parent';
     const earningsId = `earn_${basketId}`;
@@ -949,6 +953,16 @@ async function activateSubscription(basketId, transactionId, source, additionalP
       totalEarnings: admin.firestore.FieldValue.increment(netAmount),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
+
+    batch.set(db.collection('wallet_ledger').doc(), {
+      therapistId,
+      amount: netAmount,
+      type: 'credit',
+      referenceId: basketId,
+      previousBalance,
+      newBalance,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
 
     batch.set(db.collection('platform_revenue').doc('summary'), {
       totalRevenue: admin.firestore.FieldValue.increment(platformFee),
@@ -1319,7 +1333,11 @@ app.post('/api/v1/checkout/session', checkoutLimiter, requireAuth, async (req, r
     const transactionAmount = toAmountString(amount);
 
     if (mockPaymentsEnabled) {
+      const therapistDoc = await db.collection('therapist_profiles').doc(normalizedTherapistId).get();
+      const previousBalance = therapistDoc.exists ? (parseFloat(therapistDoc.data().walletBalance) || 0) : 0;
+
       const { safepayFee, platformFee, netAmount } = calculateFees(amount, { channel: 'card', is_international: false });
+      const newBalance = previousBalance + netAmount;
       const mockTxnId = `mock_txn_${Date.now()}`;
       const batch = db.batch();
 
@@ -1365,6 +1383,16 @@ app.post('/api/v1/checkout/session', checkoutLimiter, requireAuth, async (req, r
         totalEarnings: admin.firestore.FieldValue.increment(netAmount),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
+
+      batch.set(db.collection('wallet_ledger').doc(), {
+        therapistId: normalizedTherapistId,
+        amount: netAmount,
+        type: 'credit',
+        referenceId: basketId,
+        previousBalance,
+        newBalance,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
       // Track platform revenue
       batch.set(db.collection('platform_revenue').doc('summary'), {
@@ -1970,6 +1998,17 @@ app.post('/api/v1/therapist/withdraw', withdrawLimiter, requireAuth, async (req,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
 
+      const ledgerRef = db.collection('wallet_ledger').doc(txnId);
+      txn.set(ledgerRef, {
+        therapistId: uid,
+        amount: -parsedWithdrawAmount,
+        type: 'debit',
+        referenceId: txnId,
+        previousBalance: walletBalance,
+        newBalance: walletBalance - parsedWithdrawAmount,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
       return { txnId, remainingBalance: walletBalance - parsedWithdrawAmount };
     });
 
@@ -2015,6 +2054,13 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, requireAdmin, async (req
     await db.runTransaction(async (txn) => {
       // Perform all reads first (Firestore transactions require all reads to precede writes)
       const earningsSnap = await txn.get(db.collection('therapist_earnings').doc(requestId));
+      let previousBalance = 0;
+      let therapistRef = null;
+      if (status === 'rejected' && therapistId && amount > 0) {
+        therapistRef = db.collection('therapist_profiles').doc(therapistId);
+        const therapistSnap = await txn.get(therapistRef);
+        previousBalance = therapistSnap.exists ? (parseFloat(therapistSnap.data().walletBalance) || 0) : 0;
+      }
 
       // Update withdrawal request
       txn.set(requestRef, {
@@ -2035,12 +2081,22 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, requireAdmin, async (req
       }
 
       // If rejected, refund balance back to therapist wallet
-      if (status === 'rejected' && therapistId && amount > 0) {
-        const therapistRef = db.collection('therapist_profiles').doc(therapistId);
+      if (status === 'rejected' && therapistId && amount > 0 && therapistRef) {
         txn.set(therapistRef, {
           walletBalance: admin.firestore.FieldValue.increment(amount),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
+
+        const ledgerRef = db.collection('wallet_ledger').doc(`refund_${requestId}`);
+        txn.set(ledgerRef, {
+          therapistId,
+          amount,
+          type: 'refund',
+          referenceId: requestId,
+          previousBalance,
+          newBalance: previousBalance + amount,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
       }
 
       // Create system notification for therapist

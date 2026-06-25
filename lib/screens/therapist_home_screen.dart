@@ -3929,6 +3929,7 @@ class _TherapistProfileSettingsScreenState
   bool _certificateTouched = false;
   bool _revealSavedPassword = false;
   bool _obscureNewPassword = true;
+  late bool _isAcceptingClients;
   final FirebaseService _firebaseService = FirebaseService();
 
   late int _selectedYears;
@@ -3938,6 +3939,7 @@ class _TherapistProfileSettingsScreenState
   @override
   void initState() {
     super.initState();
+    _isAcceptingClients = widget.profile.isAcceptingClients;
     final display = widget.profile.displayName.trim().split(' ');
     _first = TextEditingController(text: display.isEmpty ? '' : display.first);
     _last = TextEditingController(
@@ -4226,6 +4228,7 @@ class _TherapistProfileSettingsScreenState
         certificateBase64: _certificateTouched
             ? (_certificateBase64 ?? '')
             : widget.profile.certificateBase64,
+        isAcceptingClients: _isAcceptingClients,
       );
 
       await widget.onSave(
@@ -4817,6 +4820,29 @@ class _TherapistProfileSettingsScreenState
                   ),
                   const SizedBox(height: 8),
                   _input('About Me', _about, lines: 4, maxLength: 1000),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    title: const Text(
+                      'Accepting New Clients',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF374151),
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Turn off to temporarily disable new subscriptions and mark yourself as busy.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                    ),
+                    value: _isAcceptingClients,
+                    activeThumbColor: const Color(0xFF11B5CF),
+                    contentPadding: EdgeInsets.zero,
+                    onChanged: (bool value) {
+                      setState(() {
+                        _isAcceptingClients = value;
+                      });
+                    },
+                  ),
                 ],
               ),
             ),

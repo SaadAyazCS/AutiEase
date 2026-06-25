@@ -837,6 +837,7 @@ class TherapistProfile {
     this.ratingBreakdown = const <String, int>{'1': 0, '2': 0, '3': 0, '4': 0, '5': 0},
     this.totalReviews = 0,
     this.servicePackages = const <TherapyPackage>[],
+    this.isAcceptingClients = true,
   });
 
   final String id;
@@ -866,6 +867,7 @@ class TherapistProfile {
   final Map<String, int> ratingBreakdown;
   final int totalReviews;
   final List<TherapyPackage> servicePackages;
+  final bool isAcceptingClients;
 
   /// Convenience alias for yearsOfExperience.
   int get experienceYears => yearsOfExperience;
@@ -918,6 +920,7 @@ class TherapistProfile {
               .map((item) => TherapyPackage.fromMap(mapFrom(item)))
               .toList()
           : const <TherapyPackage>[],
+      isAcceptingClients: data['isAcceptingClients'] != false,
     );
   }
 }

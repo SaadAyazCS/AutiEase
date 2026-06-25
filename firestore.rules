@@ -86,12 +86,14 @@ service cloud.firestore {
         (!('verificationStatus' in request.resource.data) || request.resource.data.verificationStatus == 'pending') &&
         (!('verifiedBadge' in request.resource.data) || request.resource.data.verifiedBadge == false) &&
         (!('bio' in request.resource.data) || request.resource.data.bio.size() <= 1000) &&
-        (!('servicePackages' in request.resource.data) || arePackagesValid(request.resource.data.servicePackages))) || isAdmin();
+        (!('servicePackages' in request.resource.data) || arePackagesValid(request.resource.data.servicePackages)) &&
+        (!('isAcceptingClients' in request.resource.data) || request.resource.data.isAcceptingClients is bool)) || isAdmin();
       allow update: if (isTherapist() && request.auth.uid == therapistId &&
         (!('verificationStatus' in request.resource.data) || request.resource.data.verificationStatus == resource.data.verificationStatus) &&
         (!('verifiedBadge' in request.resource.data) || request.resource.data.verifiedBadge == resource.data.verifiedBadge) &&
         (!('bio' in request.resource.data) || request.resource.data.bio.size() <= 1000) &&
-        (!('servicePackages' in request.resource.data) || arePackagesValid(request.resource.data.servicePackages))) || isAdmin();
+        (!('servicePackages' in request.resource.data) || arePackagesValid(request.resource.data.servicePackages)) &&
+        (!('isAcceptingClients' in request.resource.data) || request.resource.data.isAcceptingClients is bool)) || isAdmin();
       allow delete: if signedIn() && request.auth.uid == therapistId;
     }
 
@@ -203,6 +205,11 @@ service cloud.firestore {
     }
 
     match /withdrawal_requests/{requestId} {
+      allow read: if signedIn() && (resource.data.therapistId == request.auth.uid || isAdmin());
+      allow create, update, delete: if false;
+    }
+
+    match /wallet_ledger/{ledgerId} {
       allow read: if signedIn() && (resource.data.therapistId == request.auth.uid || isAdmin());
       allow create, update, delete: if false;
     }

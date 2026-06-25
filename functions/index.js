@@ -1,6 +1,6 @@
 const admin = require('firebase-admin');
 const { onCall, HttpsError, onRequest } = require('firebase-functions/v2/https');
-const { onDocumentDeleted, onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onDocumentDeleted, onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { onUserDeleted } = require('firebase-functions/v2/identity');
 
 admin.initializeApp();
@@ -239,5 +239,67 @@ exports.sendPushNotificationOnNewNotification = onDocumentCreated(
     } catch (error) {
       console.error('Error sending push notification:', error);
     }
+  }
+);
+
+async function updateTherapistRating(therapistId) {
+  if (!therapistId) return;
+
+  const reviewsSnapshot = await db
+    .collection('therapist_reviews')
+    .where('therapistId', '==', therapistId)
+    .get();
+
+  let totalReviews = 0;
+  let totalRating = 0;
+  const ratingBreakdown = { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 };
+
+  reviewsSnapshot.forEach((doc) => {
+    const data = doc.data();
+    const rating = Math.round(Number(data.rating) || 5);
+    if (rating >= 1 && rating <= 5) {
+      ratingBreakdown[rating.toString()] += 1;
+      totalRating += rating;
+      totalReviews += 1;
+    }
+  });
+
+  const averageRating = totalReviews > 0 ? parseFloat((totalRating / totalReviews).toFixed(2)) : 0;
+
+  await db.collection('therapist_profiles').doc(therapistId).set({
+    rating: averageRating,
+    totalReviews,
+    ratingBreakdown,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+}
+
+exports.onReviewCreated = onDocumentCreated(
+  'therapist_reviews/{reviewId}',
+  async (event) => {
+    const data = event.data?.data();
+    if (!data) return;
+    const therapistId = data.therapistId;
+    await updateTherapistRating(therapistId);
+  }
+);
+
+exports.onReviewUpdated = onDocumentUpdated(
+  'therapist_reviews/{reviewId}',
+  async (event) => {
+    const data = event.data?.after?.data();
+    if (!data) return;
+    const therapistId = data.therapistId;
+    await updateTherapistRating(therapistId);
+  }
+);
+
+exports.onReviewDeleted = onDocumentDeleted(
+  'therapist_reviews/{reviewId}',
+  async (event) => {
+    const data = event.data?.data();
+    if (!data) return;
+    const therapistId = data.therapistId;
+    await updateTherapistRating(therapistId);
   }
 );
