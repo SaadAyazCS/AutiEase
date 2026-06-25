@@ -1896,6 +1896,12 @@ app.post('/api/v1/therapist/withdraw', withdrawLimiter, requireAuth, async (req,
     if (!amount || !paymentMethod || !accountDetails) {
       return jsonError(res, 400, 'amount, paymentMethod, and accountDetails are required');
     }
+    if (!['raast', 'bank'].includes(paymentMethod)) {
+      return jsonError(res, 400, 'Invalid paymentMethod. Must be raast or bank');
+    }
+    if (accountDetails.length > 300) {
+      return jsonError(res, 400, 'accountDetails must not exceed 300 characters');
+    }
 
     const parsedWithdrawAmount = parseAmount(amount);
     if (parsedWithdrawAmount < 500) {
@@ -1926,6 +1932,9 @@ app.post('/api/v1/therapist/withdraw', withdrawLimiter, requireAuth, async (req,
     if (isAppeal) {
       if (!appealReason || appealReason.trim().length < 5) {
         return jsonError(res, 400, 'appealReason is required for cooldown appeals (minimum 5 characters)');
+      }
+      if (appealReason.length > 500) {
+        return jsonError(res, 400, 'appealReason must not exceed 500 characters');
       }
       if (hasRecentAppeal) {
         return jsonError(res, 400, 'You have already used your 1-time appeal request for this 3-day cooldown period.');
@@ -2036,6 +2045,12 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, requireAdmin, async (req
     }
     if (!['paid', 'rejected'].includes(status)) {
       return jsonError(res, 400, 'status must be either paid or rejected');
+    }
+    if (adminNotes && adminNotes.length > 500) {
+      return jsonError(res, 400, 'adminNotes must not exceed 500 characters');
+    }
+    if (receiptBase64 && receiptBase64.length > 700000) {
+      return jsonError(res, 400, 'receiptBase64 file size must not exceed 500KB');
     }
 
     const requestRef = db.collection('withdrawal_requests').doc(requestId);
