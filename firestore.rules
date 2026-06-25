@@ -287,5 +287,23 @@ service cloud.firestore {
       );
       allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
     }
+
+    match /clinical_notes/{noteId} {
+      allow read: if signedIn() && (resource.data.therapistId == request.auth.uid || resource.data.parentId == request.auth.uid || isAdmin());
+      allow create: if isTherapist() && request.resource.data.therapistId == request.auth.uid;
+      allow update, delete: if isTherapist() && resource.data.therapistId == request.auth.uid;
+    }
+
+    match /appointment_slots/{slotId} {
+      allow read: if signedIn();
+      allow create, delete: if isTherapist() && (request.resource.data.therapistId == request.auth.uid || (resource != null && resource.data.therapistId == request.auth.uid));
+      allow update: if signedIn() && (
+        (isTherapist() && resource.data.therapistId == request.auth.uid) ||
+        (isParent() &&
+         request.resource.data.therapistId == resource.data.therapistId &&
+         request.resource.data.dateTime == resource.data.dateTime &&
+         request.resource.data.durationMinutes == resource.data.durationMinutes)
+      );
+    }
   }
 }

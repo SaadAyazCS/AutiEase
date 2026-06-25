@@ -142,6 +142,7 @@ class PaymentBackendClient {
     required String requestId,
     required String status,
     String? adminNotes,
+    String? receiptBase64,
   }) async {
     await _postJson(
       '/api/v1/admin/withdraw/resolve',
@@ -149,6 +150,7 @@ class PaymentBackendClient {
         'requestId': requestId,
         'status': status,
         if (adminNotes != null) 'adminNotes': adminNotes,
+        if (receiptBase64 != null) 'receiptBase64': receiptBase64,
       },
     );
   }

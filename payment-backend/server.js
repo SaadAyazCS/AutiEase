@@ -2029,7 +2029,7 @@ app.post('/api/v1/therapist/withdraw', withdrawLimiter, requireAuth, async (req,
 app.post('/api/v1/admin/withdraw/resolve', requireAuth, requireAdmin, async (req, res) => {
   try {
     const uid = req.user.uid;
-    const { requestId, status, adminNotes } = req.body || {};
+    const { requestId, status, adminNotes, receiptBase64 } = req.body || {};
 
     if (!requestId || !status) {
       return jsonError(res, 400, 'requestId and status are required');
@@ -2066,6 +2066,7 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, requireAdmin, async (req
       txn.set(requestRef, {
         status,
         adminNotes: adminNotes || null,
+        receiptBase64: receiptBase64 || null,
         resolvedBy: uid,
         resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -2076,6 +2077,7 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, requireAdmin, async (req
         txn.set(earningsSnap.ref, {
           status,
           adminNotes: adminNotes || null,
+          receiptBase64: receiptBase64 || null,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
       }

@@ -24,6 +24,8 @@ import 'feedback_screen.dart';
 import 'therapist_chat_screen.dart';
 import '../utils/currency_utils.dart';
 import 'therapist_notification_inbox_screen.dart';
+import 'receipt_viewer_screen.dart';
+import 'therapist_scheduler_screen.dart';
 
 class TherapistHomeScreen extends StatefulWidget {
   const TherapistHomeScreen({super.key});
@@ -813,6 +815,18 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
       barrierColor: Colors.black45,
       builder: (context) {
         return _TherapistSettingsDialog(
+          onScheduler: () async {
+            Navigator.pop(context);
+            if (_profile == null) return;
+            await Navigator.push<void>(
+              this.context,
+              MaterialPageRoute(
+                builder: (_) => TherapistSchedulerScreen(
+                  therapistId: _profile!.id,
+                ),
+              ),
+            );
+          },
           onProfile: () async {
             Navigator.pop(context);
             if (_profile == null) return;
@@ -1134,21 +1148,33 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
                                           onTap: _openDashboard,
                                         ),
                                         SizedBox(height: r.h(14)),
-                                        _ModuleCard(
-                                          title: 'Messages',
-                                          color: const Color(0xFFA5E876),
-                                          asset:
-                                              'assets/images/Professional_Support.png',
-                                          enabled: featureFlags.chatEnabled,
-                                          onTap: featureFlags.chatEnabled
-                                              ? () => Navigator.push(
-                                                  context,
-                                                  MaterialPageRoute(
-                                                    builder: (_) =>
-                                                        const TherapistMessagesScreen(),
-                                                  ),
-                                                )
-                                              : _showComingSoon,
+                                        StreamBuilder<List<TherapistThread>>(
+                                          stream: AppRepositories.support.watchThreadsForRole('therapist'),
+                                          builder: (context, snapshot) {
+                                            final threads = snapshot.data ?? [];
+                                            final unreadCount = threads.where((t) {
+                                              if (t.lastMessageAt == null) return false;
+                                              if (t.therapistLastRead == null) return true;
+                                              return t.lastMessageAt!.isAfter(t.therapistLastRead!);
+                                            }).length;
+                                            return _ModuleCard(
+                                              title: 'Messages',
+                                              color: const Color(0xFFA5E876),
+                                              asset:
+                                                  'assets/images/Professional_Support.png',
+                                              enabled: featureFlags.chatEnabled,
+                                              unreadCount: unreadCount,
+                                              onTap: featureFlags.chatEnabled
+                                                  ? () => Navigator.push(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                        builder: (_) =>
+                                                            const TherapistMessagesScreen(),
+                                                      ),
+                                                    )
+                                                  : _showComingSoon,
+                                            );
+                                          },
                                         ),
                                         SizedBox(height: r.h(14)),
                                         _ModuleCard(
@@ -3263,6 +3289,34 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                     ],
                     const Divider(),
                     _buildModalDetailRow('Date', formattedDate),
+                    if (!isEarning && status == 'PAID' && tx['receiptBase64'] != null && tx['receiptBase64'].toString().isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ReceiptViewerScreen(
+                                  base64String: tx['receiptBase64'].toString(),
+                                  title: 'Payout Receipt',
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.receipt_long_rounded),
+                          label: const Text('View Payout Receipt'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0D9488),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 20),
                     Row(
                       children: [
@@ -3795,50 +3849,73 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
                                       ? parentProfile!.fullName
                                       : parentProfile?.email ?? 'Parent');
 
-                            return ListTile(
-                              leading: _buildParentAvatar(parentProfile?.photoUrl),
-                              title: Text(
-                                parentName,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
+                             final isUnread = thread.lastMessageAt != null &&
+                                 (thread.therapistLastRead == null ||
+                                     thread.lastMessageAt!.isAfter(thread.therapistLastRead!));
+
+                             return ListTile(
+                               leading: _buildParentAvatar(parentProfile?.photoUrl),
+                               title: Text(
+                                 parentName,
+                                 style: const TextStyle(
+                                   fontWeight: FontWeight.w600,
+                                 ),
                                 ),
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Parent conversation',
-                                    style: TextStyle(color: Color(0xFF16A34A)),
-                                  ),
-                                  Text(
-                                    thread.lastMessagePreview.isEmpty
-                                        ? 'No messages yet'
-                                        : thread.lastMessagePreview,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  Text(
-                                    _friendlyTime(thread.lastMessageAt),
-                                    style: const TextStyle(
-                                      color: Color(0xFF9CA3AF),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              trailing: thread.hasOpenEmergency
-                                  ? const CircleAvatar(
-                                      radius: 12,
-                                      backgroundColor: Color(0xFFF85D93),
-                                      child: Text(
-                                        '2',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    )
-                                  : null,
+                               subtitle: Column(
+                                 crossAxisAlignment: CrossAxisAlignment.start,
+                                 children: [
+                                   const Text(
+                                     'Parent conversation',
+                                     style: TextStyle(color: Color(0xFF16A34A)),
+                                   ),
+                                   Text(
+                                     thread.lastMessagePreview.isEmpty
+                                         ? 'No messages yet'
+                                         : thread.lastMessagePreview,
+                                     maxLines: 1,
+                                     overflow: TextOverflow.ellipsis,
+                                     style: TextStyle(
+                                       fontWeight: isUnread ? FontWeight.bold : FontWeight.normal,
+                                       color: isUnread ? Colors.black : const Color(0xFF475569),
+                                     ),
+                                   ),
+                                   Text(
+                                     _friendlyTime(thread.lastMessageAt),
+                                     style: const TextStyle(
+                                       color: Color(0xFF9CA3AF),
+                                     ),
+                                   ),
+                                 ],
+                               ),
+                               trailing: Row(
+                                 mainAxisSize: MainAxisSize.min,
+                                 children: [
+                                   if (isUnread)
+                                     Container(
+                                       width: 10,
+                                       height: 10,
+                                       decoration: const BoxDecoration(
+                                         color: Colors.red,
+                                         shape: BoxShape.circle,
+                                       ),
+                                     ),
+                                   if (thread.hasOpenEmergency) ...[
+                                     if (isUnread) const SizedBox(width: 6),
+                                     const CircleAvatar(
+                                       radius: 12,
+                                       backgroundColor: Color(0xFFF85D93),
+                                       child: Text(
+                                         '2',
+                                         style: TextStyle(
+                                           color: Colors.white,
+                                           fontSize: 12,
+                                           fontWeight: FontWeight.w700,
+                                         ),
+                                       ),
+                                     ),
+                                   ],
+                                 ],
+                               ),
                               onTap: () {
                                 Navigator.push(
                                   context,
@@ -5821,6 +5898,7 @@ class _TherapistSettingsDialog extends StatelessWidget {
     required this.onFeedback,
     required this.onAbout,
     required this.onLogout,
+    required this.onScheduler,
   });
 
   final VoidCallback onProfile;
@@ -5829,6 +5907,7 @@ class _TherapistSettingsDialog extends StatelessWidget {
   final VoidCallback onFeedback;
   final VoidCallback onAbout;
   final VoidCallback onLogout;
+  final VoidCallback onScheduler;
 
   @override
   Widget build(BuildContext context) {
@@ -5903,6 +5982,13 @@ class _TherapistSettingsDialog extends StatelessWidget {
                       child: BouncingButton(
                         onTap: onAbout,
                         child: _setBtn('About App', const Color(0xFF3B82F6), Icons.info_rounded),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: BouncingButton(
+                        onTap: onScheduler,
+                        child: _setBtn('Scheduler', const Color(0xFF0D9488), Icons.calendar_month_rounded),
                       ),
                     ),
                   ],
@@ -6354,6 +6440,7 @@ class _ModuleCard extends StatelessWidget {
     required this.asset,
     required this.onTap,
     this.enabled = true,
+    this.unreadCount = 0,
   });
 
   final String title;
@@ -6361,6 +6448,7 @@ class _ModuleCard extends StatelessWidget {
   final String asset;
   final VoidCallback onTap;
   final bool enabled;
+  final int unreadCount;
 
   @override
   Widget build(BuildContext context) {
@@ -6384,13 +6472,35 @@ class _ModuleCard extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: r.sp(40 / 1.5, min: 18, max: 28),
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
-                  ),
+                child: Row(
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: r.sp(40 / 1.5, min: 18, max: 28),
+                        fontWeight: FontWeight.w700,
+                        color: textColor,
+                      ),
+                    ),
+                    if (unreadCount > 0) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '$unreadCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               SizedBox(

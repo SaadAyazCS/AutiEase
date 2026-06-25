@@ -613,6 +613,222 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     }
   }
 
+  Future<void> _showClinicalNoteDialog() async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(child: CircularProgressIndicator()),
+    );
+
+    String childName = 'Child';
+    try {
+      final childSnap = await FirebaseFirestore.instance
+          .collection('child_profiles')
+          .doc(widget.thread.childId)
+          .get();
+      if (childSnap.exists) {
+        childName = (childSnap.data()?['childName'] ?? 'Child').toString();
+      }
+    } catch (e) {
+      debugPrint('Error loading child profile: $e');
+    }
+
+    if (!mounted) return;
+    Navigator.pop(context); // Pop loading indicator
+
+    final titleCtrl = TextEditingController();
+    final bodyCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE0F2FE),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.description_rounded,
+                  color: Color(0xFF0284C7),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Log Note for $childName',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1E293B),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Clinical session logs and progress updates are secure and visible only to this child\'s parent.',
+                    style: TextStyle(
+                      color: Color(0xFF64748B),
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: titleCtrl,
+                    style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B)),
+                    decoration: InputDecoration(
+                      labelText: 'Session Title',
+                      labelStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                      hintText: 'e.g. Speech articulation practice',
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFF0284C7), width: 2),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFE2E8F0), width: 1),
+                      ),
+                    ),
+                    validator: (val) {
+                      if (val == null || val.trim().isEmpty) {
+                        return 'Title is required';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: bodyCtrl,
+                    maxLines: 6,
+                    style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B)),
+                    decoration: InputDecoration(
+                      labelText: 'Clinical & Progress Notes',
+                      labelStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                      hintText: 'Describe session outcomes, observed behaviors, task completion, and next recommendations...',
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFF0284C7), width: 2),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFE2E8F0), width: 1),
+                      ),
+                    ),
+                    validator: (val) {
+                      if (val == null || val.trim().isEmpty) {
+                        return 'Notes body is required';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0284C7),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              onPressed: () async {
+                if (formKey.currentState?.validate() == true) {
+                  Navigator.pop(ctx);
+                  try {
+                    // Show saving HUD
+                    showDialog<void>(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (c) => const Center(child: CircularProgressIndicator()),
+                    );
+
+                    await AppRepositories.support.createClinicalNote(
+                      therapistId: widget.thread.therapistId,
+                      parentId: widget.thread.parentId,
+                      childId: widget.thread.childId,
+                      therapistName: widget.thread.therapistDisplayName.isNotEmpty
+                          ? widget.thread.therapistDisplayName
+                          : 'Therapist',
+                      childName: childName,
+                      title: titleCtrl.text.trim(),
+                      body: bodyCtrl.text.trim(),
+                    );
+
+                    if (mounted) {
+                      Navigator.pop(context); // Pop saving HUD
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Clinical note saved successfully.'),
+                          backgroundColor: Color(0xFF059669),
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      Navigator.pop(context); // Pop saving HUD
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Failed to save note: $e'),
+                          backgroundColor: const Color(0xFFEF4444),
+                        ),
+                      );
+                    }
+                  }
+                }
+              },
+              child: const Text(
+                'Save Note',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _openPeerProfileDetails() {
     final isTherapist = widget.senderRole == 'parent';
     final photoUrlBase64 = isTherapist
@@ -1696,6 +1912,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                       } else if (value == 'media') {
                         final list = await AppRepositories.support.watchMessages(widget.thread.id).first;
                         _openMediaGallery(list);
+                      } else if (value == 'clinical_note') {
+                        _showClinicalNoteDialog();
                       }
                     },
                     itemBuilder: (context) => [
@@ -1719,6 +1937,17 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                           ],
                         ),
                       ),
+                      if (widget.senderRole == 'therapist')
+                        const PopupMenuItem(
+                          value: 'clinical_note',
+                          child: Row(
+                            children: [
+                              Icon(Icons.description_outlined, size: 20, color: Colors.black87),
+                              SizedBox(width: 8),
+                              Text('Add Clinical Note'),
+                            ],
+                          ),
+                        ),
                       const PopupMenuItem(
                         value: 'report',
                         child: Row(

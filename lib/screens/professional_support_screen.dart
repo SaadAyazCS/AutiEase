@@ -9,6 +9,8 @@ import '../utils/app_colors.dart';
 import '../widgets/session_guard.dart';
 import 'therapist_chat_screen.dart';
 import 'certificate_viewer_screen.dart';
+import 'parent_clinical_logs_screen.dart';
+import 'parent_scheduler_screen.dart';
 import '../utils/currency_utils.dart';
 
 
@@ -1778,6 +1780,7 @@ class SupportTherapistDetailsScreenState
   List<_SupportServicePackage> _packages = const <_SupportServicePackage>[];
   int _activePackageIndex = 0;
   int? _subscribedPackageIndex;
+  ChildProfile? _activeChild;
 
   String get _formattedExperience {
     if (_yearsFromProfile == 0 && _monthsFromProfile == 0) {
@@ -1792,6 +1795,20 @@ class SupportTherapistDetailsScreenState
     super.initState();
     _isSubscribed = widget.initiallySubscribed;
     _loadTherapistMeta();
+    _loadActiveChild();
+  }
+
+  Future<void> _loadActiveChild() async {
+    try {
+      final child = await AppRepositories.users.getActiveChildForCurrentParent();
+      if (mounted) {
+        setState(() {
+          _activeChild = child;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading active child: $e');
+    }
   }
 
   Future<void> _loadTherapistMeta() async {
@@ -2228,6 +2245,98 @@ class SupportTherapistDetailsScreenState
                       ],
                     ),
                   ),
+                  if (_isSubscribed) ...[
+                    const SizedBox(height: 12),
+                    _SupportDetailCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Therapy & Progress Management',
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Color(0xFF1F2937),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () {
+                                    if (_activeChild == null) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Please select or create a child profile first.'),
+                                          backgroundColor: Color(0xFFEF4444),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => ParentClinicalLogsScreen(
+                                          therapistId: therapist.id,
+                                          childId: _activeChild!.id,
+                                          therapistName: therapist.displayName,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.description_outlined, size: 16),
+                                  label: const Text('Clinical Logs', style: TextStyle(fontSize: 12)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF0D9488),
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () {
+                                    if (_activeChild == null) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Please select or create a child profile first.'),
+                                          backgroundColor: Color(0xFFEF4444),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => ParentSchedulerScreen(
+                                          therapistId: therapist.id,
+                                          therapistName: therapist.displayName,
+                                          parentId: FirebaseAuth.instance.currentUser!.uid,
+                                          childId: _activeChild!.id,
+                                          childName: _activeChild!.name,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.calendar_month_outlined, size: 16),
+                                  label: const Text('Schedule', style: TextStyle(fontSize: 12)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF0284C7),
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   _SupportTherapistReviewsSection(therapistId: therapist.id),
                   const SizedBox(height: 12),

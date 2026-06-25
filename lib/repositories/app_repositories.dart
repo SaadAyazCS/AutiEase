@@ -34,6 +34,8 @@ class FirestoreCollections {
   static const learningMetrics = 'learning_metrics';
   static const communicationSentenceSettings =
       'communication_sentence_settings';
+  static const clinicalNotes = 'clinical_notes';
+  static const appointmentSlots = 'appointment_slots';
 }
 
 abstract class AuthRepository {
@@ -160,6 +162,37 @@ abstract class SupportRepository {
 
   // FCM Device Tokens
   Future<void> saveFcmToken(String token);
+
+  // Clinical Notes
+  Future<void> createClinicalNote({
+    required String therapistId,
+    required String parentId,
+    required String childId,
+    required String therapistName,
+    required String childName,
+    required String title,
+    required String body,
+  });
+  Stream<List<ClinicalNote>> watchClinicalNotesForChild(String childId);
+  Stream<List<ClinicalNote>> watchClinicalNotesForTherapist(String therapistId);
+  Future<void> deleteClinicalNote(String noteId);
+
+  // Appointment Slots
+  Future<void> createAppointmentSlot({
+    required String therapistId,
+    required DateTime dateTime,
+    required int durationMinutes,
+  });
+  Stream<List<AppointmentSlot>> watchSlotsForTherapist(String therapistId);
+  Future<void> bookAppointmentSlot({
+    required String slotId,
+    required String parentId,
+    required String childId,
+    required String childName,
+    required String notes,
+  });
+  Future<void> cancelAppointmentSlot(String slotId);
+  Future<void> deleteAppointmentSlot(String slotId);
 }
 
 abstract class AdminRepository {
@@ -185,6 +218,7 @@ abstract class AdminRepository {
     required String requestId,
     required String status,
     String? adminNotes,
+    String? receiptBase64,
   });
 }
 
@@ -1790,6 +1824,126 @@ class FirebaseSupportRepository implements SupportRepository {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
+
+  // Clinical Notes
+  @override
+  Future<void> createClinicalNote({
+    required String therapistId,
+    required String parentId,
+    required String childId,
+    required String therapistName,
+    required String childName,
+    required String title,
+    required String body,
+  }) async {
+    final noteRef = _firestore.collection(FirestoreCollections.clinicalNotes).doc();
+    final note = ClinicalNote(
+      id: noteRef.id,
+      therapistId: therapistId,
+      parentId: parentId,
+      childId: childId,
+      therapistName: therapistName,
+      childName: childName,
+      title: title,
+      body: body,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    await noteRef.set(note.toMap());
+  }
+
+  @override
+  Stream<List<ClinicalNote>> watchClinicalNotesForChild(String childId) {
+    return _firestore
+        .collection(FirestoreCollections.clinicalNotes)
+        .where('childId', isEqualTo: childId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((doc) => ClinicalNote.fromMap(doc.id, doc.data()))
+            .toList());
+  }
+
+  @override
+  Stream<List<ClinicalNote>> watchClinicalNotesForTherapist(String therapistId) {
+    return _firestore
+        .collection(FirestoreCollections.clinicalNotes)
+        .where('therapistId', isEqualTo: therapistId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((doc) => ClinicalNote.fromMap(doc.id, doc.data()))
+            .toList());
+  }
+
+  @override
+  Future<void> deleteClinicalNote(String noteId) async {
+    await _firestore.collection(FirestoreCollections.clinicalNotes).doc(noteId).delete();
+  }
+
+  // Appointment Slots
+  @override
+  Future<void> createAppointmentSlot({
+    required String therapistId,
+    required DateTime dateTime,
+    required int durationMinutes,
+  }) async {
+    final slotRef = _firestore.collection(FirestoreCollections.appointmentSlots).doc();
+    final slot = AppointmentSlot(
+      id: slotRef.id,
+      therapistId: therapistId,
+      dateTime: dateTime,
+      durationMinutes: durationMinutes,
+      status: 'available',
+      createdAt: DateTime.now(),
+    );
+    await slotRef.set(slot.toMap());
+  }
+
+  @override
+  Stream<List<AppointmentSlot>> watchSlotsForTherapist(String therapistId) {
+    return _firestore
+        .collection(FirestoreCollections.appointmentSlots)
+        .where('therapistId', isEqualTo: therapistId)
+        .orderBy('dateTime', descending: false)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((doc) => AppointmentSlot.fromMap(doc.id, doc.data()))
+            .toList());
+  }
+
+  @override
+  Future<void> bookAppointmentSlot({
+    required String slotId,
+    required String parentId,
+    required String childId,
+    required String childName,
+    required String notes,
+  }) async {
+    await _firestore.collection(FirestoreCollections.appointmentSlots).doc(slotId).update({
+      'status': 'booked',
+      'bookedByParentId': parentId,
+      'bookedForChildId': childId,
+      'bookedForChildName': childName,
+      'notes': notes,
+    });
+  }
+
+  @override
+  Future<void> cancelAppointmentSlot(String slotId) async {
+    await _firestore.collection(FirestoreCollections.appointmentSlots).doc(slotId).update({
+      'status': 'available',
+      'bookedByParentId': FieldValue.delete(),
+      'bookedForChildId': FieldValue.delete(),
+      'bookedForChildName': FieldValue.delete(),
+      'notes': FieldValue.delete(),
+    });
+  }
+
+  @override
+  Future<void> deleteAppointmentSlot(String slotId) async {
+    await _firestore.collection(FirestoreCollections.appointmentSlots).doc(slotId).delete();
+  }
 }
 
 class FirebaseBillingRepository implements BillingRepository {
@@ -2711,11 +2865,13 @@ class FirebaseAdminRepository implements AdminRepository {
     required String requestId,
     required String status,
     String? adminNotes,
+    String? receiptBase64,
   }) async {
     await AppRepositories.paymentBackend.resolveWithdrawalRequest(
       requestId: requestId,
       status: status,
       adminNotes: adminNotes,
+      receiptBase64: receiptBase64,
     );
   }
 }

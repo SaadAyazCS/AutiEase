@@ -563,6 +563,51 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
                                 final module = modules[index];
                                 final isChildProfile = module.routeKey == 'child_profile';
                                 final isLocked = childModeLocked && !isChildProfile;
+                                final isProfessionalSupport = module.routeKey == 'professional_support';
+                                if (isProfessionalSupport) {
+                                  return Center(
+                                    child: StreamBuilder<List<TherapistThread>>(
+                                      stream: AppRepositories.support.watchThreadsForRole('parent'),
+                                      builder: (context, threadSnapshot) {
+                                        final threads = threadSnapshot.data ?? [];
+                                        final unreadCount = threads.where((t) {
+                                          if (t.lastMessageAt == null) return false;
+                                          if (t.parentLastRead == null) return true;
+                                          return t.lastMessageAt!.isAfter(t.parentLastRead!);
+                                        }).length;
+                                        return _ParentModuleCard(
+                                          label: _labelForModule(module),
+                                          assetPath: _assetForModule(module),
+                                          color: _cardColorForModule(module),
+                                          locked: isLocked,
+                                          unreadCount: unreadCount,
+                                          onTap: () async {
+                                            if (isLocked) {
+                                              final unlocked = await ChildModeLockWidgets.showUnlockDialog(context);
+                                              if (unlocked && context.mounted) {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        _buildScreenForModule(module),
+                                                  ),
+                                                );
+                                              }
+                                            } else {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      _buildScreenForModule(module),
+                                                ),
+                                              );
+                                            }
+                                          },
+                                        );
+                                      },
+                                    ),
+                                  );
+                                }
 
                                 return Center(
                                   child: _ParentModuleCard(
@@ -814,6 +859,7 @@ class _ParentModuleCard extends StatelessWidget {
     required this.color,
     required this.onTap,
     this.locked = false,
+    this.unreadCount = 0,
   });
 
   final String label;
@@ -821,6 +867,7 @@ class _ParentModuleCard extends StatelessWidget {
   final Color color;
   final VoidCallback onTap;
   final bool locked;
+  final int unreadCount;
 
   @override
   Widget build(BuildContext context) {
@@ -885,6 +932,26 @@ class _ParentModuleCard extends StatelessWidget {
                         size: r.sp(24),
                         color: Colors.black,
                       ),
+                    ),
+                  ),
+                ),
+              ),
+            if (unreadCount > 0)
+              Positioned(
+                top: r.h(8),
+                right: r.w(8),
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: r.w(8), vertical: r.h(4)),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF4444),
+                    borderRadius: BorderRadius.circular(r.w(10)),
+                  ),
+                  child: Text(
+                    '$unreadCount',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: r.sp(11, min: 9, max: 13),
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),

@@ -1415,3 +1415,122 @@ class SettingsEntry {
     );
   }
 }
+
+class ClinicalNote {
+  const ClinicalNote({
+    required this.id,
+    required this.therapistId,
+    required this.parentId,
+    required this.childId,
+    required this.therapistName,
+    required this.childName,
+    required this.title,
+    required this.body,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String therapistId;
+  final String parentId;
+  final String childId;
+  final String therapistName;
+  final String childName;
+  final String title;
+  final String body;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  factory ClinicalNote.fromMap(String id, Map<String, dynamic> data) {
+    return ClinicalNote(
+      id: id,
+      therapistId: (data['therapistId'] ?? '').toString(),
+      parentId: (data['parentId'] ?? '').toString(),
+      childId: (data['childId'] ?? '').toString(),
+      therapistName: (data['therapistName'] ?? '').toString(),
+      childName: (data['childName'] ?? '').toString(),
+      title: (data['title'] ?? '').toString(),
+      body: (data['body'] ?? '').toString(),
+      createdAt: data['createdAt'] != null
+          ? (data['createdAt'] as Timestamp).toDate().toLocal()
+          : DateTime.now(),
+      updatedAt: data['updatedAt'] != null
+          ? (data['updatedAt'] as Timestamp).toDate().toLocal()
+          : DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'therapistId': therapistId,
+      'parentId': parentId,
+      'childId': childId,
+      'therapistName': therapistName,
+      'childName': childName,
+      'title': title,
+      'body': body,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+  }
+}
+
+class AppointmentSlot {
+  const AppointmentSlot({
+    required this.id,
+    required this.therapistId,
+    required this.dateTime,
+    required this.durationMinutes,
+    required this.status, // 'available', 'booked', 'cancelled'
+    this.bookedByParentId,
+    this.bookedForChildId,
+    this.bookedForChildName,
+    this.notes,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String therapistId;
+  final DateTime dateTime;
+  final int durationMinutes;
+  final String status;
+  final String? bookedByParentId;
+  final String? bookedForChildId;
+  final String? bookedForChildName;
+  final String? notes;
+  final DateTime createdAt;
+
+  factory AppointmentSlot.fromMap(String id, Map<String, dynamic> data) {
+    return AppointmentSlot(
+      id: id,
+      therapistId: (data['therapistId'] ?? '').toString(),
+      dateTime: data['dateTime'] != null
+          ? (data['dateTime'] as Timestamp).toDate().toLocal()
+          : DateTime.now(),
+      durationMinutes: intFrom(data['durationMinutes']) > 0 ? intFrom(data['durationMinutes']) : 60,
+      status: (data['status'] ?? 'available').toString(),
+      bookedByParentId: data['bookedByParentId']?.toString(),
+      bookedForChildId: data['bookedForChildId']?.toString(),
+      bookedForChildName: data['bookedForChildName']?.toString(),
+      notes: data['notes']?.toString(),
+      createdAt: data['createdAt'] != null
+          ? (data['createdAt'] as Timestamp).toDate().toLocal()
+          : DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'therapistId': therapistId,
+      'dateTime': Timestamp.fromDate(dateTime),
+      'durationMinutes': durationMinutes,
+      'status': status,
+      'bookedByParentId': bookedByParentId,
+      'bookedForChildId': bookedForChildId,
+      'bookedForChildName': bookedForChildName,
+      'notes': notes,
+      'createdAt': FieldValue.serverTimestamp(),
+    };
+  }
+}
+
