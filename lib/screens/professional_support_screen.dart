@@ -653,7 +653,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
       );
 
       // Close the dialog if still open
-      if (isDialogOpen && dialogContext != null) {
+      if (isDialogOpen && dialogContext != null && dialogContext!.mounted) {
         isDialogOpen = false;
         Navigator.pop(dialogContext!);
       }
@@ -726,7 +726,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
       setState(() {
         _isCheckoutCancelled = true;
       });
-      if (isDialogOpen && dialogContext != null) {
+      if (isDialogOpen && dialogContext != null && dialogContext!.mounted) {
         isDialogOpen = false;
         Navigator.pop(dialogContext!);
       }
@@ -788,6 +788,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
         }
       });
       await _persistTherapistState();
+      if (!mounted) return true;
       
       final messenger = ScaffoldMessenger.of(context);
       if (choice == 'delete') {
@@ -1009,6 +1010,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
         ),
       ),
     );
+    if (!mounted) return;
     if (result != null && result.toString().startsWith('show_review_')) {
       _showReviewDialog(context, therapist);
     }
@@ -1071,6 +1073,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
         ),
       );
       await _refreshState();
+      if (!mounted) return;
       if (result != null && result.toString().startsWith('show_review_')) {
         _showReviewDialog(context, therapist);
       }
@@ -2301,14 +2304,14 @@ class SupportTherapistDetailsScreenState
                                 onPressed: widget.paymentsEnabled
                                     ? () async {
                                         final success = await widget.onCancelSubscription();
-                                        if (!mounted) {
-                                          return;
-                                        }
-                                        if (success) {
-                                          if (mounted) {
-                                            Navigator.pop(context);
-                                          }
-                                        }
+                                        if (!context.mounted) {
+                                           return;
+                                         }
+                                         if (success) {
+                                           if (context.mounted) {
+                                             Navigator.pop(context);
+                                           }
+                                         }
                                       }
                                     : () {
                                         ScaffoldMessenger.of(
@@ -3232,6 +3235,7 @@ class _ParentSubscriptionsHistoryScreenState
         } catch (_) {}
       }
 
+      if (!mounted) return;
       setState(() {}); // Reload history screen list
       
       final messenger = ScaffoldMessenger.of(context);

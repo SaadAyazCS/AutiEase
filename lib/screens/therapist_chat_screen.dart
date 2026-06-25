@@ -420,6 +420,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         });
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to pick image: $e')),
       );
@@ -444,6 +445,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         }
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to pick file: $e')),
       );
@@ -469,17 +471,22 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     try {
       if (_isBlocked) {
         await AppRepositories.support.unblockUser(blockedId: peerId);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('User unblocked.')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('User unblocked.')),
+          );
+        }
       } else {
         await AppRepositories.support.blockUser(blockedId: peerId);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('User blocked.')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('User blocked.')),
+          );
+        }
       }
       await _checkBlockedStatus();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Action failed: $e')),
       );
@@ -544,6 +551,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     );
 
     if (shouldReport == true) {
+      if (!mounted) return;
       final confirm = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -870,10 +878,10 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         if (dialogContext.mounted) {
           Navigator.pop(dialogContext); // Close details screen
         }
-        if (context.mounted) {
+        if (mounted) {
           final messenger = ScaffoldMessenger.of(context);
           if (choice == 'delete') {
-            Navigator.pop(context, 'show_review_${widget.thread.therapistId}'); // Close chat screen itself and return result
+            Navigator.pop(context, 'show_review_\${widget.thread.therapistId}'); // Close chat screen itself and return result
             messenger.showSnackBar(
               const SnackBar(
                 content: Text('Subscription cancelled and chat history deleted.'),
@@ -888,7 +896,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
               ),
             );
             final therapist = await _resolveTherapistProfile();
-            if (therapist != null && context.mounted) {
+            if (therapist != null && mounted) {
               _showReviewDialog(context, therapist);
             }
           }
@@ -2141,13 +2149,13 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                       }
                                                     },
                                                   );
-                                              if (isDialogOpen && dialogContext != null) {
-                                                isDialogOpen = false;
-                                                setState(() {
-                                                  _isProgrammaticPop = true;
-                                                });
-                                                Navigator.pop(dialogContext!);
-                                              }
+                                              if (isDialogOpen && dialogContext != null && dialogContext!.mounted) {
+                                                  isDialogOpen = false;
+                                                  setState(() {
+                                                    _isProgrammaticPop = true;
+                                                  });
+                                                  Navigator.pop(dialogContext!);
+                                                }
                                               if (_isCheckoutCancelled) {
                                                 AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
                                                 if (context.mounted) {
@@ -2195,10 +2203,10 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                 _isCheckoutCancelled = true;
                                                 _isProgrammaticPop = true;
                                               });
-                                              if (isDialogOpen && dialogContext != null) {
-                                                isDialogOpen = false;
-                                                Navigator.pop(dialogContext!);
-                                              }
+                                              if (isDialogOpen && dialogContext != null && dialogContext!.mounted) {
+                                                 isDialogOpen = false;
+                                                 Navigator.pop(dialogContext!);
+                                               }
                                               AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
                                               if (context.mounted) {
                                                 ScaffoldMessenger.of(context).showSnackBar(

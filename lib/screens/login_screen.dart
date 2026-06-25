@@ -203,6 +203,7 @@ class _LoginScreenState extends State<LoginScreen>
 
     if (result['success'] == true) {
       await ChildModeLockController.initialize();
+      if (!mounted) return;
       final bool isNewUser = result['isNewUser'] == true;
       final String? userRole = result['role'];
 

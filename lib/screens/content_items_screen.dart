@@ -665,9 +665,6 @@ class _CommunicationSentenceSheetState
 
   void _reorderDraft(int oldIndex, int newIndex) {
     setState(() {
-      if (newIndex > oldIndex) {
-        newIndex -= 1;
-      }
       final next = List<CommunicationAacSentence>.from(_draft);
       final moved = next.removeAt(oldIndex);
       next.insert(newIndex, moved);
@@ -927,7 +924,7 @@ class _CommunicationSentenceSheetState
                   physics: const NeverScrollableScrollPhysics(),
                   padding: const EdgeInsets.only(bottom: 12),
                   itemCount: _draft.length,
-                  onReorder: _reorderDraft,
+                  onReorderItem: _reorderDraft,
                   itemBuilder: (context, index) {
                     final sentence = _draft[index];
                     return _EditableSentenceTile(
