@@ -4816,22 +4816,25 @@ class _TherapistProfileSettingsScreenState
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        CheckboxListTile(
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                          value: _selected.contains(item),
-                          onChanged: (value) {
-                            setState(() {
-                              if (value == true) {
-                                _selected.add(item);
-                              } else {
-                                _selected.remove(item);
-                              }
-                            });
-                          },
-                          title: Text(
-                            item,
-                            style: const TextStyle(fontSize: 13.5),
+                        Material(
+                          color: Colors.transparent,
+                          child: CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            value: _selected.contains(item),
+                            onChanged: (value) {
+                              setState(() {
+                                if (value == true) {
+                                  _selected.add(item);
+                                } else {
+                                  _selected.remove(item);
+                                }
+                              });
+                            },
+                            title: Text(
+                              item,
+                              style: const TextStyle(fontSize: 13.5),
+                            ),
                           ),
                         ),
                         if (item == 'Others' && _selected.contains('Others'))
@@ -5205,29 +5208,34 @@ class _TherapistProfileSettingsScreenState
                             ),
                             color: Colors.white,
                           ),
-                          child: CheckboxListTile(
-                            dense: true,
-                            value: _selected.contains(item),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 0,
-                            ),
-                            controlAffinity: ListTileControlAffinity.leading,
-                            activeColor: const Color(0xFF11B5CF),
-                            onChanged: (value) {
-                              setState(() {
-                                if (value == true) {
-                                  _selected.add(item);
-                                } else {
-                                  _selected.remove(item);
-                                }
-                              });
-                            },
-                            title: Text(
-                              item,
-                              style: const TextStyle(
-                                fontSize: 13.2,
-                                color: Color(0xFF374151),
+                          child: Material(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            clipBehavior: Clip.antiAlias,
+                            child: CheckboxListTile(
+                              dense: true,
+                              value: _selected.contains(item),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 0,
+                              ),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              activeColor: const Color(0xFF11B5CF),
+                              onChanged: (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _selected.add(item);
+                                  } else {
+                                    _selected.remove(item);
+                                  }
+                                });
+                              },
+                              title: Text(
+                                item,
+                                style: const TextStyle(
+                                  fontSize: 13.2,
+                                  color: Color(0xFF374151),
+                                ),
                               ),
                             ),
                           ),
