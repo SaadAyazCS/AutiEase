@@ -2257,6 +2257,54 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: _cardDeco,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Specializations',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF1F2937),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children:
+                                (profile.specializations.isEmpty
+                                        ? const ['Specialization not set']
+                                        : profile.specializations)
+                                    .map(
+                                      (item) => Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFDDEBFF),
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          item,
+                                          style: const TextStyle(
+                                            fontSize: 11.5,
+                                            color: Color(0xFF3165C9),
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
                     _TherapistWalletSection(therapistId: profile.id),
                     const SizedBox(height: 10),
                     StreamBuilder<List<TherapistReview>>(
@@ -2475,54 +2523,6 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                           ),
                         );
                       },
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: _cardDeco,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Specializations',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF1F2937),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children:
-                                (profile.specializations.isEmpty
-                                        ? const ['Specialization not set']
-                                        : profile.specializations)
-                                    .map(
-                                      (item) => Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFDDEBFF),
-                                          borderRadius: BorderRadius.circular(
-                                            999,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          item,
-                                          style: const TextStyle(
-                                            fontSize: 11.5,
-                                            color: Color(0xFF3165C9),
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                    .toList(),
-                          ),
-                        ],
-                      ),
                     ),
                     const SizedBox(height: 10),
                     Container(
