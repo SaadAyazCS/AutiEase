@@ -3,7 +3,7 @@ class AppRuntimeConfig {
 
   static const paymentBackendBaseUrl = String.fromEnvironment(
     'PAYMENT_BACKEND_BASE_URL',
-    defaultValue: '',
+    defaultValue: 'https://autiease.onrender.com',
   );
 
   static const paymentSuccessUrl = String.fromEnvironment(
