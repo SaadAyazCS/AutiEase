@@ -397,11 +397,14 @@ class FirebaseService {
         // Phase 1: Write user document first so that security rules using
         // get(users/uid) can resolve the user's role in subsequent writes.
         final userRef = _users.doc(user.uid);
+        final userMap = profile.toMap()
+          ..remove('createdAt')
+          ..remove('updatedAt');
         await userRef.set({
-          ...profile.toMap(),
+          ...userMap,
           'authProvider': isExistingGoogleUser ? 'google' : 'password',
           'updatedAt': FieldValue.serverTimestamp(),
-          'createdAt': profile.createdAt ?? FieldValue.serverTimestamp(),
+          'createdAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
 
         // Phase 2: Now write child profile, assignment and snapshot as a batch.
@@ -409,26 +412,33 @@ class FirebaseService {
         final batch = _firestore.batch();
 
         final childRef = _children.doc(childProfile.id);
+        final childMap = childProfile.toMap()
+          ..remove('createdAt')
+          ..remove('updatedAt');
         batch.set(childRef, {
-          ...childProfile.toMap(),
+          ...childMap,
           'updatedAt': FieldValue.serverTimestamp(),
-          'createdAt': childProfile.createdAt ?? FieldValue.serverTimestamp(),
+          'createdAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
 
         final assignmentRef = _firestore
             .collection(FirestoreCollections.childAssignments)
             .doc(childProfile.id);
+        final assignmentMap = ChildAssignment(
+          id: childProfile.id,
+          childId: childProfile.id,
+          parentId: user.uid,
+          assignedCategoryIds: defaultCommunicationIds,
+          assignedModuleIds:
+              defaultModules.map((module) => module.id).toList(),
+          assignedActivityTemplateIds:
+              defaultActivities.map((activity) => activity.id).toList(),
+          status: 'active',
+          effectiveFrom: DateTime.now(),
+        ).toMap();
         batch.set(assignmentRef, {
-          ...ChildAssignment(
-            id: childProfile.id,
-            childId: childProfile.id,
-            parentId: user.uid,
-            assignedCategoryIds: defaultCommunicationIds,
-            assignedModuleIds: defaultModules.map((module) => module.id).toList(),
-            assignedActivityTemplateIds: defaultActivities.map((activity) => activity.id).toList(),
-            status: 'active',
-            effectiveFrom: DateTime.now(),
-          ).toMap(),
+          ...assignmentMap,
+          'effectiveFrom': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
 
@@ -441,11 +451,15 @@ class FirebaseService {
           'streakDays': 0,
           'moodEntries': 0,
           'lastUpdated': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        });
 
         await batch.commit();
       } catch (e, stackTrace) {
-        debugPrint('Signup error during parent setup: $e\n$stackTrace');
+        final code = e is FirebaseException ? e.code : 'unknown';
+        final msg = e is FirebaseException ? e.message : e.toString();
+        debugPrint(
+          '[Signup/Parent] FAILED — code=$code message=$msg\n$stackTrace',
+        );
         if (createdPasswordUser) {
           await _rollbackAuthUser(user);
         }
@@ -601,11 +615,14 @@ class FirebaseService {
         // Phase 1: Write user document first so that security rules using
         // get(users/uid) can resolve the user's role in subsequent writes.
         final userRef = _users.doc(user.uid);
+        final therapistUserMap = profile.toMap()
+          ..remove('createdAt')
+          ..remove('updatedAt');
         await userRef.set({
-          ...profile.toMap(),
+          ...therapistUserMap,
           'authProvider': isExistingGoogleUser ? 'google' : 'password',
           'updatedAt': FieldValue.serverTimestamp(),
-          'createdAt': profile.createdAt ?? FieldValue.serverTimestamp(),
+          'createdAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
 
         // Phase 2: Write therapist profile. The user doc is already committed
@@ -633,7 +650,11 @@ class FirebaseService {
           'contactPhone': normalizedPhone,
         }, SetOptions(merge: true));
       } catch (e, stackTrace) {
-        debugPrint('Signup error during therapist setup: $e\n$stackTrace');
+        final code = e is FirebaseException ? e.code : 'unknown';
+        final msg = e is FirebaseException ? e.message : e.toString();
+        debugPrint(
+          '[Signup/Therapist] FAILED — code=$code message=$msg\n$stackTrace',
+        );
         if (createdPasswordUser) {
           await _rollbackAuthUser(user);
         }
