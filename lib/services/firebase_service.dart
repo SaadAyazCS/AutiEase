@@ -84,13 +84,19 @@ class FirebaseService {
       );
       final result = await callable.call({'email': normalized});
       final data = result.data;
-      if (data is Map && data['exists'] is bool) {
-        return data['exists'] as bool;
+      debugPrint('checkAccountExistsByEmail result: $data');
+      if (data is Map) {
+        final exists = data['exists'];
+        if (exists is bool) {
+          return exists;
+        }
       }
       return null;
-    } on FirebaseFunctionsException catch (_) {
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint('Cloud function lookup by email failed with FirebaseFunctionsException: ${e.code} - ${e.message}');
       return null;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Cloud function lookup by email failed: $e');
       return null;
     }
   }
@@ -786,7 +792,7 @@ class FirebaseService {
           ? await _hasUserProfileForEmail(normalizedEmail)
           : null;
       final accountExists = existsViaFunction ?? profileExists;
-      if (accountExists == false) {
+      if (accountExists != true) {
         return {
           'success': false,
           'message': 'This email is not registered. Please register first.',
@@ -796,9 +802,7 @@ class FirebaseService {
       await _auth.sendPasswordResetEmail(email: normalizedEmail);
       return {
         'success': true,
-        'message': accountExists == null
-            ? 'If an account exists for this email, a password reset link has been sent.'
-            : 'Password reset email sent',
+        'message': 'Password reset email sent',
       };
     } on FirebaseAuthException catch (error) {
       if (error.code == 'user-not-found') {
