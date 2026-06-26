@@ -4676,9 +4676,9 @@ class _TherapistProfileSettingsScreenState
               ),
             ),
             const SizedBox(height: 10),
-            _input('First Name', _first),
+            _input('First Name', _first, maxLength: 50),
             const SizedBox(height: 8),
-            _input('Last Name', _last),
+            _input('Last Name', _last, maxLength: 50),
             const SizedBox(height: 8),
             _buildExperiencePicker(),
             const SizedBox(height: 8),
@@ -4850,9 +4850,9 @@ class _TherapistProfileSettingsScreenState
                   const SizedBox(height: 10),
                   Row(
                     children: [
-                      Expanded(child: _input('First Name', _first)),
+                      Expanded(child: _input('First Name', _first, maxLength: 50)),
                       const SizedBox(width: 8),
-                      Expanded(child: _input('Last Name', _last)),
+                      Expanded(child: _input('Last Name', _last, maxLength: 50)),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -6200,6 +6200,19 @@ class _PackageEditorState extends State<_PackageEditor> {
     super.dispose();
   }
 
+  void _showError(String msg) {
+    // Use rootNavigator scaffold so the snackbar appears above the dialog overlay.
+    ScaffoldMessenger.of(
+      Navigator.of(context, rootNavigator: true).context,
+    ).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: const Color(0xFFEF4444),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   void _save() {
     final title = _title.text.trim();
     final description = _description.text.trim();
@@ -6208,62 +6221,42 @@ class _PackageEditorState extends State<_PackageEditor> {
     final parsedSessions = int.tryParse(_sessions.text.trim());
 
     if (title.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a package title.'),
-          backgroundColor: Color(0xFFEF4444),
-        ),
-      );
+      _showError('Please enter a package title.');
+      return;
+    }
+
+    if (title.length > 100) {
+      _showError('Package title cannot exceed 100 characters.');
       return;
     }
 
     if (parsedPrice == null || parsedPrice < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a valid price of 0 or greater.'),
-          backgroundColor: Color(0xFFEF4444),
-        ),
-      );
+      _showError('Please enter a valid price of 0 or greater.');
       return;
     }
 
     if (parsedPrice > 1000000) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Package price cannot exceed Rs. 1,000,000 (10 Lakhs PKR).'),
-          backgroundColor: Color(0xFFEF4444),
-        ),
-      );
+      _showError('Package price cannot exceed Rs. 1,000,000 (10 Lakhs PKR).');
       return;
     }
 
     if (parsedDuration == null || parsedDuration <= 0 || parsedDuration > 480) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a valid session duration (between 1 and 480 minutes).'),
-          backgroundColor: Color(0xFFEF4444),
-        ),
-      );
+      _showError('Please enter a valid session duration (between 1 and 480 minutes).');
       return;
     }
 
     if (parsedSessions == null || parsedSessions <= 0 || parsedSessions > 21) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a valid number of sessions per week (between 1 and 21).'),
-          backgroundColor: Color(0xFFEF4444),
-        ),
-      );
+      _showError('Please enter a valid number of sessions per week (between 1 and 21).');
       return;
     }
 
     if (description.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a package description.'),
-          backgroundColor: Color(0xFFEF4444),
-        ),
-      );
+      _showError('Please enter a package description.');
+      return;
+    }
+
+    if (description.length > 500) {
+      _showError('Package description cannot exceed 500 characters.');
       return;
     }
 
@@ -6308,7 +6301,7 @@ class _PackageEditorState extends State<_PackageEditor> {
                 ],
               ),
               const SizedBox(height: 6),
-              _field('Package Title', _title),
+              _field('Package Title', _title, maxLength: 100),
               const SizedBox(height: 8),
               _field(
                 'Price per Session (PKR)',
@@ -6336,7 +6329,7 @@ class _PackageEditorState extends State<_PackageEditor> {
                 ],
               ),
               const SizedBox(height: 8),
-              _field('Description', _description, lines: 3),
+              _field('Description', _description, lines: 3, maxLength: 500),
               const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
@@ -6363,6 +6356,7 @@ class _PackageEditorState extends State<_PackageEditor> {
     TextEditingController c, {
     TextInputType? keyboard,
     int lines = 1,
+    int? maxLength,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -6373,6 +6367,18 @@ class _PackageEditorState extends State<_PackageEditor> {
           controller: c,
           keyboardType: keyboard,
           maxLines: lines,
+          maxLength: maxLength,
+          buildCounter: maxLength == null
+              ? null
+              : (context, {required currentLength, required isFocused, required maxLength}) {
+                  return Text(
+                    '$currentLength/$maxLength',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF6B7280),
+                    ),
+                  );
+                },
           decoration: InputDecoration(
             filled: true,
             fillColor: const Color(0xFFF8FAFC),
