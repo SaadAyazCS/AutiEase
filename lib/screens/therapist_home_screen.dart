@@ -1918,7 +1918,9 @@ class TherapistDashboardScreen extends StatefulWidget {
 
 class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
   late bool _isActive;
+  late bool _isAcceptingClients;
   bool _updatingVisibility = false;
+  bool _updatingAccepting = false;
   late TherapistProfile _profile;
 
   @override
@@ -1926,6 +1928,7 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
     super.initState();
     _profile = widget.profile;
     _isActive = _profile.isActive;
+    _isAcceptingClients = _profile.isAcceptingClients;
   }
 
   @override
@@ -1933,6 +1936,9 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.profile.isActive != widget.profile.isActive) {
       _isActive = widget.profile.isActive;
+    }
+    if (oldWidget.profile.isAcceptingClients != widget.profile.isAcceptingClients) {
+      _isAcceptingClients = widget.profile.isAcceptingClients;
     }
     if (oldWidget.profile != widget.profile) {
       _profile = widget.profile;
@@ -1997,6 +2003,52 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
       if (mounted) {
         setState(() => _updatingVisibility = false);
       }
+    }
+  }
+
+  Future<void> _handleToggleAccepting() async {
+    if (_updatingAccepting) return;
+    final next = !_isAcceptingClients;
+    setState(() {
+      _updatingAccepting = true;
+      _isAcceptingClients = next;
+    });
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        await FirebaseFirestore.instance
+            .collection(FirestoreCollections.therapistProfiles)
+            .doc(uid)
+            .set(
+              {'isAcceptingClients': next, 'updatedAt': FieldValue.serverTimestamp()},
+              SetOptions(merge: true),
+            );
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            next
+                ? 'You are now accepting new clients.'
+                : 'You are no longer accepting new clients.',
+          ),
+          backgroundColor: next
+              ? const Color(0xFF0B7D3B)
+              : const Color(0xFFB45309),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isAcceptingClients = !next);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to update client availability. Please try again.'),
+          backgroundColor: Color(0xFFFF4D4D),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _updatingAccepting = false);
     }
   }
 
@@ -2647,6 +2699,10 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
+                    // ── Accepting New Clients card ──────────────────────────
+                    _buildAcceptingClientsCard(),
+                    const SizedBox(height: 10),
+                    // ── Tips to Increase Visibility ─────────────────────────
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: _cardDeco.copyWith(
@@ -2683,6 +2739,122 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildAcceptingClientsCard() {
+    final accepting = _isAcceptingClients;
+    final acBg = accepting
+        ? const Color(0xFFE8FFF4)
+        : const Color(0xFFFFF7ED);
+    final acBorder = accepting
+        ? const Color(0xFF86EFAC)
+        : const Color(0xFFFDBA74);
+    final acIcon = accepting
+        ? Icons.check_circle_rounded
+        : Icons.pause_circle_rounded;
+    final acIconColor = accepting
+        ? const Color(0xFF16A34A)
+        : const Color(0xFFEA580C);
+    final acStatusLabel = accepting ? 'Open for new clients' : 'Not accepting clients';
+    final acStatusColor = accepting
+        ? const Color(0xFF15803D)
+        : const Color(0xFFC2410C);
+    final acSubtitle = accepting
+        ? 'Parents can subscribe to your services'
+        : 'New subscriptions are paused — existing clients unaffected';
+    final acBtnLabel = accepting ? 'Pause' : 'Resume';
+    final acBtnColor = accepting
+        ? const Color(0xFFEA580C)
+        : const Color(0xFF0EA5C6);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: acBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: acBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(acIcon, color: acIconColor, size: 18),
+              const SizedBox(width: 6),
+              const Text(
+                'Accepting New Clients',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  color: Color(0xFF1F2937),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withAlpha(200),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: acBorder.withAlpha(160)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        acStatusLabel,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: acStatusColor,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        acSubtitle,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF6B7280),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _updatingAccepting
+                    ? const SizedBox(
+                        width: 24, height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : OutlinedButton(
+                        onPressed: _handleToggleAccepting,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: acBtnColor,
+                          side: BorderSide(color: acBtnColor),
+                          minimumSize: const Size(76, 36),
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: Text(
+                          acBtnLabel,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -4907,29 +5079,6 @@ class _TherapistProfileSettingsScreenState
                   ),
                   const SizedBox(height: 8),
                   _input('About Me', _about, lines: 4, maxLength: 1000),
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    title: const Text(
-                      'Accepting New Clients',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF374151),
-                      ),
-                    ),
-                    subtitle: const Text(
-                      'Turn off to temporarily disable new subscriptions and mark yourself as busy.',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
-                    ),
-                    value: _isAcceptingClients,
-                    activeThumbColor: const Color(0xFF11B5CF),
-                    contentPadding: EdgeInsets.zero,
-                    onChanged: (bool value) {
-                      setState(() {
-                        _isAcceptingClients = value;
-                      });
-                    },
-                  ),
                 ],
               ),
             ),
