@@ -6,7 +6,7 @@ service cloud.firestore {
     }
 
     function userDoc() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
     function isAdmin() {
@@ -23,7 +23,7 @@ service cloud.firestore {
 
     function ownsChild(childId) {
       return isParent() &&
-        get(/databases/$(database)/documents/child_profiles/$(childId)).data.parentId == request.auth.uid;
+        getAfter(/databases/$(database)/documents/child_profiles/$(childId)).data.parentId == request.auth.uid;
     }
 
     function isThreadParticipant(threadData) {
