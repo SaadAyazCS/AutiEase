@@ -6,7 +6,7 @@ service cloud.firestore {
     }
 
     function userDoc() {
-      return getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
     function isAdmin() {
@@ -21,7 +21,15 @@ service cloud.firestore {
       return signedIn() && userDoc().role == 'therapist';
     }
 
+    // ownsChild: used for reads and writes where child_profiles already exist
     function ownsChild(childId) {
+      return isParent() &&
+        get(/databases/$(database)/documents/child_profiles/$(childId)).data.parentId == request.auth.uid;
+    }
+
+    // ownsChildAfter: used during batch writes where child_profiles is in the
+    // same batch (e.g., initial signup that creates child + dashboard together)
+    function ownsChildAfter(childId) {
       return isParent() &&
         getAfter(/databases/$(database)/documents/child_profiles/$(childId)).data.parentId == request.auth.uid;
     }
@@ -115,7 +123,9 @@ service cloud.firestore {
 
     match /dashboard_snapshots/{childId} {
       allow read: if ownsChild(childId) || isTherapist();
-      allow create, update: if ownsChild(childId);
+      // During initial signup the child_profile and snapshot are written in the
+      // same batch, so use getAfter() to see the not-yet-committed child doc.
+      allow create, update: if ownsChildAfter(childId);
       allow delete: if ownsChild(childId);
     }
 

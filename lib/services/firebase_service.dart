@@ -394,26 +394,27 @@ class FirebaseService {
             ? List<String>.from(CommunicationFigmaCatalog.homeBoardOrder)
             : const <String>[];
 
-        final batch = _firestore.batch();
-        
+        // Phase 1: Write user document first so that security rules using
+        // get(users/uid) can resolve the user's role in subsequent writes.
         final userRef = _users.doc(user.uid);
-        batch.set(userRef, {
+        await userRef.set({
           ...profile.toMap(),
+          'authProvider': isExistingGoogleUser ? 'google' : 'password',
           'updatedAt': FieldValue.serverTimestamp(),
           'createdAt': profile.createdAt ?? FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-        
-        batch.set(userRef, {
-          'authProvider': isExistingGoogleUser ? 'google' : 'password',
-        }, SetOptions(merge: true));
-        
+
+        // Phase 2: Now write child profile, assignment and snapshot as a batch.
+        // The user doc is already committed so rules can find the parent role.
+        final batch = _firestore.batch();
+
         final childRef = _children.doc(childProfile.id);
         batch.set(childRef, {
           ...childProfile.toMap(),
           'updatedAt': FieldValue.serverTimestamp(),
           'createdAt': childProfile.createdAt ?? FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-        
+
         final assignmentRef = _firestore
             .collection(FirestoreCollections.childAssignments)
             .doc(childProfile.id);
@@ -430,7 +431,7 @@ class FirebaseService {
           ).toMap(),
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-        
+
         final snapshotRef = _firestore
             .collection(FirestoreCollections.dashboardSnapshots)
             .doc(childProfile.id);
@@ -441,7 +442,7 @@ class FirebaseService {
           'moodEntries': 0,
           'lastUpdated': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-        
+
         await batch.commit();
       } catch (e, stackTrace) {
         debugPrint('Signup error during parent setup: $e\n$stackTrace');
@@ -597,21 +598,20 @@ class FirebaseService {
         updatedAt: DateTime.now(),
       );
       try {
-        final batch = _firestore.batch();
-        
+        // Phase 1: Write user document first so that security rules using
+        // get(users/uid) can resolve the user's role in subsequent writes.
         final userRef = _users.doc(user.uid);
-        batch.set(userRef, {
+        await userRef.set({
           ...profile.toMap(),
+          'authProvider': isExistingGoogleUser ? 'google' : 'password',
           'updatedAt': FieldValue.serverTimestamp(),
           'createdAt': profile.createdAt ?? FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-        
-        batch.set(userRef, {
-          'authProvider': isExistingGoogleUser ? 'google' : 'password',
-        }, SetOptions(merge: true));
-        
+
+        // Phase 2: Write therapist profile. The user doc is already committed
+        // so rules can verify the therapist role via get(users/uid).
         final therapistRef = _therapists.doc(user.uid);
-        batch.set(therapistRef, {
+        await therapistRef.set({
           'displayName': normalizedFullName,
           'bio': '',
           'specializations': [
@@ -628,15 +628,10 @@ class FirebaseService {
           'experience_years': 0,
           'experience_months': 0,
           'isAcceptingClients': true,
-        }, SetOptions(merge: true));
-        
-        batch.set(therapistRef, {
           'licenseNumber': licenseNumber ?? '',
           'contactEmail': normalizedEmail,
           'contactPhone': normalizedPhone,
         }, SetOptions(merge: true));
-        
-        await batch.commit();
       } catch (e, stackTrace) {
         debugPrint('Signup error during therapist setup: $e\n$stackTrace');
         if (createdPasswordUser) {
