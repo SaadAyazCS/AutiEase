@@ -97,7 +97,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
       return;
     }
 
-    if (_emailController.text.isEmpty) {
+    final emailText = _emailController.text.trim();
+    if (emailText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please enter your email'),
@@ -108,17 +109,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     }
 
     // Validate email format
-    if (!_isValidEmail(_emailController.text.trim())) {
+    if (!_isValidEmail(emailText)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('The email address is badly formatted')),
+        const SnackBar(
+          content: Text('The email address is badly formatted'),
+          backgroundColor: AppColors.errorRed,
+        ),
       );
       return;
     }
 
     setState(() => _isLoading = true);
 
-    final email = _emailController.text.trim();
-    final result = await _firebaseService.sendPasswordResetEmail(email);
+    final result = await _firebaseService.sendPasswordResetEmail(emailText);
 
     if (!mounted) return;
 
