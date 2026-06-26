@@ -394,37 +394,55 @@ class FirebaseService {
             ? List<String>.from(CommunicationFigmaCatalog.homeBoardOrder)
             : const <String>[];
 
-        await AppRepositories.users.upsertParentProfile(profile);
-        await _users.doc(user.uid).set({
+        final batch = _firestore.batch();
+        
+        final userRef = _users.doc(user.uid);
+        batch.set(userRef, {
+          ...profile.toMap(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': profile.createdAt ?? FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        
+        batch.set(userRef, {
           'authProvider': isExistingGoogleUser ? 'google' : 'password',
         }, SetOptions(merge: true));
-        await AppRepositories.users.upsertChildProfile(childProfile);
-        await AppRepositories.planner.saveAssignment(
-          ChildAssignment(
+        
+        final childRef = _children.doc(childProfile.id);
+        batch.set(childRef, {
+          ...childProfile.toMap(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': childProfile.createdAt ?? FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        
+        final assignmentRef = _firestore
+            .collection(FirestoreCollections.childAssignments)
+            .doc(childProfile.id);
+        batch.set(assignmentRef, {
+          ...ChildAssignment(
             id: childProfile.id,
             childId: childProfile.id,
             parentId: user.uid,
             assignedCategoryIds: defaultCommunicationIds,
-            assignedModuleIds: defaultModules
-                .map((module) => module.id)
-                .toList(),
-            assignedActivityTemplateIds: defaultActivities
-                .map((activity) => activity.id)
-                .toList(),
+            assignedModuleIds: defaultModules.map((module) => module.id).toList(),
+            assignedActivityTemplateIds: defaultActivities.map((activity) => activity.id).toList(),
             status: 'active',
             effectiveFrom: DateTime.now(),
-          ),
-        );
-        await _firestore
+          ).toMap(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        
+        final snapshotRef = _firestore
             .collection(FirestoreCollections.dashboardSnapshots)
-            .doc(childProfile.id)
-            .set({
-              'completedTasks': 0,
-              'weeklyMinutes': 0,
-              'streakDays': 0,
-              'moodEntries': 0,
-              'lastUpdated': FieldValue.serverTimestamp(),
-            }, SetOptions(merge: true));
+            .doc(childProfile.id);
+        batch.set(snapshotRef, {
+          'completedTasks': 0,
+          'weeklyMinutes': 0,
+          'streakDays': 0,
+          'moodEntries': 0,
+          'lastUpdated': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        
+        await batch.commit();
       } catch (e, stackTrace) {
         debugPrint('Signup error during parent setup: $e\n$stackTrace');
         if (createdPasswordUser) {
@@ -579,33 +597,46 @@ class FirebaseService {
         updatedAt: DateTime.now(),
       );
       try {
-        await AppRepositories.users.upsertParentProfile(profile);
-        await _users.doc(user.uid).set({
+        final batch = _firestore.batch();
+        
+        final userRef = _users.doc(user.uid);
+        batch.set(userRef, {
+          ...profile.toMap(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': profile.createdAt ?? FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        
+        batch.set(userRef, {
           'authProvider': isExistingGoogleUser ? 'google' : 'password',
         }, SetOptions(merge: true));
-        await AppRepositories.users.upsertTherapistProfile(
-          TherapistProfile(
-            id: user.uid,
-            displayName: normalizedFullName,
-            bio: '',
-            specializations: [
-              if (specialization != null && specialization.isNotEmpty)
-                specialization,
-            ],
-            pricing: '',
-            languages: const ['English'],
-            rating: 0,
-            availability: 'Contact for availability',
-            photoUrl: user.photoURL ?? '',
-            isActive: true,
-          ),
-        );
-
-        await _therapists.doc(user.uid).set({
+        
+        final therapistRef = _therapists.doc(user.uid);
+        batch.set(therapistRef, {
+          'displayName': normalizedFullName,
+          'bio': '',
+          'specializations': [
+            if (specialization != null && specialization.isNotEmpty)
+              specialization,
+          ],
+          'pricing': '',
+          'languages': const ['English'],
+          'rating': 0,
+          'availability': 'Contact for availability',
+          'photoUrl': user.photoURL ?? '',
+          'isActive': true,
+          'verificationStatus': 'pending',
+          'experience_years': 0,
+          'experience_months': 0,
+          'isAcceptingClients': true,
+        }, SetOptions(merge: true));
+        
+        batch.set(therapistRef, {
           'licenseNumber': licenseNumber ?? '',
           'contactEmail': normalizedEmail,
           'contactPhone': normalizedPhone,
         }, SetOptions(merge: true));
+        
+        await batch.commit();
       } catch (e, stackTrace) {
         debugPrint('Signup error during therapist setup: $e\n$stackTrace');
         if (createdPasswordUser) {
