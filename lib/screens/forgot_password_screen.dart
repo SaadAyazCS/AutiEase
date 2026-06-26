@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../utils/app_colors.dart';
 import '../widgets/wave_background.dart';
 import '../widgets/custom_widgets.dart';
@@ -24,6 +26,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+
+  int _cooldownSeconds = 0;
+  Timer? _cooldownTimer;
 
   @override
   void initState() {
@@ -51,8 +56,29 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
   @override
   void dispose() {
     _emailController.dispose();
+    _cooldownTimer?.cancel();
     _animationController.dispose();
     super.dispose();
+  }
+
+  void _startCooldown() {
+    _cooldownTimer?.cancel();
+    setState(() {
+      _cooldownSeconds = 60;
+    });
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        if (_cooldownSeconds > 0) {
+          _cooldownSeconds--;
+        } else {
+          timer.cancel();
+        }
+      });
+    });
   }
 
   bool _isValidEmail(String email) {
@@ -128,6 +154,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     setState(() => _isLoading = false);
 
     if (result['success'] == true) {
+      _startCooldown();
       setState(() {
         _emailSent = true;
         _successMessage =
@@ -143,6 +170,55 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
           backgroundColor: AppColors.errorRed,
         ),
       );
+    }
+  }
+
+  Future<void> _openEmailApp() async {
+    final emailText = _emailController.text.trim().toLowerCase();
+    String urlString = 'mailto:';
+    
+    if (emailText.endsWith('@gmail.com')) {
+      urlString = 'https://mail.google.com';
+    } else if (emailText.endsWith('@outlook.com') || emailText.endsWith('@hotmail.com') || emailText.endsWith('@live.com')) {
+      urlString = 'https://outlook.live.com';
+    } else if (emailText.endsWith('@yahoo.com')) {
+      urlString = 'https://mail.yahoo.com';
+    }
+    
+    final uri = Uri.parse(urlString);
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        // Fallback to mailto:
+        final mailtoUri = Uri.parse('mailto:');
+        if (await canLaunchUrl(mailtoUri)) {
+          await launchUrl(mailtoUri);
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Could not open email client.'),
+                backgroundColor: AppColors.errorRed,
+              ),
+            );
+          }
+        }
+      }
+    } catch (_) {
+      final mailtoUri = Uri.parse('mailto:');
+      try {
+        await launchUrl(mailtoUri);
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not open email client.'),
+              backgroundColor: AppColors.errorRed,
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -368,6 +444,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                     child: TextField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
+                      autofocus: true,
+                      autofillHints: const [AutofillHints.email],
+                      textCapitalization: TextCapitalization.none,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _handleSendResetEmail(),
                       style: const TextStyle(
                         fontSize: 20,
                         color: Color(0xFF121E34),
@@ -386,11 +467,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                   const SizedBox(height: 32),
 
                   CustomButton(
-                    text: 'Send Link',
-                    onPressed: _handleSendResetEmail,
+                    text: _cooldownSeconds > 0 ? 'Resend in ${_cooldownSeconds}s' : 'Send Link',
+                    onPressed: _cooldownSeconds > 0 ? () {} : _handleSendResetEmail,
                     isLoading: _isLoading,
-                    backgroundColor: Color(0xFFFFA96D),
-                    textColor: Color(0xFF0B1421),
+                    backgroundColor: _cooldownSeconds > 0 ? Colors.grey[400] : const Color(0xFFFFA96D),
+                    textColor: _cooldownSeconds > 0 ? Colors.white : const Color(0xFF0B1421),
                   ),
 
                   const SizedBox(height: 20),
@@ -436,7 +517,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
           opacity: _fadeAnimation,
           child: Container(
             width: 100,
-            height: 230,
+            height: 100,
             decoration: BoxDecoration(
               color: Colors.green.withValues(alpha: 0.1),
               shape: BoxShape.circle,
@@ -489,7 +570,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
         ),
         const SizedBox(height: 40),
 
-        // Back to Login Button
+        // Open Email Inbox Button
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 30),
           child: Container(
@@ -511,7 +592,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
               ],
             ),
             child: ElevatedButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: _openEmailApp,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.transparent,
                 shadowColor: Colors.transparent,
@@ -521,12 +602,29 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                 elevation: 0,
               ),
               child: const Text(
-                'Back to Login',
+                'Open Email Inbox',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: AppColors.white,
                 ),
+              ),
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // Back to Login Link
+        Center(
+          child: TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Back to Login',
+              style: TextStyle(
+                color: Color(0xFF1A2543),
+                fontWeight: FontWeight.w600,
+                fontSize: 17,
               ),
             ),
           ),
