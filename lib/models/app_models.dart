@@ -88,7 +88,7 @@ class UserProfile {
     required this.subscriptionTier,
     required this.entitlements,
     required this.notificationPreferences,
-    required this.playSettings,
+    this.playSettings = const {},
     this.activeChildId,
     this.createdAt,
     this.updatedAt,
@@ -139,7 +139,7 @@ class UserProfile {
   }
 
   Map<String, dynamic> toMap() {
-    return {
+    final map = <String, dynamic>{
       'uid': uid,
       'email': email,
       'firstName': firstName,
@@ -152,13 +152,16 @@ class UserProfile {
       'subscriptionTier': subscriptionTier,
       'entitlements': entitlements,
       'notificationPreferences': notificationPreferences,
-      'playSettings': playSettings,
-      'activeChildId': activeChildId,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
-      'isChildModeLocked': isChildModeLocked,
-      'childModePin': childModePin,
     };
+    if (role == 'parent') {
+      map['playSettings'] = playSettings;
+      map['activeChildId'] = activeChildId;
+      map['isChildModeLocked'] = isChildModeLocked;
+      map['childModePin'] = childModePin;
+    }
+    return map;
   }
 }
 

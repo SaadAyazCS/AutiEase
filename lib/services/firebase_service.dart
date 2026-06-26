@@ -629,10 +629,6 @@ class FirebaseService {
         photoUrl: user.photoURL ?? '',
         subscriptionTier: 'provider',
         entitlements: const {'professionalSupport': true, 'chatAccess': true},
-        playSettings: const {
-          'difficulty': 'normal',
-          'lowStimulationMode': false,
-        },
         notificationPreferences: const {
           'pushNotifications': true,
           'emailNotifications': true,
