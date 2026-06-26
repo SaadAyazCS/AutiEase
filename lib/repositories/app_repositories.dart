@@ -2032,6 +2032,13 @@ class FirebaseBillingRepository implements BillingRepository {
   }) async {
     final docId = _subscriptionDocId(userId, therapistId);
     final startedAt = DateTime.now();
+    // SafePay has a known sandbox/production race condition where the failure-redirect
+    // fires before the payment is fully confirmed, temporarily writing 'payment_failed'
+    // to Firestore. The backend then double-checks with the gateway and rewrites the
+    // status to 'active'. We allow a 45-second grace window before treating
+    // 'payment_failed' as terminal, and proactively trigger a backend re-verification
+    // during that window so the correction happens faster.
+    const gracePeriod = Duration(seconds: 45);
     while (DateTime.now().difference(startedAt) < timeout) {
       if (isCancelledCheck != null && isCancelledCheck()) {
         return false;
@@ -2045,12 +2052,26 @@ class FirebaseBillingRepository implements BillingRepository {
         if (subscription.isActive || subscription.status.trim().toLowerCase() == 'active') {
           return true;
         }
-        // Exit immediately on any terminal failure state.
-        // 'payment_failed' = SafePay redirected to failure URL (no point waiting further).
-        // 'canceled'/'expired' = admin-set terminal states.
         final status = subscription.status.trim().toLowerCase();
-        if (status == 'canceled' || status == 'expired' || status == 'payment_failed') {
+        // 'canceled' and 'expired' are admin-set terminal states — exit immediately.
+        if (status == 'canceled' || status == 'expired') {
           return false;
+        }
+        // 'payment_failed' may be a transient SafePay redirect race condition.
+        // Only treat it as terminal after the grace period has elapsed.
+        // During the grace period, trigger a backend re-verification on each observation.
+        if (status == 'payment_failed') {
+          final elapsed = DateTime.now().difference(startedAt);
+          if (elapsed >= gracePeriod) {
+            debugPrint('_waitForSubscriptionActivation: payment_failed confirmed after grace period — exiting.');
+            return false;
+          }
+          debugPrint('_waitForSubscriptionActivation: payment_failed within grace period (${elapsed.inSeconds}s) — triggering backend re-verification.');
+          try {
+            await _paymentBackend.checkSubscriptionStatus(therapistId);
+          } catch (e) {
+            debugPrint('_waitForSubscriptionActivation: backend re-verification error: $e');
+          }
         }
       }
       await Future<void>.delayed(const Duration(seconds: 3));

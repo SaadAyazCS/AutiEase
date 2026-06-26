@@ -197,14 +197,16 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         }
         final sub = await AppRepositories.billing.getSubscriptionForTherapist(therapistId);
         final status = sub?.status.trim().toLowerCase() ?? '';
-        // Only cancel on definitive failure — NOT for 'pending', 'active', or null (timing issue)
-        final isPaymentFailed = status == 'payment_failed';
-        final isTerminalFailure = const ['canceled', 'expired', 'payment_failed'].contains(status);
+        // Only cancel on definitively terminal failure — NOT for 'pending', 'active', or null (timing issue).
+        // Do NOT cancel on 'payment_failed' — SafePay has a known race condition where the failure
+        // redirect fires before the payment is fully confirmed. The polling loop's grace period
+        // handles re-verification and will correct 'payment_failed' to 'active' automatically.
+        final isTerminalFailure = const ['canceled', 'expired'].contains(status);
         if (isTerminalFailure) {
           debugPrint('Checkout cancelled on resume: subscription status = $status');
           if (mounted) {
             setState(() {
-              _isPaymentFailed = isPaymentFailed;
+              _isPaymentFailed = false;
               _isCheckoutCancelled = true;
             });
           }

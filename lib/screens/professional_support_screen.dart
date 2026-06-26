@@ -115,8 +115,11 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _activeCheckoutTherapistId != null && !_isCheckoutCancelled) {
       final therapistId = _activeCheckoutTherapistId!;
-      // Give the backend 4 seconds to process the SafePay redirect before checking.
-      // Do NOT cancel if still pending — the polling loop will detect success.
+      // Give the backend a moment to process the SafePay redirect before checking.
+      // SafePay has a race condition where the failure redirect fires first (even after a
+      // successful payment), temporarily writing 'payment_failed'. The polling loop
+      // handles re-verification during the grace period, so we only cancel here on
+      // definitively terminal states (canceled/expired), NOT on payment_failed.
       Future.delayed(const Duration(milliseconds: 4000), () async {
         if (_activeCheckoutTherapistId != therapistId || _isCheckoutCancelled) return;
         try {
@@ -127,8 +130,10 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
         final sub = await AppRepositories.billing.getSubscriptionForTherapist(therapistId);
         if (sub != null) {
           final status = sub.status.trim().toLowerCase();
-          // Only cancel if we have a definitive failure — NOT for 'pending' or null
-          if (status == 'payment_failed' || status == 'canceled' || status == 'expired') {
+          // Only cancel checkout on definitively terminal failure states.
+          // Do NOT cancel on 'payment_failed' — it may be a transient SafePay race
+          // condition that the polling loop's grace period will automatically resolve.
+          if (status == 'canceled' || status == 'expired') {
             debugPrint('Checkout cancelled on resume: subscription status = $status');
             if (mounted) {
               setState(() {
@@ -136,7 +141,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
               });
             }
           }
-          // If status is 'active' or 'pending', let the polling loop handle it normally
+          // If status is 'active', 'pending', or 'payment_failed', let the polling loop handle it
         }
         // Do NOT set _isCheckoutCancelled when sub is null — could be timing issue
       });
