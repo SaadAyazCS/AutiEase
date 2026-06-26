@@ -328,6 +328,12 @@ class FirebaseService {
         };
       }
 
+      // Force a fresh ID token so Firestore rules can validate request.auth
+      // immediately on the first write (avoids race-condition permission-denied).
+      try {
+        await user.getIdToken(true);
+      } catch (_) {}
+
       if (normalizedFullName.isNotEmpty &&
           user.displayName?.trim() != normalizedFullName) {
         try {
@@ -595,6 +601,12 @@ class FirebaseService {
         };
       }
 
+      // Force a fresh ID token so Firestore rules can validate request.auth
+      // immediately on the first write (avoids race-condition permission-denied).
+      try {
+        await user.getIdToken(true);
+      } catch (_) {}
+
       if (normalizedFullName.isNotEmpty &&
           user.displayName?.trim() != normalizedFullName) {
         try {
@@ -680,8 +692,7 @@ class FirebaseService {
         }
         return {
           'success': false,
-          'message':
-              'We could not finish setting up the account. Please try again.',
+          'message': 'Account setup failed (therapist). code=$code: $msg',
         };
       }
 

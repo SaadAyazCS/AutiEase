@@ -61,10 +61,18 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      // Users can write to their own document.
+      // They cannot grant themselves the admin role unless they are the
+      // designated admin email. We deliberately avoid calling isAdmin() here
+      // because it reads this same document, which can cause rule evaluation
+      // to fail when the document is being created for the first time.
       allow create: if signedIn() && request.auth.uid == userId &&
-        (!('role' in request.resource.data) || request.resource.data.role != 'admin' || request.auth.token.email == 'admin@autiease.com');
-      allow update: if signedIn() && (request.auth.uid == userId || isAdmin()) &&
-        (!('role' in request.resource.data) || ('role' in resource.data && request.resource.data.role == resource.data.role) || isAdmin());
+          request.resource.data.get('role', '') != 'admin';
+      allow update: if signedIn() && request.auth.uid == userId &&
+          request.resource.data.get('role', '') != 'admin';
+      // Allow admin email to set/update any user document including admin role
+      allow create, update: if signedIn() &&
+          request.auth.token.email == 'admin@autiease.com';
       allow delete: if signedIn() && request.auth.uid == userId;
     }
 
