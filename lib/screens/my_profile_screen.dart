@@ -156,6 +156,39 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       if (_activeTab == _ProfileTab.parent) {
         final firstName = _firstNameController.text.trim();
         final lastName = _lastNameController.text.trim();
+        if (firstName.isEmpty || lastName.isEmpty) {
+          if (!mounted) return;
+          setState(() => _isSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('First name and last name must not be empty.'),
+              backgroundColor: Color(0xFFEF4444),
+            ),
+          );
+          return;
+        }
+        if (firstName.length > 50) {
+          if (!mounted) return;
+          setState(() => _isSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('First name must not exceed 50 characters'),
+              backgroundColor: Color(0xFFEF4444),
+            ),
+          );
+          return;
+        }
+        if (lastName.length > 50) {
+          if (!mounted) return;
+          setState(() => _isSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Last name must not exceed 50 characters'),
+              backgroundColor: Color(0xFFEF4444),
+            ),
+          );
+          return;
+        }
         final fullName = '$firstName $lastName'.trim();
         final newPassword = _newPasswordController.text.trim();
 
@@ -245,10 +278,34 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           _savedPasswordDisplay.clear();
         }
       } else if (_child != null) {
+        final childName = _childNameController.text.trim();
+        if (childName.isEmpty) {
+          if (!mounted) return;
+          setState(() => _isSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Child\'s name must not be empty.'),
+              backgroundColor: Color(0xFFEF4444),
+            ),
+          );
+          return;
+        }
+        if (childName.length > 50) {
+          if (!mounted) return;
+          setState(() => _isSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Child\'s name must not exceed 50 characters'),
+              backgroundColor: Color(0xFFEF4444),
+            ),
+          );
+          return;
+        }
         if (!_communicationEnabled && !_learningEnabled) {
           if (!mounted) {
             return;
           }
+          setState(() => _isSaving = false);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
@@ -572,9 +629,9 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         ),
         const SizedBox(height: 10),
         _buildLabel('First Name'),
-        _buildField(_firstNameController),
+        _buildField(_firstNameController, maxLength: 50),
         _buildLabel('Last Name'),
-        _buildField(_lastNameController),
+        _buildField(_lastNameController, maxLength: 50),
         _buildLabel('Email'),
         _buildField(_emailController, readOnly: true),
         _buildLabel('Phone Number'),
@@ -661,7 +718,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         ),
         const SizedBox(height: 10),
         _buildLabel('Child\'s Name'),
-        _buildField(_childNameController),
+        _buildField(_childNameController, maxLength: 50),
         const SizedBox(height: 8),
         const Text(
           'Support Areas for Your Child',
@@ -835,6 +892,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     bool readOnly = false,
     bool obscureText = false,
     Widget? trailing,
+    int? maxLength,
   }) {
     final inert = !enabled || readOnly;
     return Container(
@@ -855,15 +913,29 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         enabled: enabled,
         readOnly: readOnly,
         obscureText: obscureText,
+        maxLength: maxLength,
+        buildCounter: maxLength == null
+            ? null
+            : (context, {required currentLength, required maxLength, required isFocused}) {
+                return Text(
+                  '$currentLength/$maxLength',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF64748B),
+                  ),
+                );
+              },
         style: TextStyle(
           fontSize: 16,
           color: inert ? const Color(0xFF64748B) : const Color(0xFF0F172A),
           fontWeight: FontWeight.w500,
         ),
         decoration: InputDecoration(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 16,
+          contentPadding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: maxLength == null ? 16 : 0,
           ),
           filled: true,
           fillColor: Colors.transparent,

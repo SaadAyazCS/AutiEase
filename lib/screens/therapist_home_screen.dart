@@ -3090,11 +3090,21 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                       enabled: !submitting,
                                       maxLines: 3,
                                       maxLength: 500,
+                                      buildCounter: (context, {required currentLength, required maxLength, required isFocused}) {
+                                        return Text(
+                                          '$currentLength/$maxLength',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Color(0xFF6B7280),
+                                          ),
+                                        );
+                                      },
                                       decoration: const InputDecoration(
                                         labelText: 'Reason for Appeal (Urgent Needs)',
                                         hintText: 'Please describe the emergency reason for this appeal (minimum 5 characters)',
                                         border: OutlineInputBorder(),
                                         prefixIcon: Icon(Icons.comment_outlined),
+                                        contentPadding: EdgeInsets.fromLTRB(12, 16, 12, 4),
                                       ),
                                       validator: (value) {
                                         if (value == null || value.trim().isEmpty) {
@@ -5440,6 +5450,17 @@ class _TherapistProfileSettingsScreenState
           keyboardType: keyboard,
           readOnly: readOnly,
           obscureText: obscureText,
+          buildCounter: maxLength == null
+              ? null
+              : (context, {required currentLength, required maxLength, required isFocused}) {
+                  return Text(
+                    '$currentLength/$maxLength',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF6B7280),
+                    ),
+                  );
+                },
           decoration: InputDecoration(
             filled: true,
             fillColor: const Color(0xFFF8FAFC),

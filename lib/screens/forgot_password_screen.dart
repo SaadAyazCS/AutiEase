@@ -134,7 +134,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
       setState(() => _emailSent = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(result['message'] ?? 'No user found with this email'),
+          content: Text(
+            result['message'] ?? 'This email is not registered. Please register first.',
+          ),
           backgroundColor: AppColors.errorRed,
         ),
       );

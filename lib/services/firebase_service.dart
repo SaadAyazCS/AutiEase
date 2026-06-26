@@ -419,7 +419,8 @@ class FirebaseService {
               'moodEntries': 0,
               'lastUpdated': FieldValue.serverTimestamp(),
             }, SetOptions(merge: true));
-      } catch (_) {
+      } catch (e, stackTrace) {
+        debugPrint('Signup error during parent setup: $e\n$stackTrace');
         if (createdPasswordUser) {
           await _rollbackAuthUser(user);
         }
@@ -599,7 +600,8 @@ class FirebaseService {
           'contactEmail': normalizedEmail,
           'contactPhone': normalizedPhone,
         }, SetOptions(merge: true));
-      } catch (_) {
+      } catch (e, stackTrace) {
+        debugPrint('Signup error during therapist setup: $e\n$stackTrace');
         if (createdPasswordUser) {
           await _rollbackAuthUser(user);
         }
@@ -787,7 +789,7 @@ class FirebaseService {
       if (accountExists == false) {
         return {
           'success': false,
-          'message': 'No account found for this email.',
+          'message': 'This email is not registered. Please register first.',
         };
       }
 
@@ -802,7 +804,7 @@ class FirebaseService {
       if (error.code == 'user-not-found') {
         return {
           'success': false,
-          'message': 'No account found for this email.',
+          'message': 'This email is not registered. Please register first.',
         };
       }
       return {

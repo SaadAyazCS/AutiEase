@@ -240,13 +240,24 @@ class _ChildProfileScreenState extends State<ChildProfileScreen>
                             controller: _nameController,
                             maxLength: 50,
                             style: const TextStyle(color: Color(0xFF212121)),
+                            buildCounter: (context, {required currentLength, required maxLength, required isFocused}) {
+                              return Text(
+                                '$currentLength/$maxLength',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppColors.textGrey,
+                                ),
+                              );
+                            },
                             decoration: const InputDecoration(
                               hintText: 'Leo',
                               hintStyle: TextStyle(color: Color(0xFF212121)),
                               border: InputBorder.none,
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 14,
+                              contentPadding: EdgeInsets.only(
+                                left: 16,
+                                right: 16,
+                                top: 14,
+                                bottom: 0,
                               ),
                             ),
                           ),

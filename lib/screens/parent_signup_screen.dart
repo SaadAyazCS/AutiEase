@@ -114,6 +114,26 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
       return;
     }
 
+    if (_firstNameController.text.trim().length > 50) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('First name must not exceed 50 characters'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+      return;
+    }
+
+    if (_lastNameController.text.trim().length > 50) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Last name must not exceed 50 characters'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+      return;
+    }
+
     // Validate email format
     if (!_isValidEmail(_emailController.text.trim())) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -436,12 +456,12 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
                       children: [
                         _buildLabel('Parent First Name'),
                         SizedBox(height: r.h(8)),
-                        _buildTextField(_firstNameController),
+                        _buildTextField(_firstNameController, maxLength: 50),
                         SizedBox(height: r.h(16)),
 
                         _buildLabel('Parent Last Name'),
                         SizedBox(height: r.h(8)),
-                        _buildTextField(_lastNameController),
+                        _buildTextField(_lastNameController, maxLength: 50),
                         SizedBox(height: r.h(16)),
 
                         _buildLabel('Parent Email'),
@@ -639,12 +659,12 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
     );
   }
 
-  // ✅ UPDATED: readOnly now changes background properly (no fillColor bug)
   Widget _buildTextField(
     TextEditingController controller, {
     TextInputType keyboardType = TextInputType.text,
     bool obscureText = false,
     bool readOnly = false,
+    int? maxLength,
   }) {
     final r = context.responsive;
     return Container(
@@ -665,6 +685,18 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
         keyboardType: keyboardType,
         obscureText: obscureText,
         readOnly: readOnly,
+        maxLength: maxLength,
+        buildCounter: maxLength == null
+            ? null
+            : (context, {required currentLength, required maxLength, required isFocused}) {
+                return Text(
+                  '$currentLength/$maxLength',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textGrey,
+                  ),
+                );
+              },
         style: TextStyle(
           fontSize: r.sp(18, min: 14, max: 20),
           color: Color(0xFF1A2543),
@@ -672,9 +704,11 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
         ),
         decoration: InputDecoration(
           border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(
-            horizontal: r.w(18),
-            vertical: r.h(15),
+          contentPadding: EdgeInsets.only(
+            left: r.w(18),
+            right: r.w(18),
+            top: r.h(15),
+            bottom: maxLength == null ? r.h(15) : 0,
           ),
         ),
       ),

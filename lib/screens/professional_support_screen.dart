@@ -916,10 +916,20 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                       controller: publicController,
                       maxLines: 3,
                       maxLength: 300,
+                      buildCounter: (context, {required currentLength, required maxLength, required isFocused}) {
+                        return Text(
+                          '$currentLength/$maxLength',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF6B7280),
+                          ),
+                        );
+                      },
                       decoration: InputDecoration(
                         labelText: 'Written Feedback (Optional)',
                         hintText: 'Share your experience with other parents...',
                         alignLabelWithHint: true,
+                        contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -930,10 +940,20 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                       controller: privateController,
                       maxLines: 2,
                       maxLength: 300,
+                      buildCounter: (context, {required currentLength, required maxLength, required isFocused}) {
+                        return Text(
+                          '$currentLength/$maxLength',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF6B7280),
+                          ),
+                        );
+                      },
                       decoration: InputDecoration(
                         labelText: 'Private Notes (Optional)',
                         hintText: 'Feedback visible only to admin/platform...',
                         alignLabelWithHint: true,
+                        contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -3511,10 +3531,20 @@ class _ParentSubscriptionsHistoryScreenState
                       controller: publicController,
                       maxLines: 3,
                       maxLength: 300,
+                      buildCounter: (context, {required currentLength, required maxLength, required isFocused}) {
+                        return Text(
+                          '$currentLength/$maxLength',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF6B7280),
+                          ),
+                        );
+                      },
                       decoration: InputDecoration(
                         labelText: 'Written Feedback (Optional)',
                         hintText: 'Share your experience with other parents...',
                         alignLabelWithHint: true,
+                        contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -3525,10 +3555,20 @@ class _ParentSubscriptionsHistoryScreenState
                       controller: privateController,
                       maxLines: 2,
                       maxLength: 300,
+                      buildCounter: (context, {required currentLength, required maxLength, required isFocused}) {
+                        return Text(
+                          '$currentLength/$maxLength',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF6B7280),
+                          ),
+                        );
+                      },
                       decoration: InputDecoration(
                         labelText: 'Private Notes (Optional)',
                         hintText: 'Feedback visible only to admin/platform...',
                         alignLabelWithHint: true,
+                        contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),

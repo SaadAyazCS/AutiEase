@@ -528,10 +528,21 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                   TextField(
                     controller: commentsController,
                     maxLines: 3,
+                    maxLength: 500,
+                    buildCounter: (context, {required currentLength, required maxLength, required isFocused}) {
+                      return Text(
+                        '$currentLength/$maxLength',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF6B7280),
+                        ),
+                      );
+                    },
                     decoration: const InputDecoration(
                       labelText: 'Explanation',
                       hintText: 'Please detail the violation...',
                       border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.fromLTRB(10, 12, 10, 4),
                     ),
                   ),
                 ],
@@ -541,7 +552,24 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
           actions: [
             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
             ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () {
+                if (selectedReason == 'Other') {
+                  final text = commentsController.text.trim();
+                  if (text.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Please enter an explanation.')),
+                    );
+                    return;
+                  }
+                  if (text.length > 500) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Explanation must not exceed 500 characters.')),
+                    );
+                    return;
+                  }
+                }
+                Navigator.pop(context, true);
+              },
               style: ElevatedButton.styleFrom(backgroundColor: AppColors.errorRed, foregroundColor: Colors.white),
               child: const Text('Report'),
             ),

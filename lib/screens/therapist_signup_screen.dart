@@ -111,6 +111,26 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
       return;
     }
 
+    if (_firstNameController.text.trim().length > 50) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('First name must not exceed 50 characters'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+      return;
+    }
+
+    if (_lastNameController.text.trim().length > 50) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Last name must not exceed 50 characters'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+      return;
+    }
+
     // Validate email format
     if (!_isValidEmail(_emailController.text.trim())) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -387,12 +407,12 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
                       children: [
                         _buildLabel('Therapist First Name'),
                         SizedBox(height: r.h(8)),
-                        _buildTextField(_firstNameController),
+                        _buildTextField(_firstNameController, maxLength: 50),
                         SizedBox(height: r.h(16)),
 
                         _buildLabel('Therapist Last Name'),
                         SizedBox(height: r.h(8)),
-                        _buildTextField(_lastNameController),
+                        _buildTextField(_lastNameController, maxLength: 50),
                         SizedBox(height: r.h(16)),
 
                         _buildLabel('Therapist Email'),
@@ -595,6 +615,7 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
     TextInputType keyboardType = TextInputType.text,
     bool obscureText = false,
     bool readOnly = false,
+    int? maxLength,
   }) {
     final r = context.responsive;
     return Container(
@@ -615,14 +636,31 @@ class _TherapistSignupScreenState extends State<TherapistSignupScreen> {
         keyboardType: keyboardType,
         obscureText: obscureText,
         readOnly: readOnly,
+        maxLength: maxLength,
+        buildCounter: maxLength == null
+            ? null
+            : (context, {required currentLength, required maxLength, required isFocused}) {
+                return Text(
+                  '$currentLength/$maxLength',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textGrey,
+                  ),
+                );
+              },
         style: TextStyle(
           fontSize: r.sp(18, min: 14, max: 20),
           color: const Color(0xFF1A2543),
           fontWeight: FontWeight.w500,
         ),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+          contentPadding: EdgeInsets.only(
+            left: r.w(18),
+            right: r.w(18),
+            top: r.h(15),
+            bottom: maxLength == null ? r.h(15) : 0,
+          ),
         ),
       ),
     );

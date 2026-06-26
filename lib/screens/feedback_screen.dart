@@ -46,6 +46,12 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       ).showSnackBar(const SnackBar(content: Text('Please fill all fields.')));
       return;
     }
+    if (name.length > 50) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Name must not exceed 50 characters.')),
+      );
+      return;
+    }
     if (feedback.length > 500) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Feedback message must not exceed 500 characters.')),
@@ -162,7 +168,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
               ),
               const SizedBox(height: 24),
               _buildLabel('Your Name'),
-              _buildField(_nameController),
+              _buildField(_nameController, maxLength: 50),
               const SizedBox(height: 12),
               _buildLabel('Email Address'),
               _buildField(_emailController),
@@ -268,15 +274,28 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         controller: controller,
         maxLines: maxLines,
         maxLength: maxLength,
+        buildCounter: maxLength == null
+            ? null
+            : (context, {required currentLength, required maxLength, required isFocused}) {
+                return Text(
+                  '$currentLength/$maxLength',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF64748B),
+                  ),
+                );
+              },
         style: const TextStyle(
           fontSize: 16,
           color: Color(0xFF0F172A),
           fontWeight: FontWeight.w500,
         ),
         decoration: InputDecoration(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 16,
+          contentPadding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: maxLength == null ? 16 : 0,
           ),
           filled: true,
           fillColor: Colors.transparent,
