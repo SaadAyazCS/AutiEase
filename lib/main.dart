@@ -7,6 +7,7 @@ import 'firebase_options.dart';
 import 'navigation/app_route_observer.dart';
 import 'navigation/session_navigation.dart';
 import 'services/notification_service.dart';
+import 'services/payment_deep_link_service.dart';
 import 'screens/splash_screen.dart';
 import 'utils/app_colors.dart';
 import 'widgets/app_responsive_frame.dart';
@@ -68,6 +69,27 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: AppColors.skyBlue,
       ),
       home: const SplashScreen(),
+      onUnknownRoute: (settings) {
+        final name = settings.name ?? '';
+        PaymentDeepLinkService.instance.tryHandleRoute(name);
+        // Return a transparent, zero-duration route so the navigator is satisfied,
+        // and pop it immediately on the next frame so it doesn't affect the stack.
+        return PageRouteBuilder<void>(
+          settings: settings,
+          pageBuilder: (context, _, __) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (Navigator.canPop(context)) {
+                Navigator.pop(context);
+              }
+            });
+            return const SizedBox.shrink();
+          },
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          opaque: false,
+          barrierDismissible: true,
+        );
+      },
     );
   }
 }

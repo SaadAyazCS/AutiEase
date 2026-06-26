@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -11,6 +12,7 @@ import '../models/app_models.dart';
 import '../services/auth_verification_policy.dart';
 import '../services/dashboard_metrics_calculator.dart';
 import '../services/payment_backend_client.dart';
+import '../services/payment_deep_link_service.dart';
 
 class FirestoreCollections {
   static const users = 'users';
@@ -2039,42 +2041,86 @@ class FirebaseBillingRepository implements BillingRepository {
     // 'payment_failed' as terminal, and proactively trigger a backend re-verification
     // during that window so the correction happens faster.
     const gracePeriod = Duration(seconds: 45);
-    while (DateTime.now().difference(startedAt) < timeout) {
-      if (isCancelledCheck != null && isCancelledCheck()) {
-        return false;
-      }
-      final snapshot = await _firestore
-          .collection(FirestoreCollections.subscriptions)
-          .doc(docId)
-          .get();
-      if (snapshot.exists && snapshot.data() != null) {
-        final subscription = UserSubscription.fromMap(snapshot.id, snapshot.data()!);
-        if (subscription.isActive || subscription.status.trim().toLowerCase() == 'active') {
-          return true;
+
+    final wakeupController = StreamController<void>.broadcast();
+    StreamSubscription<PaymentDeepLinkResult>? deepLinkSub;
+    bool forceCheckNow = false;
+
+    // Listen to deep links to wake up the polling loop and force a check immediately.
+    final userPart = userId.length > 8 ? userId.substring(0, 8) : userId;
+    final therapistPart = therapistId.length > 8 ? therapistId.substring(0, 8) : therapistId;
+
+    deepLinkSub = PaymentDeepLinkService.instance.results.listen((result) {
+      final isMatch = result.basketId.contains(userPart) && result.basketId.contains(therapistPart);
+      if (isMatch || result.basketId.isEmpty) {
+        debugPrint('_waitForSubscriptionActivation: Deep link received status=${result.status} basket=${result.basketId}');
+        if (result.isSuccess) {
+          forceCheckNow = true;
+          if (!wakeupController.isClosed) {
+            wakeupController.add(null);
+          }
         }
-        final status = subscription.status.trim().toLowerCase();
-        // 'canceled' and 'expired' are admin-set terminal states — exit immediately.
-        if (status == 'canceled' || status == 'expired') {
+      }
+    });
+
+    try {
+      while (DateTime.now().difference(startedAt) < timeout) {
+        if (isCancelledCheck != null && isCancelledCheck()) {
           return false;
         }
-        // 'payment_failed' may be a transient SafePay redirect race condition.
-        // Only treat it as terminal after the grace period has elapsed.
-        // During the grace period, trigger a backend re-verification on each observation.
-        if (status == 'payment_failed') {
-          final elapsed = DateTime.now().difference(startedAt);
-          if (elapsed >= gracePeriod) {
-            debugPrint('_waitForSubscriptionActivation: payment_failed confirmed after grace period — exiting.');
-            return false;
-          }
-          debugPrint('_waitForSubscriptionActivation: payment_failed within grace period (${elapsed.inSeconds}s) — triggering backend re-verification.');
+
+        if (forceCheckNow) {
+          forceCheckNow = false;
+          debugPrint('_waitForSubscriptionActivation: Forcing backend check due to success deep link.');
           try {
             await _paymentBackend.checkSubscriptionStatus(therapistId);
           } catch (e) {
-            debugPrint('_waitForSubscriptionActivation: backend re-verification error: $e');
+            debugPrint('_waitForSubscriptionActivation: backend re-verification error on success deep link: $e');
           }
         }
+
+        final snapshot = await _firestore
+            .collection(FirestoreCollections.subscriptions)
+            .doc(docId)
+            .get();
+        if (snapshot.exists && snapshot.data() != null) {
+          final subscription = UserSubscription.fromMap(snapshot.id, snapshot.data()!);
+          if (subscription.isActive || subscription.status.trim().toLowerCase() == 'active') {
+            return true;
+          }
+          final status = subscription.status.trim().toLowerCase();
+          // 'canceled' and 'expired' are admin-set terminal states — exit immediately.
+          if (status == 'canceled' || status == 'expired') {
+            return false;
+          }
+          // 'payment_failed' may be a transient SafePay redirect race condition.
+          // Only treat it as terminal after the grace period has elapsed.
+          // During the grace period, trigger a backend re-verification on each observation.
+          if (status == 'payment_failed') {
+            final elapsed = DateTime.now().difference(startedAt);
+            if (elapsed >= gracePeriod) {
+              debugPrint('_waitForSubscriptionActivation: payment_failed confirmed after grace period — exiting.');
+              return false;
+            }
+            debugPrint('_waitForSubscriptionActivation: payment_failed within grace period (${elapsed.inSeconds}s) — triggering backend re-verification.');
+            try {
+              await _paymentBackend.checkSubscriptionStatus(therapistId);
+            } catch (e) {
+              debugPrint('_waitForSubscriptionActivation: backend re-verification error: $e');
+            }
+          }
+        }
+
+        // Wait for 3 seconds OR until the success deep link stream wakes us up
+        try {
+          await wakeupController.stream.first.timeout(const Duration(seconds: 3));
+        } catch (_) {
+          // Timeout is expected
+        }
       }
-      await Future<void>.delayed(const Duration(seconds: 3));
+    } finally {
+      await deepLinkSub.cancel();
+      await wakeupController.close();
     }
     return false;
   }
