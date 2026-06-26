@@ -377,25 +377,35 @@ class FirebaseService {
         updatedAt: DateTime.now(),
       );
 
-      try {
-        final wantsCommunication = supportArea.any(
-          (entry) => entry.toLowerCase().contains('communication'),
-        );
-        final wantsLearning = supportArea.any(
-          (entry) => entry.toLowerCase().contains('learning'),
-        );
+      // --- Step A: Load default content (non-fatal; fall back to empty) ------
+      final wantsCommunication = supportArea.any(
+        (entry) => entry.toLowerCase().contains('communication'),
+      );
+      final wantsLearning = supportArea.any(
+        (entry) => entry.toLowerCase().contains('learning'),
+      );
 
-        final defaultModules = wantsLearning
+      List<LearningModuleModel> defaultModules = const [];
+      List<dynamic> defaultActivities = const [];
+      List<String> defaultCommunicationIds = const [];
+      try {
+        defaultModules = wantsLearning
             ? await AppRepositories.content.getAllLearningModules()
             : const <LearningModuleModel>[];
-        final defaultActivities = await AppRepositories.content
-            .getAllActivityTemplates();
-        final defaultCommunicationIds = wantsCommunication
+        defaultActivities =
+            await AppRepositories.content.getAllActivityTemplates();
+        defaultCommunicationIds = wantsCommunication
             ? List<String>.from(CommunicationFigmaCatalog.homeBoardOrder)
             : const <String>[];
+      } catch (e) {
+        // Content loading is non-fatal; signup continues with empty defaults.
+        debugPrint('[Signup/Parent] Content load failed (non-fatal): $e');
+      }
 
-        // Phase 1: Write user document first so that security rules using
-        // get(users/uid) can resolve the user's role in subsequent writes.
+      // --- Step B: Write user document first --------------------------------
+      // Security rules use get(users/uid) to check role, so this must be
+      // committed BEFORE the child-profile batch (Phase C).
+      try {
         final userRef = _users.doc(user.uid);
         final userMap = profile.toMap()
           ..remove('createdAt')
@@ -406,9 +416,20 @@ class FirebaseService {
           'updatedAt': FieldValue.serverTimestamp(),
           'createdAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
+        debugPrint('[Signup/Parent] Step B (user doc) OK — uid=${user.uid}');
+      } catch (e, st) {
+        final code = e is FirebaseException ? e.code : 'unknown';
+        final msg = e is FirebaseException ? (e.message ?? e.toString()) : e.toString();
+        debugPrint('[Signup/Parent] Step B FAILED — code=$code msg=$msg\n$st');
+        if (createdPasswordUser) await _rollbackAuthUser(user);
+        return {
+          'success': false,
+          'message': 'Account setup failed (user profile). code=$code: $msg',
+        };
+      }
 
-        // Phase 2: Now write child profile, assignment and snapshot as a batch.
-        // The user doc is already committed so rules can find the parent role.
+      // --- Step C: Batch-write child profile, assignment & snapshot ---------
+      try {
         final batch = _firestore.batch();
 
         final childRef = _children.doc(childProfile.id);
@@ -431,8 +452,9 @@ class FirebaseService {
           assignedCategoryIds: defaultCommunicationIds,
           assignedModuleIds:
               defaultModules.map((module) => module.id).toList(),
-          assignedActivityTemplateIds:
-              defaultActivities.map((activity) => activity.id).toList(),
+          assignedActivityTemplateIds: defaultActivities
+              .map((a) => (a as dynamic).id as String)
+              .toList(),
           status: 'active',
           effectiveFrom: DateTime.now(),
         ).toMap();
@@ -442,31 +464,29 @@ class FirebaseService {
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
 
-        final snapshotRef = _firestore
-            .collection(FirestoreCollections.dashboardSnapshots)
-            .doc(childProfile.id);
-        batch.set(snapshotRef, {
-          'completedTasks': 0,
-          'weeklyMinutes': 0,
-          'streakDays': 0,
-          'moodEntries': 0,
-          'lastUpdated': FieldValue.serverTimestamp(),
-        });
+        batch.set(
+          _firestore
+              .collection(FirestoreCollections.dashboardSnapshots)
+              .doc(childProfile.id),
+          {
+            'completedTasks': 0,
+            'weeklyMinutes': 0,
+            'streakDays': 0,
+            'moodEntries': 0,
+            'lastUpdated': FieldValue.serverTimestamp(),
+          },
+        );
 
         await batch.commit();
-      } catch (e, stackTrace) {
+        debugPrint('[Signup/Parent] Step C (child batch) OK');
+      } catch (e, st) {
         final code = e is FirebaseException ? e.code : 'unknown';
-        final msg = e is FirebaseException ? e.message : e.toString();
-        debugPrint(
-          '[Signup/Parent] FAILED — code=$code message=$msg\n$stackTrace',
-        );
-        if (createdPasswordUser) {
-          await _rollbackAuthUser(user);
-        }
+        final msg = e is FirebaseException ? (e.message ?? e.toString()) : e.toString();
+        debugPrint('[Signup/Parent] Step C FAILED — code=$code msg=$msg\n$st');
+        if (createdPasswordUser) await _rollbackAuthUser(user);
         return {
           'success': false,
-          'message':
-              'We could not finish setting up the account. Please try again.',
+          'message': 'Account setup failed (child data). code=$code: $msg',
         };
       }
 
