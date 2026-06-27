@@ -517,8 +517,8 @@ function buildStatusPageHtml(isSuccess, message) {
  * @param {string}  title     - Page/card title
  */
 function buildDeepLinkPage(isSuccess, deepLink, message, title) {
-  const color      = isSuccess ? '#00c853' : '#ef4444';
-  const bgColor    = isSuccess ? '#f0fdf4' : '#fef2f2';
+  const color = isSuccess ? '#00c853' : '#ef4444';
+  const bgColor = isSuccess ? '#f0fdf4' : '#fef2f2';
   const borderColor = isSuccess ? '#bbf7d0' : '#fecaca';
   const icon = isSuccess
     ? `<svg width="48" height="48" fill="none" stroke="${color}" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/></svg>`
@@ -774,21 +774,21 @@ function calculateFees(grossAmount, rawPayload = {}) {
   // Allow manual overrides via env variables (e.g. for negotiated rates)
   const envRate = parseFloat(process.env.SAFEPAY_GATEWAY_RATE);
   const envFlat = parseFloat(process.env.SAFEPAY_GATEWAY_FLAT);
-  const envGst  = parseFloat(process.env.SAFEPAY_GST_RATE);
+  const envGst = parseFloat(process.env.SAFEPAY_GST_RATE);
   if (!isNaN(envRate)) gatewayRate = envRate;
   if (!isNaN(envFlat)) gatewayFlat = envFlat; // explicit override wins over auto-detection
-  if (!isNaN(envGst))  gstRate = envGst;
+  if (!isNaN(envGst)) gstRate = envGst;
 
   // Formula: (% of amount + flat fee) + GST on that total
   // Sandbox:    (290 + 0)   × (1 + 13%) = 327.70  ✅ matches dashboard
   // Production: (290 + 30)  × (1 + 13%) = 361.60
   const processingFee = parseFloat((grossAmount * gatewayRate + gatewayFlat).toFixed(2));
-  const safepayGst    = applyGst ? parseFloat((processingFee * gstRate).toFixed(2)) : 0;
-  const safepayFee    = parseFloat((processingFee + safepayGst).toFixed(2));
+  const safepayGst = applyGst ? parseFloat((processingFee * gstRate).toFixed(2)) : 0;
+  const safepayFee = parseFloat((processingFee + safepayGst).toFixed(2));
 
   const afterGateway = parseFloat((grossAmount - safepayFee).toFixed(2));
-  const platformFee  = parseFloat((afterGateway * 0.07).toFixed(2));
-  const netAmount    = parseFloat((afterGateway - platformFee).toFixed(2));
+  const platformFee = parseFloat((afterGateway * 0.07).toFixed(2));
+  const netAmount = parseFloat((afterGateway - platformFee).toFixed(2));
 
   return { safepayFee, safepayGst, platformFee, netAmount };
 }
@@ -1059,10 +1059,10 @@ async function activateSubscription(basketId, transactionId, source, additionalP
     .get();
   if (!checkoutSessionSnapshot.empty) {
     await checkoutSessionSnapshot.docs[0].ref.set(
-      { 
-        status: 'completed', 
+      {
+        status: 'completed',
         safepayTracker: transactionId || '',
-        updatedAt: admin.firestore.FieldValue.serverTimestamp() 
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
       },
       { merge: true },
     );
@@ -1778,7 +1778,7 @@ app.get('/api/v1/payment/return/success/:basket_id?', async (req, res) => {
   if (basketId) {
     try {
       let trackerToken = normalizeValue(payload.tracker || payload.transaction_id || payload.order_ref || '');
-      
+
       if (!trackerToken) {
         const checkoutSessionDoc = await db.collection('checkout_sessions').doc(basketId).get();
         if (checkoutSessionDoc.exists) {
@@ -1789,20 +1789,50 @@ app.get('/api/v1/payment/return/success/:basket_id?', async (req, res) => {
         }
       }
 
+      const providedSignature = normalizeValue(payload.sig || payload.signature || '');
+
       if (trackerToken) {
-        let gatewayVerification = { verified: false, reason: 'Gateway verification not attempted' };
-        if (safepayConfig.environment !== 'production') {
-          console.log(`Sandbox environment: Bypassing unstable gateway verification and trusting success redirect for tracker ${trackerToken}`);
-          gatewayVerification = { verified: true, payload: { data: { token: trackerToken } } };
-        } else {
-          gatewayVerification = await verifyTransactionWithGateway(trackerToken);
+        let isVerified = false;
+        let verificationPayload = {};
+
+        // Attempt 1: Call SafePay's Gateway API
+        try {
+          const gatewayVerification = await verifyTransactionWithGateway(trackerToken);
+          if (gatewayVerification.verified) {
+            isVerified = true;
+            verificationPayload = gatewayVerification.payload || {};
+          } else {
+            console.warn(`Gateway API verification not confirmed for tracker ${trackerToken}: ${gatewayVerification.reason}`);
+          }
+        } catch (gateErr) {
+          console.warn(`Gateway API check failed for tracker ${trackerToken}: ${gateErr.message}`);
         }
 
-        if (gatewayVerification.verified) {
-          const transactionId = gatewayVerification.payload?.data?.token || trackerToken;
-          await activateSubscription(basketId, transactionId, 'success_redirect', gatewayVerification.payload || payload);
+        // Attempt 2: Cryptographic local signature verification fallback
+        if (!isVerified && providedSignature && safepayConfig.webhookSecret) {
+          try {
+            const computedSig = crypto
+              .createHmac('sha256', safepayConfig.webhookSecret)
+              .update(trackerToken, 'utf8')
+              .digest('hex');
+            
+            if (computedSig.toLowerCase() === providedSignature.toLowerCase()) {
+              console.log(`Local cryptographic signature verification succeeded for tracker ${trackerToken}.`);
+              isVerified = true;
+              verificationPayload = { verifiedLocally: true, payload };
+            } else {
+              console.warn(`Local signature check failed. Computed: ${computedSig}, Provided: ${providedSignature}`);
+            }
+          } catch (sigErr) {
+            console.error(`Local signature verification error: ${sigErr.message}`);
+          }
+        }
+
+        if (isVerified) {
+          const transactionId = verificationPayload.data?.token || trackerToken;
+          await activateSubscription(basketId, transactionId, 'success_redirect', verificationPayload || payload);
         } else {
-          console.warn(`Success redirect transaction verification failed for tracker ${trackerToken}: ${gatewayVerification.reason}`);
+          console.warn(`Success redirect transaction verification failed for tracker ${trackerToken}.`);
         }
       } else {
         console.warn(`Success redirect processing failed: No tracker token available for basket ${basketId}`);
@@ -1838,20 +1868,53 @@ app.get('/api/v1/payment/return/failure/:basket_id?', async (req, res) => {
         }
       }
 
+      const providedSignature = normalizeValue(payload.sig || payload.signature || '');
+
       if (trackerToken) {
-        const gatewayVerification = await verifyTransactionWithGateway(trackerToken);
-        if (gatewayVerification.verified) {
-          console.log(`Failure redirect intercepted for basket ${basketId}: SafePay reports PAID! Treating as successful payment.`);
-          const transactionId = gatewayVerification.payload?.data?.token || trackerToken;
-          await activateSubscription(basketId, transactionId, 'failure_redirect_doublecheck', gatewayVerification.payload);
+        let isVerified = false;
+        let verificationPayload = {};
+
+        // Attempt 1: Call SafePay's Gateway API
+        try {
+          const gatewayVerification = await verifyTransactionWithGateway(trackerToken);
+          if (gatewayVerification.verified) {
+            isVerified = true;
+            verificationPayload = gatewayVerification.payload || {};
+          } else {
+            console.log(`Failure redirect doublecheck: Gateway reports status as not PAID: ${gatewayVerification.reason}`);
+          }
+        } catch (gateErr) {
+          console.warn(`Failure redirect gateway API check failed: ${gateErr.message}`);
+        }
+
+        // Attempt 2: Cryptographic local signature verification fallback
+        if (!isVerified && providedSignature && safepayConfig.webhookSecret) {
+          try {
+            const computedSig = crypto
+              .createHmac('sha256', safepayConfig.webhookSecret)
+              .update(trackerToken, 'utf8')
+              .digest('hex');
+            
+            if (computedSig.toLowerCase() === providedSignature.toLowerCase()) {
+              console.log(`Failure redirect local cryptographic signature verification succeeded for tracker ${trackerToken}.`);
+              isVerified = true;
+              verificationPayload = { verifiedLocally: true, payload };
+            }
+          } catch (sigErr) {
+            console.error(`Failure redirect local signature verification error: ${sigErr.message}`);
+          }
+        }
+
+        if (isVerified) {
+          console.log(`Failure redirect intercepted for basket ${basketId}: Verified! Treating as successful payment.`);
+          const transactionId = verificationPayload.data?.token || trackerToken;
+          await activateSubscription(basketId, transactionId, 'failure_redirect_doublecheck', verificationPayload || payload);
 
           // Return success HTML page since the payment was actually successful
           const deepLink = `autiease://payment-result?status=success&basket_id=${encodeURIComponent(basketId)}`;
           return res.send(buildDeepLinkPage(true, deepLink,
             'Your payment was successful! Returning you to AutiEase now...',
             'Payment Successful'));
-        } else {
-          console.log(`Failure redirect verified for basket ${basketId}: SafePay reports status as not PAID.`);
         }
       }
 
