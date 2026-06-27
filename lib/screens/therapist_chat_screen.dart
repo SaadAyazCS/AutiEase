@@ -121,6 +121,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   // Loaded peer profiles for visual headers
   UserProfile? _peerUserProfile;
   TherapistProfile? _peerTherapistProfile;
+  ChildProfile? _peerChildProfile;
   TherapistThread? _lastSeenThread;
 
   String? _activeCheckoutTherapistId;
@@ -243,6 +244,17 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         if (tProfile != null && mounted) {
           setState(() {
             _peerTherapistProfile = tProfile;
+          });
+        }
+      } else {
+        // Fetch child profile details for the therapist to view
+        final childDoc = await FirebaseFirestore.instance
+            .collection(FirestoreCollections.childProfiles)
+            .doc(widget.thread.childId)
+            .get();
+        if (childDoc.exists && childDoc.data() != null && mounted) {
+          setState(() {
+            _peerChildProfile = ChildProfile.fromMap(childDoc.id, childDoc.data()!);
           });
         }
       }
@@ -938,6 +950,25 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                 const SizedBox(height: 10),
                 _buildProfileDetailRow('Role', 'Parent'),
                 _buildProfileDetailRow('Verification Status', 'Verified account'),
+                if (_peerUserProfile != null && _peerUserProfile!.email.isNotEmpty)
+                  _buildProfileDetailRow('Email', _peerUserProfile!.email),
+                if (_peerUserProfile != null && _peerUserProfile!.phone.isNotEmpty)
+                  _buildProfileDetailRow('Phone', _peerUserProfile!.phone),
+                
+                const SizedBox(height: 10),
+                const Divider(),
+                const SizedBox(height: 10),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Linked Child Profile',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _buildProfileDetailRow('Child Name', _peerChildProfile?.name ?? 'Loading...'),
+                if (_peerChildProfile != null && _peerChildProfile!.supportAreas.isNotEmpty)
+                  _buildProfileDetailRow('Support Focus', _peerChildProfile!.supportAreas.join(', ')),
                 const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed: () => Navigator.pop(context),

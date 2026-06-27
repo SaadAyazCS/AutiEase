@@ -60,7 +60,7 @@ service cloud.firestore {
 
 
     match /users/{userId} {
-      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow read: if signedIn();
       // Users can write to their own document.
       // They cannot grant themselves the admin role unless they are the
       // designated admin email. We deliberately avoid calling isAdmin() here
@@ -109,7 +109,9 @@ service cloud.firestore {
         (!('verifiedBadge' in request.resource.data) || request.resource.data.verifiedBadge == resource.data.verifiedBadge) &&
         (!('bio' in request.resource.data) || request.resource.data.bio.size() <= 1000) &&
         (!('servicePackages' in request.resource.data) || arePackagesValid(request.resource.data.servicePackages)) &&
-        (!('isAcceptingClients' in request.resource.data) || request.resource.data.isAcceptingClients is bool)) || isAdmin();
+        (!('isAcceptingClients' in request.resource.data) || request.resource.data.isAcceptingClients is bool)) ||
+        (isParent() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'totalReviews', 'ratingBreakdown', 'updatedAt'])) ||
+        isAdmin();
       allow delete: if signedIn() && request.auth.uid == therapistId;
     }
 
@@ -301,16 +303,23 @@ service cloud.firestore {
       allow create: if signedIn() && (
         isAdmin() ||
         request.resource.data.userId == request.auth.uid ||
-        (isParent() &&
-         request.resource.data.category == 'reviews' &&
-         request.resource.data.title == '📅 New Connection Request!' &&
-         request.resource.data.isRead == false)
+        (request.resource.data.isRead == false && (
+          request.resource.data.category == 'messages' ||
+          request.resource.data.category == 'reviews' ||
+          request.resource.data.category == 'appointments' ||
+          request.resource.data.category == 'subscription'
+        ))
       );
       allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     match /clinical_notes/{noteId} {
-      allow read: if signedIn() && (resource.data.therapistId == request.auth.uid || resource.data.parentId == request.auth.uid || isAdmin());
+      allow read: if signedIn() && (
+        resource.data.therapistId == request.auth.uid ||
+        resource.data.parentId == request.auth.uid ||
+        ownsChild(resource.data.childId) ||
+        isAdmin()
+      );
       allow create: if isTherapist() && request.resource.data.therapistId == request.auth.uid;
       allow update: if isTherapist() && resource.data.therapistId == request.auth.uid &&
         request.resource.data.therapistId == resource.data.therapistId &&
