@@ -1811,9 +1811,10 @@ app.get('/api/v1/payment/return/success/:basket_id?', async (req, res) => {
         // Attempt 2: Cryptographic local signature verification fallback
         if (!isVerified && providedSignature) {
           try {
+            let computedSigApi = '';
             // Try checking against API Secret Key first
             if (safepayConfig.secretKey) {
-              const computedSigApi = crypto
+              computedSigApi = crypto
                 .createHmac('sha256', safepayConfig.secretKey)
                 .update(trackerToken, 'utf8')
                 .digest('hex');
@@ -1825,9 +1826,10 @@ app.get('/api/v1/payment/return/success/:basket_id?', async (req, res) => {
               }
             }
 
+            let computedSigWebhook = '';
             // Try checking against Webhook Shared Secret next
             if (!isVerified && safepayConfig.webhookSecret) {
-              const computedSigWebhook = crypto
+              computedSigWebhook = crypto
                 .createHmac('sha256', safepayConfig.webhookSecret)
                 .update(trackerToken, 'utf8')
                 .digest('hex');
@@ -1841,6 +1843,15 @@ app.get('/api/v1/payment/return/success/:basket_id?', async (req, res) => {
 
             if (!isVerified) {
               console.warn(`Local signature check failed for tracker ${trackerToken}. Provided signature: ${providedSignature}`);
+              await db.collection('debug_logs').add({
+                trackerToken,
+                providedSignature,
+                computedSigApi,
+                computedSigWebhook,
+                secretKeyUsed: safepayConfig.secretKey ? `${safepayConfig.secretKey.substring(0, 5)}...` : 'N/A',
+                webhookSecretUsed: safepayConfig.webhookSecret ? `${safepayConfig.webhookSecret.substring(0, 5)}...` : 'N/A',
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+              });
             }
           } catch (sigErr) {
             console.error(`Local signature verification error: ${sigErr.message}`);
