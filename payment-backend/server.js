@@ -1809,19 +1809,38 @@ app.get('/api/v1/payment/return/success/:basket_id?', async (req, res) => {
         }
 
         // Attempt 2: Cryptographic local signature verification fallback
-        if (!isVerified && providedSignature && safepayConfig.webhookSecret) {
+        if (!isVerified && providedSignature) {
           try {
-            const computedSig = crypto
-              .createHmac('sha256', safepayConfig.webhookSecret)
-              .update(trackerToken, 'utf8')
-              .digest('hex');
-            
-            if (computedSig.toLowerCase() === providedSignature.toLowerCase()) {
-              console.log(`Local cryptographic signature verification succeeded for tracker ${trackerToken}.`);
-              isVerified = true;
-              verificationPayload = { verifiedLocally: true, payload };
-            } else {
-              console.warn(`Local signature check failed. Computed: ${computedSig}, Provided: ${providedSignature}`);
+            // Try checking against API Secret Key first
+            if (safepayConfig.secretKey) {
+              const computedSigApi = crypto
+                .createHmac('sha256', safepayConfig.secretKey)
+                .update(trackerToken, 'utf8')
+                .digest('hex');
+              
+              if (computedSigApi.toLowerCase() === providedSignature.toLowerCase()) {
+                console.log(`Local cryptographic signature verification succeeded for tracker ${trackerToken} using API Secret.`);
+                isVerified = true;
+                verificationPayload = { verifiedLocally: true, payload };
+              }
+            }
+
+            // Try checking against Webhook Shared Secret next
+            if (!isVerified && safepayConfig.webhookSecret) {
+              const computedSigWebhook = crypto
+                .createHmac('sha256', safepayConfig.webhookSecret)
+                .update(trackerToken, 'utf8')
+                .digest('hex');
+              
+              if (computedSigWebhook.toLowerCase() === providedSignature.toLowerCase()) {
+                console.log(`Local cryptographic signature verification succeeded for tracker ${trackerToken} using Webhook Secret.`);
+                isVerified = true;
+                verificationPayload = { verifiedLocally: true, payload };
+              }
+            }
+
+            if (!isVerified) {
+              console.warn(`Local signature check failed for tracker ${trackerToken}. Provided signature: ${providedSignature}`);
             }
           } catch (sigErr) {
             console.error(`Local signature verification error: ${sigErr.message}`);
@@ -1888,17 +1907,34 @@ app.get('/api/v1/payment/return/failure/:basket_id?', async (req, res) => {
         }
 
         // Attempt 2: Cryptographic local signature verification fallback
-        if (!isVerified && providedSignature && safepayConfig.webhookSecret) {
+        if (!isVerified && providedSignature) {
           try {
-            const computedSig = crypto
-              .createHmac('sha256', safepayConfig.webhookSecret)
-              .update(trackerToken, 'utf8')
-              .digest('hex');
-            
-            if (computedSig.toLowerCase() === providedSignature.toLowerCase()) {
-              console.log(`Failure redirect local cryptographic signature verification succeeded for tracker ${trackerToken}.`);
-              isVerified = true;
-              verificationPayload = { verifiedLocally: true, payload };
+            // Try checking against API Secret Key first
+            if (safepayConfig.secretKey) {
+              const computedSigApi = crypto
+                .createHmac('sha256', safepayConfig.secretKey)
+                .update(trackerToken, 'utf8')
+                .digest('hex');
+              
+              if (computedSigApi.toLowerCase() === providedSignature.toLowerCase()) {
+                console.log(`Failure redirect local cryptographic signature verification succeeded for tracker ${trackerToken} using API Secret.`);
+                isVerified = true;
+                verificationPayload = { verifiedLocally: true, payload };
+              }
+            }
+
+            // Try checking against Webhook Shared Secret next
+            if (!isVerified && safepayConfig.webhookSecret) {
+              const computedSigWebhook = crypto
+                .createHmac('sha256', safepayConfig.webhookSecret)
+                .update(trackerToken, 'utf8')
+                .digest('hex');
+              
+              if (computedSigWebhook.toLowerCase() === providedSignature.toLowerCase()) {
+                console.log(`Failure redirect local cryptographic signature verification succeeded for tracker ${trackerToken} using Webhook Secret.`);
+                isVerified = true;
+                verificationPayload = { verifiedLocally: true, payload };
+              }
             }
           } catch (sigErr) {
             console.error(`Failure redirect local signature verification error: ${sigErr.message}`);
