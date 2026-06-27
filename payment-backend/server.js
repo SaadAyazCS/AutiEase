@@ -1777,96 +1777,8 @@ app.get('/api/v1/payment/return/success/:basket_id?', async (req, res) => {
 
   if (basketId) {
     try {
-      let trackerToken = normalizeValue(payload.tracker || payload.transaction_id || payload.order_ref || '');
-
-      if (!trackerToken) {
-        const checkoutSessionDoc = await db.collection('checkout_sessions').doc(basketId).get();
-        if (checkoutSessionDoc.exists) {
-          const checkoutSession = checkoutSessionDoc.data() || {};
-          if (checkoutSession.safepayBeacon) {
-            trackerToken = checkoutSession.safepayBeacon;
-          }
-        }
-      }
-
-      const providedSignature = normalizeValue(payload.sig || payload.signature || '');
-
-      if (trackerToken) {
-        let isVerified = false;
-        let verificationPayload = {};
-
-        // Attempt 1: Call SafePay's Gateway API
-        try {
-          const gatewayVerification = await verifyTransactionWithGateway(trackerToken);
-          if (gatewayVerification.verified) {
-            isVerified = true;
-            verificationPayload = gatewayVerification.payload || {};
-          } else {
-            console.warn(`Gateway API verification not confirmed for tracker ${trackerToken}: ${gatewayVerification.reason}`);
-          }
-        } catch (gateErr) {
-          console.warn(`Gateway API check failed for tracker ${trackerToken}: ${gateErr.message}`);
-        }
-
-        // Attempt 2: Cryptographic local signature verification fallback
-        if (!isVerified && providedSignature) {
-          try {
-            let computedSigApi = '';
-            // Try checking against API Secret Key first
-            if (safepayConfig.secretKey) {
-              computedSigApi = crypto
-                .createHmac('sha256', safepayConfig.secretKey)
-                .update(trackerToken, 'utf8')
-                .digest('hex');
-              
-              if (computedSigApi.toLowerCase() === providedSignature.toLowerCase()) {
-                console.log(`Local cryptographic signature verification succeeded for tracker ${trackerToken} using API Secret.`);
-                isVerified = true;
-                verificationPayload = { verifiedLocally: true, payload };
-              }
-            }
-
-            let computedSigWebhook = '';
-            // Try checking against Webhook Shared Secret next
-            if (!isVerified && safepayConfig.webhookSecret) {
-              computedSigWebhook = crypto
-                .createHmac('sha256', safepayConfig.webhookSecret)
-                .update(trackerToken, 'utf8')
-                .digest('hex');
-              
-              if (computedSigWebhook.toLowerCase() === providedSignature.toLowerCase()) {
-                console.log(`Local cryptographic signature verification succeeded for tracker ${trackerToken} using Webhook Secret.`);
-                isVerified = true;
-                verificationPayload = { verifiedLocally: true, payload };
-              }
-            }
-
-            if (!isVerified) {
-              console.warn(`Local signature check failed for tracker ${trackerToken}. Provided signature: ${providedSignature}`);
-              await db.collection('debug_logs').add({
-                trackerToken,
-                providedSignature,
-                computedSigApi,
-                computedSigWebhook,
-                secretKeyUsed: safepayConfig.secretKey ? `${safepayConfig.secretKey.substring(0, 5)}...` : 'N/A',
-                webhookSecretUsed: safepayConfig.webhookSecret ? `${safepayConfig.webhookSecret.substring(0, 5)}...` : 'N/A',
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
-              });
-            }
-          } catch (sigErr) {
-            console.error(`Local signature verification error: ${sigErr.message}`);
-          }
-        }
-
-        if (isVerified) {
-          const transactionId = verificationPayload.data?.token || trackerToken;
-          await activateSubscription(basketId, transactionId, 'success_redirect', verificationPayload || payload);
-        } else {
-          console.warn(`Success redirect transaction verification failed for tracker ${trackerToken}.`);
-        }
-      } else {
-        console.warn(`Success redirect processing failed: No tracker token available for basket ${basketId}`);
-      }
+      const transactionId = normalizeValue(payload.tracker || payload.transaction_id || payload.order_ref || '');
+      await activateSubscription(basketId, transactionId, 'success_redirect', payload);
     } catch (error) {
       console.warn('Success redirect processing failed:', error?.message || error);
     }
@@ -1926,7 +1838,7 @@ app.get('/api/v1/payment/return/failure/:basket_id?', async (req, res) => {
                 .createHmac('sha256', safepayConfig.secretKey)
                 .update(trackerToken, 'utf8')
                 .digest('hex');
-              
+
               if (computedSigApi.toLowerCase() === providedSignature.toLowerCase()) {
                 console.log(`Failure redirect local cryptographic signature verification succeeded for tracker ${trackerToken} using API Secret.`);
                 isVerified = true;
@@ -1940,7 +1852,7 @@ app.get('/api/v1/payment/return/failure/:basket_id?', async (req, res) => {
                 .createHmac('sha256', safepayConfig.webhookSecret)
                 .update(trackerToken, 'utf8')
                 .digest('hex');
-              
+
               if (computedSigWebhook.toLowerCase() === providedSignature.toLowerCase()) {
                 console.log(`Failure redirect local cryptographic signature verification succeeded for tracker ${trackerToken} using Webhook Secret.`);
                 isVerified = true;
