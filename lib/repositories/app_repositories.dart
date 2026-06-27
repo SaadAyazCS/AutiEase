@@ -2066,6 +2066,7 @@ class FirebaseBillingRepository implements BillingRepository {
     try {
       while (DateTime.now().difference(startedAt) < timeout) {
         if (isCancelledCheck != null && isCancelledCheck()) {
+          debugPrint('_waitForSubscriptionActivation: isCancelledCheck is true (checkout cancelled by UI). Exiting.');
           return false;
         }
 
@@ -2085,12 +2086,15 @@ class FirebaseBillingRepository implements BillingRepository {
             .get();
         if (snapshot.exists && snapshot.data() != null) {
           final subscription = UserSubscription.fromMap(snapshot.id, snapshot.data()!);
-          if (subscription.isActive || subscription.status.trim().toLowerCase() == 'active') {
+          final status = subscription.status.trim().toLowerCase();
+          debugPrint('_waitForSubscriptionActivation: Firestore doc status=$status isActive=${subscription.isActive}');
+          if (subscription.isActive || status == 'active') {
+            debugPrint('_waitForSubscriptionActivation: subscription is active. Returning true.');
             return true;
           }
-          final status = subscription.status.trim().toLowerCase();
           // 'canceled' and 'expired' are admin-set terminal states — exit immediately.
           if (status == 'canceled' || status == 'expired') {
+            debugPrint('_waitForSubscriptionActivation: terminal status=$status. Returning false.');
             return false;
           }
           // 'payment_failed' may be a transient SafePay redirect race condition.
@@ -2109,6 +2113,8 @@ class FirebaseBillingRepository implements BillingRepository {
               debugPrint('_waitForSubscriptionActivation: backend re-verification error: $e');
             }
           }
+        } else {
+          debugPrint('_waitForSubscriptionActivation: Firestore doc does not exist yet.');
         }
 
         // Wait for 3 seconds OR until the success deep link stream wakes us up
@@ -2122,6 +2128,7 @@ class FirebaseBillingRepository implements BillingRepository {
       await deepLinkSub.cancel();
       await wakeupController.close();
     }
+    debugPrint('_waitForSubscriptionActivation: Polling timed out. Returning false.');
     return false;
   }
 
