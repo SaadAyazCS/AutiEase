@@ -3026,107 +3026,45 @@ class _DemoTherapistChatScreenState extends State<_DemoTherapistChatScreen> {
   }
 
   Future<void> _confirmCancelSubscription() async {
-    final shouldCancel = await showDialog<bool>(
+    final therapist = widget.therapist;
+    // 1. Show the Warning Dialog
+    final cancelReason = await showDialog<String>(
       context: context,
-      barrierColor: Colors.black54,
-      builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFF3040),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      color: Colors.white,
-                      size: 46,
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Cancel Subscription?',
-                      style: TextStyle(color: Colors.white, fontSize: 25 / 1.5),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-                child: Column(
-                  children: [
-                    const Text(
-                      'Are you sure you want to cancel your subscription?',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Color(0xFF374151)),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFF5DD),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Text(
-                        'Please note: You will lose access to:\n• Direct messaging with therapist\n• 24-hour response time\n• Progress tracking & reports\n• Future session scheduling',
-                        style: TextStyle(
-                          height: 1.45,
-                          color: Color(0xFF4B5563),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFFE5E7EB),
-                              foregroundColor: const Color(0xFF374151),
-                            ),
-                            child: const Text('Keep Subscription'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () => Navigator.pop(context, true),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFFFF3040),
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text('Yes, Cancel'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return CancelSubscriptionDialog(
+          therapistName: therapist.displayName,
+          onConfirmCancel: (reason) => Navigator.pop(dialogCtx, reason),
         );
       },
     );
 
-    if (shouldCancel == true) {
-      await widget.onCancelSubscription();
-      if (!mounted) {
-        return;
-      }
-      Navigator.pop(context); // close profile dialog
-      Navigator.pop(context); // close chat and return to messages home
+    if (cancelReason == null) return;
+
+    // 2. Show the Chat History Choices Dialog
+    if (!mounted) return;
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return ChatHistoryChoicesDialog(
+          therapistId: therapist.id,
+          cancellationReason: cancelReason,
+          onComplete: (choice) {
+            // Handled inside choices dialog State
+          },
+        );
+      },
+    );
+
+    if (choice == null) return;
+
+    await widget.onCancelSubscription();
+    if (!mounted) {
+      return;
     }
+    Navigator.pop(context); // close profile dialog
+    Navigator.pop(context); // close chat and return to messages home
   }
 
   void _endEmergency() {

@@ -2705,6 +2705,7 @@ class CancelSubscriptionDialog extends StatefulWidget {
 
 class _CancelSubscriptionDialogState extends State<CancelSubscriptionDialog> {
   String _selectedReason = 'Price is too high';
+  final TextEditingController _otherReasonController = TextEditingController();
 
   final List<String> _cancellationReasons = [
     'Price is too high',
@@ -2716,17 +2717,26 @@ class _CancelSubscriptionDialogState extends State<CancelSubscriptionDialog> {
   ];
 
   @override
+  void dispose() {
+    _otherReasonController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final double maxH = MediaQuery.of(context).size.height * 0.85;
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       clipBehavior: Clip.antiAlias,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Red Alert Header Card
-            Container(
-              color: const Color(0xFFEF4444),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxH),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Red Alert Header Card
+              Container(
+                color: const Color(0xFFEF4444),
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 24),
               child: const Column(
@@ -2786,6 +2796,24 @@ class _CancelSubscriptionDialogState extends State<CancelSubscriptionDialog> {
                       }
                     },
                   ),
+                  if (_selectedReason == 'Other reason') ...[
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _otherReasonController,
+                      maxLength: 500,
+                      maxLines: 3,
+                      style: const TextStyle(fontSize: 13.5),
+                      decoration: const InputDecoration(
+                        labelText: 'Please specify your reason',
+                        hintText: 'Enter your reason here...',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.all(12),
+                      ),
+                      onChanged: (val) {
+                        setState(() {});
+                      },
+                    ),
+                  ],
                   const SizedBox(height: 16),
   
                   // Warning note box
@@ -2847,12 +2875,19 @@ class _CancelSubscriptionDialogState extends State<CancelSubscriptionDialog> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: () {
-                            widget.onConfirmCancel(_selectedReason);
-                          },
+                          onPressed: (_selectedReason == 'Other reason' && _otherReasonController.text.trim().isEmpty)
+                              ? null
+                              : () {
+                                  final finalReason = _selectedReason == 'Other reason'
+                                      ? 'Other: ${_otherReasonController.text.trim()}'
+                                      : _selectedReason;
+                                  widget.onConfirmCancel(finalReason);
+                                },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFFEF4444),
                             foregroundColor: Colors.white,
+                            disabledBackgroundColor: Colors.red.shade200,
+                            disabledForegroundColor: Colors.white70,
                             elevation: 0,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             shape: RoundedRectangleBorder(
@@ -2873,7 +2908,8 @@ class _CancelSubscriptionDialogState extends State<CancelSubscriptionDialog> {
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 }
 
