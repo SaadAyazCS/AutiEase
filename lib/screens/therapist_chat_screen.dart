@@ -108,6 +108,8 @@ enum _MessageSendState { idle, sending, sent, error }
 class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsBindingObserver {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  int _previousMessageCount = 0;
+  String? _previousLastMessageId;
   _MessageSendState _sendState = _MessageSendState.idle;
   Timer? _resolvedBannerTimer;
   DateTime? _lastResolvedAtSeen;
@@ -2331,7 +2333,12 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
                           // Trigger scroll to bottom and read status sync on new messages
                           WidgetsBinding.instance.addPostFrameCallback((_) {
-                            _scrollToBottom();
+                            final lastMsgId = messages.isNotEmpty ? messages.first.id : null;
+                            if (messages.length != _previousMessageCount || lastMsgId != _previousLastMessageId) {
+                              _previousMessageCount = messages.length;
+                              _previousLastMessageId = lastMsgId;
+                              _scrollToBottom();
+                            }
                             _updateLastRead();
                           });
 
@@ -2908,6 +2915,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                       Row(
                                         children: [
                                       IconButton(
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                                         icon: Icon(Icons.attach_file, color: Colors.grey[600]),
                                         onPressed: () {
                                           showModalBottomSheet<void>(
@@ -2941,6 +2950,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                         },
                                       ),
                                       IconButton(
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                                         icon: Icon(
                                           Icons.sentiment_satisfied_alt_outlined,
                                           color: _showEmojiPicker ? const Color(0xFF00C853) : Colors.grey[600],
@@ -2955,6 +2966,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                           !thread.hasOpenEmergency &&
                                           canSendMessage)
                                         IconButton(
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                                           icon: const Icon(Icons.warning_amber_rounded, color: AppColors.errorRed),
                                           onPressed: () {
                                             showDialog<void>(
@@ -2979,6 +2992,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                             );
                                           },
                                         ),
+                                      const SizedBox(width: 4),
                                       Expanded(
                                         child: TextField(
                                           controller: _controller,
@@ -3015,7 +3029,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                           width: 44,
                                           height: 44,
                                           decoration: const BoxDecoration(
-                                            color: Color(0xFF81E9B4),
+                                            color: Color(0xFF00C853),
                                             shape: BoxShape.circle,
                                           ),
                                           child: Center(
