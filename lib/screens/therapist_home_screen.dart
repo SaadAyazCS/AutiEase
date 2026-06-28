@@ -3229,7 +3229,9 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                     decoration: InputDecoration(
                                       labelText: selectedMethod == 'Bank Transfer'
                                           ? 'IBAN / Account Number'
-                                          : 'Raast Mobile Number',
+                                          : (selectedMethod == 'Raast'
+                                              ? 'Raast Mobile Number'
+                                              : 'Mobile Number'),
                                       hintText: selectedMethod == 'Bank Transfer'
                                           ? 'e.g. PK36SCBL0000001123456702'
                                           : 'e.g. 03001234567',
@@ -3241,10 +3243,12 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                         return 'Please enter account details';
                                       }
                                       final v = value.trim();
-                                      if (selectedMethod == 'Raast') {
+                                      if (selectedMethod == 'Raast' ||
+                                          selectedMethod == 'EasyPaisa' ||
+                                          selectedMethod == 'JazzCash') {
                                         // Pakistan mobile numbers: 03XXXXXXXXX (11 digits)
                                         if (!RegExp(r'^03\d{9}$').hasMatch(v)) {
-                                          return 'Raast ID must be a valid Pakistani mobile number (e.g. 03001234567)';
+                                          return 'Mobile number must be a valid Pakistani mobile number (e.g. 03001234567)';
                                         }
                                       } else {
                                         // Pakistan IBAN: PK + 2 digits + 4 letters + 16 digits = 24 chars
