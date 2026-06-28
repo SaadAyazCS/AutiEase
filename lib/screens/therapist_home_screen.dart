@@ -2885,6 +2885,16 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
     });
   }
 
+  String _getPaymentMethodName(String method) {
+    final clean = method.trim().toLowerCase();
+    if (clean == 'easypaisa') return 'EasyPaisa';
+    if (clean == 'jazzcash') return 'JazzCash';
+    if (clean == 'raast') return 'Raast';
+    if (clean == 'bank' || clean == 'bank transfer') return 'Bank Transfer';
+    if (method.isEmpty) return 'Bank/Wallet';
+    return method[0].toUpperCase() + method.substring(1);
+  }
+
   String _formatCooldown(Duration d) {
     if (d.inDays > 0) {
       final hours = d.inHours % 24;
@@ -3239,28 +3249,45 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                               : 'e.g. 03001234567'),
                                       border: const OutlineInputBorder(),
                                       prefixIcon: const Icon(Icons.pin),
-                                      errorMaxLines: 3,
+                                      errorMaxLines: 5,
+                                      errorStyle: const TextStyle(
+                                        fontSize: 11.5,
+                                        height: 1.2,
+                                        overflow: TextOverflow.visible,
+                                      ),
                                     ),
                                     validator: (value) {
                                       if (value == null || value.trim().isEmpty) {
                                         return 'Please enter account details';
                                       }
                                       final v = value.trim();
+                                      
+                                      // Mobile number normalization for validation
+                                      String cleanedMobile = v.replaceAll(RegExp(r'\D'), '');
+                                      if (cleanedMobile.startsWith('92')) {
+                                        cleanedMobile = '0${cleanedMobile.substring(2)}';
+                                      } else if (cleanedMobile.length == 10 && cleanedMobile.startsWith('3')) {
+                                        cleanedMobile = '0$cleanedMobile';
+                                      }
+                                      
+                                      // IBAN normalization for validation
+                                      final upperIban = v.toUpperCase().replaceAll(RegExp(r'\s+'), '');
+
                                       if (selectedMethod == 'EasyPaisa' ||
                                           selectedMethod == 'JazzCash') {
                                         // EasyPaisa and JazzCash: Only valid Pakistani mobile number (11 digits, starting with 03)
-                                        if (!RegExp(r'^03\d{9}$').hasMatch(v)) {
+                                        if (cleanedMobile.length != 11 || !cleanedMobile.startsWith('03')) {
                                           return 'Mobile number must be a valid Pakistani mobile number (e.g. 03001234567)';
                                         }
                                       } else if (selectedMethod == 'Bank Transfer') {
                                         // Bank Transfer: Only valid Pakistani IBAN (24 chars)
-                                        if (!RegExp(r'^PK\d{2}[A-Z]{4}\d{16}$').hasMatch(v)) {
+                                        if (!RegExp(r'^PK\d{2}[A-Z]{4}\d{16}$').hasMatch(upperIban)) {
                                           return 'Please enter a valid Pakistan IBAN (e.g. PK36SCBL0000001123456702)';
                                         }
                                       } else if (selectedMethod == 'Raast') {
                                         // Raast: Either Pakistani mobile number OR Pakistani IBAN
-                                        final isMobile = RegExp(r'^03\d{9}$').hasMatch(v);
-                                        final isIban = RegExp(r'^PK\d{2}[A-Z]{4}\d{16}$').hasMatch(v);
+                                        final isMobile = cleanedMobile.length == 11 && cleanedMobile.startsWith('03');
+                                        final isIban = RegExp(r'^PK\d{2}[A-Z]{4}\d{16}$').hasMatch(upperIban);
                                         if (!isMobile && !isIban) {
                                           return 'Please enter a valid Pakistani mobile number (e.g. 03001234567) or a valid Pakistan IBAN (e.g. PK36SCBL0000001123456702)';
                                         }
@@ -3318,7 +3345,35 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
 
                                             final double withdrawAmt = double.parse(amountController.text.trim());
                                             final String accTitle = accountTitleController.text.trim();
-                                            final String accNum = accountDetailsController.text.trim();
+                                            String rawNum = accountDetailsController.text.trim();
+                                            String accNum = rawNum;
+
+                                            // Normalize the submitted account/mobile number value
+                                            if (selectedMethod == 'EasyPaisa' || selectedMethod == 'JazzCash') {
+                                              String cleaned = rawNum.replaceAll(RegExp(r'\D'), '');
+                                              if (cleaned.startsWith('92')) {
+                                                cleaned = '0${cleaned.substring(2)}';
+                                              } else if (cleaned.length == 10 && cleaned.startsWith('3')) {
+                                                cleaned = '0$cleaned';
+                                              }
+                                              accNum = cleaned;
+                                            } else if (selectedMethod == 'Bank Transfer') {
+                                              accNum = rawNum.toUpperCase().replaceAll(RegExp(r'\s+'), '');
+                                            } else if (selectedMethod == 'Raast') {
+                                              final upperVal = rawNum.toUpperCase().replaceAll(RegExp(r'\s+'), '');
+                                              if (RegExp(r'^PK\d{2}[A-Z]{4}\d{16}$').hasMatch(upperVal)) {
+                                                accNum = upperVal;
+                                              } else {
+                                                String cleaned = rawNum.replaceAll(RegExp(r'\D'), '');
+                                                if (cleaned.startsWith('92')) {
+                                                  cleaned = '0${cleaned.substring(2)}';
+                                                } else if (cleaned.length == 10 && cleaned.startsWith('3')) {
+                                                  cleaned = '0$cleaned';
+                                                }
+                                                accNum = cleaned;
+                                              }
+                                            }
+
                                             final String fullDetailsStr = '$accTitle - $accNum';
 
                                             try {
@@ -3409,7 +3464,7 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
     }
     final status = (tx['status'] ?? 'pending').toString().toUpperCase();
     final details = (tx['accountDetails'] ?? '').toString();
-    final method = (tx['paymentMethod'] ?? '').toString();
+    final method = _getPaymentMethodName((tx['paymentMethod'] ?? '').toString());
     final parentName = (tx['parentName'] ?? '').toString();
 
     showDialog<void>(
@@ -3779,7 +3834,7 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                           }
                           final status = (tx['status'] ?? 'pending').toString().toLowerCase();
                           final details = (tx['accountDetails'] ?? '').toString();
-                          final method = (tx['paymentMethod'] ?? '').toString();
+                          final method = _getPaymentMethodName((tx['paymentMethod'] ?? '').toString());
                           final parentName = (tx['parentName'] ?? '').toString();
 
                           return InkWell(
@@ -3806,7 +3861,7 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                         Text(
                                           isEarning 
                                               ? 'Subscription received ${parentName.isNotEmpty ? "from $parentName" : ""}'
-                                              : 'Withdrawal to ${method.toUpperCase()}',
+                                              : 'Withdrawal to $method',
                                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1F2937)),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,

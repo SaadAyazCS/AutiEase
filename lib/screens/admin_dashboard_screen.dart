@@ -3572,7 +3572,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                             final status = (data['status'] ?? 'pending').toString();
                             final amount = (data['amount'] as num?)?.toDouble() ?? 0.0;
                             final therapistName = (data['therapistName'] ?? 'Therapist').toString();
-                            final method = (data['paymentMethod'] ?? '').toString();
+                            final rawMethod = (data['paymentMethod'] ?? '').toString();
+                            final method = rawMethod.toLowerCase() == 'easypaisa'
+                                ? 'EasyPaisa'
+                                : (rawMethod.toLowerCase() == 'jazzcash'
+                                    ? 'JazzCash'
+                                    : (rawMethod.toLowerCase() == 'raast'
+                                        ? 'Raast'
+                                        : (rawMethod.toLowerCase() == 'bank' || rawMethod.toLowerCase() == 'bank transfer'
+                                            ? 'Bank Transfer'
+                                            : rawMethod)));
                             final accountDetails = (data['accountDetails'] ?? '').toString();
                             final createdAt = data['createdAt'];
                             String dateStr = '';

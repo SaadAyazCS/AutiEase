@@ -2598,22 +2598,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              if (widget.senderRole == 'parent' &&
-                                  !thread.hasOpenEmergency &&
-                                  canSendMessage)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: OutlinedButton.icon(
-                                    onPressed: _requestEmergency,
-                                    icon: const Icon(
-                                      Icons.warning_amber_rounded,
-                                      color: AppColors.errorRed,
-                                    ),
-                                    label: const Text(
-                                      'Request emergency support',
-                                    ),
-                                  ),
-                                ),
+
                               if (thread.hasOpenEmergency)
                                 Padding(
                                   padding: const EdgeInsets.only(bottom: 8),
@@ -2966,31 +2951,34 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                           });
                                         },
                                       ),
-                                      IconButton(
-                                        icon: const Icon(Icons.warning_amber_rounded, color: AppColors.errorRed),
-                                        onPressed: () {
-                                          showDialog<void>(
-                                            context: context,
-                                            builder: (ctx) => AlertDialog(
-                                              title: const Text('Emergency Support'),
-                                              content: const Text('Are you sure you want to request immediate emergency assistance?'),
-                                              actions: [
-                                                TextButton(
-                                                  onPressed: () => Navigator.pop(ctx),
-                                                  child: const Text('Cancel'),
-                                                ),
-                                                TextButton(
-                                                  onPressed: () {
-                                                    Navigator.pop(ctx);
-                                                    _requestEmergency();
-                                                  },
-                                                  child: const Text('Confirm', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                                                ),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      ),
+                                      if (widget.senderRole == 'parent' &&
+                                          !thread.hasOpenEmergency &&
+                                          canSendMessage)
+                                        IconButton(
+                                          icon: const Icon(Icons.warning_amber_rounded, color: AppColors.errorRed),
+                                          onPressed: () {
+                                            showDialog<void>(
+                                              context: context,
+                                              builder: (ctx) => AlertDialog(
+                                                title: const Text('Emergency Support'),
+                                                content: const Text('Are you sure you want to request immediate emergency assistance?'),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () => Navigator.pop(ctx),
+                                                    child: const Text('Cancel'),
+                                                  ),
+                                                  TextButton(
+                                                    onPressed: () {
+                                                      Navigator.pop(ctx);
+                                                      _requestEmergency();
+                                                    },
+                                                    child: const Text('Confirm', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          },
+                                        ),
                                       Expanded(
                                         child: TextField(
                                           controller: _controller,

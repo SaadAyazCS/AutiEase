@@ -2008,11 +2008,13 @@ app.post('/api/v1/therapist/withdraw', withdrawLimiter, requireAuth, async (req,
     const uid = req.user.uid;
     const { amount, paymentMethod, accountDetails, isAppeal, appealReason } = req.body || {};
 
-    if (!amount || !paymentMethod || !accountDetails) {
-      return jsonError(res, 400, 'amount, paymentMethod, and accountDetails are required');
+    let normalizedMethod = (paymentMethod || '').toString().trim().toLowerCase();
+    if (normalizedMethod === 'bank transfer') {
+      normalizedMethod = 'bank';
     }
-    if (!['raast', 'bank'].includes(paymentMethod)) {
-      return jsonError(res, 400, 'Invalid paymentMethod. Must be raast or bank');
+
+    if (!['raast', 'bank', 'easypaisa', 'jazzcash'].includes(normalizedMethod)) {
+      return jsonError(res, 400, 'Invalid paymentMethod. Must be raast, bank, easypaisa, or jazzcash');
     }
     if (accountDetails.length > 300) {
       return jsonError(res, 400, 'accountDetails must not exceed 300 characters');
@@ -2095,7 +2097,7 @@ app.post('/api/v1/therapist/withdraw', withdrawLimiter, requireAuth, async (req,
         therapistId: uid,
         therapistName: therapistData.displayName || 'Therapist',
         amount: parsedWithdrawAmount,
-        paymentMethod,
+        paymentMethod: normalizedMethod,
         accountDetails,
         status: 'pending',
         isAppeal: isAppeal === true,
@@ -2108,7 +2110,7 @@ app.post('/api/v1/therapist/withdraw', withdrawLimiter, requireAuth, async (req,
         therapistId: uid,
         amount: parsedWithdrawAmount,
         type: 'withdrawal',
-        paymentMethod,
+        paymentMethod: normalizedMethod,
         accountDetails,
         status: 'pending',
         isAppeal: isAppeal === true,
