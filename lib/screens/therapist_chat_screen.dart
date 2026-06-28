@@ -6,7 +6,6 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import '../widgets/app_skeleton.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
@@ -706,7 +705,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => const ChatSkeletonLoader(),
+      builder: (ctx) => const Center(child: CircularProgressIndicator()),
     );
 
     String childName = 'Child';
@@ -867,7 +866,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                     showDialog<void>(
                       context: context,
                       barrierDismissible: false,
-                      builder: (c) => const ChatSkeletonLoader(),
+                      builder: (c) => const Center(child: CircularProgressIndicator()),
                     );
 
                     await AppRepositories.support.createClinicalNote(

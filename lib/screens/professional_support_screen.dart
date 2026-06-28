@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../widgets/app_skeleton.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -1194,7 +1193,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
   @override
   Widget build(BuildContext context) {
     if (!_stateLoaded) {
-      return const Scaffold(body: AppSkeletonLoader());
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     return SessionGuard(
       role: SessionGuardRole.parent,
@@ -1213,7 +1212,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                 future: _supportDataFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: AppSkeletonLoader());
+                    return const Center(child: CircularProgressIndicator());
                   }
 
                   final activeTherapists =
