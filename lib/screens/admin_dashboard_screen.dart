@@ -11,6 +11,7 @@ import '../widgets/session_guard.dart';
 import '../utils/currency_utils.dart';
 import 'certificate_viewer_screen.dart';
 import 'login_screen.dart';
+import 'receipt_viewer_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -3666,6 +3667,46 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                         style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
                                       ),
                                     ],
+                                    if (status == 'paid') ...[
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          const Icon(Icons.check_circle_outline, color: Color(0xFF059669), size: 14),
+                                          const SizedBox(width: 4),
+                                          Expanded(
+                                            child: Text(
+                                              'Ref: ${data["adminNotes"] ?? "N/A"}',
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(color: Color(0xFF059669), fontSize: 12, fontWeight: FontWeight.w600),
+                                            ),
+                                          ),
+                                          if (data['receiptBase64'] != null && data['receiptBase64'].toString().isNotEmpty) ...[
+                                            const SizedBox(width: 8),
+                                            TextButton.icon(
+                                              onPressed: () {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder: (context) => ReceiptViewerScreen(
+                                                      base64String: data['receiptBase64'].toString(),
+                                                      title: 'Payout Receipt',
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                              icon: const Icon(Icons.receipt_long_rounded, size: 14),
+                                              label: const Text('Receipt', style: TextStyle(fontSize: 11)),
+                                              style: TextButton.styleFrom(
+                                                foregroundColor: const Color(0xFF059669),
+                                                padding: EdgeInsets.zero,
+                                                minimumSize: const Size(0, 24),
+                                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ],
                                     if (status == 'pending') ...[
                                       const SizedBox(height: 12),
                                       Row(
@@ -3829,7 +3870,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         ),
                         const SizedBox(height: 20),
                         const Text(
-                          'Upload Receipt (Optional, max 500KB):',
+                          'Upload Receipt (Mandatory, max 500KB):',
                           style: TextStyle(
                             color: Color(0xFF1E293B),
                             fontSize: 13,
@@ -3935,6 +3976,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     ),
                     onPressed: () {
                       if (formKey.currentState?.validate() == true) {
+                        if (base64String == null || base64String!.isEmpty) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            const SnackBar(
+                              content: Text('Please select and upload the transaction receipt first.'),
+                              backgroundColor: Color(0xFFEF4444),
+                            ),
+                          );
+                          return;
+                        }
                         Navigator.pop(ctx, {
                           'referenceId': ctrl.text.trim(),
                           'receiptBase64': base64String,
