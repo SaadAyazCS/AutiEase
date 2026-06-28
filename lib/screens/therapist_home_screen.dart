@@ -3234,26 +3234,35 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                               : 'Mobile Number'),
                                       hintText: selectedMethod == 'Bank Transfer'
                                           ? 'e.g. PK36SCBL0000001123456702'
-                                          : 'e.g. 03001234567',
+                                          : (selectedMethod == 'Raast'
+                                              ? 'e.g. 03001234567 or PK36SCBL0000001123456702'
+                                              : 'e.g. 03001234567'),
                                       border: const OutlineInputBorder(),
                                       prefixIcon: const Icon(Icons.pin),
+                                      errorMaxLines: 3,
                                     ),
                                     validator: (value) {
                                       if (value == null || value.trim().isEmpty) {
                                         return 'Please enter account details';
                                       }
                                       final v = value.trim();
-                                      if (selectedMethod == 'Raast' ||
-                                          selectedMethod == 'EasyPaisa' ||
+                                      if (selectedMethod == 'EasyPaisa' ||
                                           selectedMethod == 'JazzCash') {
-                                        // Pakistan mobile numbers: 03XXXXXXXXX (11 digits)
+                                        // EasyPaisa and JazzCash: Only valid Pakistani mobile number (11 digits, starting with 03)
                                         if (!RegExp(r'^03\d{9}$').hasMatch(v)) {
                                           return 'Mobile number must be a valid Pakistani mobile number (e.g. 03001234567)';
                                         }
-                                      } else {
-                                        // Pakistan IBAN: PK + 2 digits + 4 letters + 16 digits = 24 chars
+                                      } else if (selectedMethod == 'Bank Transfer') {
+                                        // Bank Transfer: Only valid Pakistani IBAN (24 chars)
                                         if (!RegExp(r'^PK\d{2}[A-Z]{4}\d{16}$').hasMatch(v)) {
                                           return 'Please enter a valid Pakistan IBAN (e.g. PK36SCBL0000001123456702)';
+                                        }
+                                      } else if (selectedMethod == 'Raast') {
+                                        // Raast: Either Pakistani mobile number OR Pakistani IBAN
+                                        final isMobile = RegExp(r'^03\d{9}$').hasMatch(v);
+                                        final isIban = RegExp(r'^PK\d{2}[A-Z]{4}\d{16}$').hasMatch(v);
+                                        if (!isMobile && !isIban) {
+                                          return 'Please enter a valid Pakistani mobile number (e.g. 03001234567) or a valid Pakistan IBAN (e.g. PK36SCBL0000001123456702)';
                                         }
                                       }
                                       return null;
