@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../widgets/app_skeleton.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -20,12 +21,14 @@ class _TherapistPlaceholderAvatar extends StatelessWidget {
     this.backgroundColor = const Color(0xFFDDF7E5),
     this.padding = 4,
     this.photoBase64,
+    this.isOnline = false,
   });
 
   final double size;
   final Color backgroundColor;
   final double padding;
   final String? photoBase64;
+  final bool isOnline;
 
   @override
   Widget build(BuildContext context) {
@@ -57,7 +60,7 @@ class _TherapistPlaceholderAvatar extends StatelessWidget {
       imageWidget = Image.asset('assets/images/autiease.png', fit: BoxFit.contain);
     }
 
-    return Container(
+    final mainAvatar = Container(
       width: size,
       height: size,
       decoration: BoxDecoration(shape: BoxShape.circle, color: backgroundColor),
@@ -66,6 +69,29 @@ class _TherapistPlaceholderAvatar extends StatelessWidget {
         child: imageWidget,
       ),
     );
+
+    if (isOnline) {
+      return Stack(
+        children: [
+          mainAvatar,
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: const Color(0xFF00C853),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.5),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return mainAvatar;
   }
 }
 
@@ -85,6 +111,15 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
   final Set<String> _hiddenTherapistIds = ProfessionalSupportScreen.sessionHiddenTherapistIds;
   bool _showFindTherapist = false;
   bool _stateLoaded = false;
+  Future<List<Object?>>? _supportDataFuture;
+
+  Future<List<Object?>> _fetchSupportData() {
+    return Future.wait<Object?>([
+      AppRepositories.support.listTherapists(),
+      _loadActiveSubscribedTherapistIds(),
+      _loadSubscribedTherapistsIncludingInactive(),
+    ]);
+  }
 
   void _showComingSoon() {
     if (!mounted) {
@@ -102,6 +137,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _supportDataFuture = _fetchSupportData();
     _loadPersistedTherapistState();
   }
 
@@ -150,6 +186,9 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
 
   Future<void> _refreshState() async {
     await _loadPersistedTherapistState();
+    setState(() {
+      _supportDataFuture = _fetchSupportData();
+    });
   }
 
   Future<void> _loadPersistedTherapistState() async {
@@ -1155,7 +1194,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
   @override
   Widget build(BuildContext context) {
     if (!_stateLoaded) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: AppSkeletonLoader());
     }
     return SessionGuard(
       role: SessionGuardRole.parent,
@@ -1171,14 +1210,10 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                   featureSnapshot.data ??
                   ProfessionalSupportFeatureFlags.enabled;
               return FutureBuilder<List<Object?>>(
-                future: Future.wait<Object?>([
-                  AppRepositories.support.listTherapists(),
-                  _loadActiveSubscribedTherapistIds(),
-                  _loadSubscribedTherapistsIncludingInactive(),
-                ]),
+                future: _supportDataFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const Center(child: AppSkeletonLoader());
                   }
 
                   final activeTherapists =
@@ -1364,6 +1399,17 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                 photoBase64: therapistById[thread.therapistId]?.photoUrlBase64.isNotEmpty == true
                     ? therapistById[thread.therapistId]?.photoUrlBase64
                     : therapistById[thread.therapistId]?.photoUrl,
+                isOnline: (() {
+                  final t = therapistById[thread.therapistId];
+                  if (t == null || t.lastActiveAt == null) return false;
+                  return DateTime.now().difference(t.lastActiveAt!).inMinutes < 5;
+                })(),
+                rating: therapistById[thread.therapistId]?.rating ?? 0.0,
+                isUnread: (() {
+                  if (thread.lastMessageAt == null) return false;
+                  if (thread.parentLastRead == null) return true;
+                  return thread.lastMessageAt!.isAfter(thread.parentLastRead!);
+                })(),
                 onTap: () {
                   final therapist = therapistById[thread.therapistId];
                   if (therapist == null) {
@@ -1385,8 +1431,19 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                 photoBase64: therapist.photoUrlBase64.isNotEmpty
                     ? therapist.photoUrlBase64
                     : therapist.photoUrl,
+                isOnline: therapist.lastActiveAt != null &&
+                    DateTime.now().difference(therapist.lastActiveAt!).inMinutes < 5,
+                rating: therapist.rating,
                 onTap: () =>
                     _openTherapistChat(therapist, chatEnabled: chatEnabled),
+              ),
+            if (backendThreads.isNotEmpty)
+              _ProgressMiniCard(
+                lastMessageAt: backendThreads.first.lastMessageAt,
+                threadStatus: backendThreads.first.status,
+                therapistName: backendThreads.first.therapistDisplayName.isNotEmpty
+                    ? backendThreads.first.therapistDisplayName
+                    : (therapistById[backendThreads.first.therapistId]?.displayName ?? 'your therapist'),
               ),
           ],
         );
@@ -1560,6 +1617,8 @@ class _TherapistListCard extends StatelessWidget {
                 _TherapistPlaceholderAvatar(
                   size: 44,
                   photoBase64: therapist.photoUrlBase64,
+                  isOnline: therapist.lastActiveAt != null &&
+                      DateTime.now().difference(therapist.lastActiveAt!).inMinutes < 5,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -1683,6 +1742,9 @@ class _MessageHomeCard extends StatelessWidget {
     required this.timeLabel,
     required this.onTap,
     this.photoBase64,
+    this.isOnline = false,
+    this.rating = 0.0,
+    this.isUnread = false,
   });
 
   final String therapistName;
@@ -1690,6 +1752,9 @@ class _MessageHomeCard extends StatelessWidget {
   final String timeLabel;
   final VoidCallback onTap;
   final String? photoBase64;
+  final bool isOnline;
+  final double rating;
+  final bool isUnread;
 
   @override
   Widget build(BuildContext context) {
@@ -1712,7 +1777,47 @@ class _MessageHomeCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            _TherapistPlaceholderAvatar(size: 44, photoBase64: photoBase64),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                _TherapistPlaceholderAvatar(
+                  size: 44,
+                  photoBase64: photoBase64,
+                  isOnline: isOnline,
+                ),
+                if (rating > 0)
+                  Positioned(
+                    bottom: -4,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFA000),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.18),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        child: Text(
+                          '⭐ ${rating.toStringAsFixed(1)}',
+                          style: const TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            height: 1.1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -1753,8 +1858,8 @@ class _MessageHomeCard extends StatelessWidget {
                 Container(
                   width: 10,
                   height: 10,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF00C853),
+                  decoration: BoxDecoration(
+                    color: isUnread ? const Color(0xFFEF4444) : Colors.transparent,
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -1762,6 +1867,126 @@ class _MessageHomeCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ProgressMiniCard extends StatelessWidget {
+  const _ProgressMiniCard({
+    required this.lastMessageAt,
+    required this.threadStatus,
+    required this.therapistName,
+  });
+
+  final DateTime? lastMessageAt;
+  final String threadStatus;
+  final String therapistName;
+
+  String _lastSessionLabel() {
+    if (lastMessageAt == null) return 'No session yet';
+    final diff = DateTime.now().difference(lastMessageAt!);
+    if (diff.inDays >= 1) return '${diff.inDays}d ago';
+    if (diff.inHours >= 1) return '${diff.inHours}h ago';
+    return '${diff.inMinutes}m ago';
+  }
+
+  bool get _isActive =>
+      threadStatus == 'active' ||
+      threadStatus == 'trialing' ||
+      threadStatus == 'grace_period';
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = _isActive ? const Color(0xFF00C853) : const Color(0xFFEF4444);
+    final statusLabel = _isActive ? 'Active' : 'Inactive';
+    final statusBg = _isActive ? const Color(0xFFE8FDF0) : const Color(0xFFFEE2E2);
+
+    return Container(
+      margin: const EdgeInsets.only(top: 6, bottom: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFF0FDF4), Color(0xFFECFDF5)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFBBF7D0), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: const BoxDecoration(
+              color: Color(0xFFDCFCE7),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.insights_rounded, color: Color(0xFF16A34A), size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Child Progress',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF15803D),
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Last session with $therapistName',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11.5, color: Color(0xFF4B5563)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                _lastSessionLabel(),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF374151),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: statusBg,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  statusLabel,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: statusColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

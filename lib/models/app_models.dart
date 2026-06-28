@@ -94,6 +94,7 @@ class UserProfile {
     this.updatedAt,
     this.isChildModeLocked = false,
     this.childModePin = '',
+    this.lastActiveAt,
   });
 
   final String uid;
@@ -113,6 +114,7 @@ class UserProfile {
   final DateTime? updatedAt;
   final bool isChildModeLocked;
   final String childModePin;
+  final DateTime? lastActiveAt;
 
   String get fullName => '$firstName $lastName'.trim();
 
@@ -135,6 +137,7 @@ class UserProfile {
       updatedAt: dateTimeFromFirestore(data['updatedAt']),
       isChildModeLocked: data['isChildModeLocked'] == true,
       childModePin: (data['childModePin'] ?? '').toString(),
+      lastActiveAt: dateTimeFromFirestore(data['lastActiveAt']),
     );
   }
 
@@ -841,6 +844,7 @@ class TherapistProfile {
     this.totalReviews = 0,
     this.servicePackages = const <TherapyPackage>[],
     this.isAcceptingClients = true,
+    this.lastActiveAt,
   });
 
   final String id;
@@ -871,6 +875,7 @@ class TherapistProfile {
   final int totalReviews;
   final List<TherapyPackage> servicePackages;
   final bool isAcceptingClients;
+  final DateTime? lastActiveAt;
 
   /// Convenience alias for yearsOfExperience.
   int get experienceYears => yearsOfExperience;
@@ -924,6 +929,7 @@ class TherapistProfile {
               .toList()
           : const <TherapyPackage>[],
       isAcceptingClients: data['isAcceptingClients'] != false,
+      lastActiveAt: dateTimeFromFirestore(data['lastActiveAt']),
     );
   }
 }
@@ -1266,6 +1272,9 @@ class TherapistMessage {
     this.deliveryStatus = 'sent',
     this.deliveryError,
     this.isDeleted = false,
+    this.replyToId,
+    this.replyToPreview,
+    this.reaction,
   });
 
   final String id;
@@ -1278,6 +1287,9 @@ class TherapistMessage {
   final String deliveryStatus;
   final String? deliveryError;
   final bool isDeleted;
+  final String? replyToId;
+  final String? replyToPreview;
+  final String? reaction;
 
   factory TherapistMessage.fromMap(String id, Map<String, dynamic> data) {
     return TherapistMessage(
@@ -1291,6 +1303,9 @@ class TherapistMessage {
       deliveryStatus: (data['deliveryStatus'] ?? 'sent').toString(),
       deliveryError: data['deliveryError']?.toString(),
       isDeleted: data['isDeleted'] == true,
+      replyToId: data['replyToId']?.toString(),
+      replyToPreview: data['replyToPreview']?.toString(),
+      reaction: data['reaction']?.toString(),
     );
   }
 }

@@ -35,6 +35,10 @@ dependencies:
   pdf: ^3.11.3
   printing: ^5.14.2
   shared_preferences: ^2.5.5
+  audioplayers: ^6.1.0
+  record: ^5.1.2
+  timezone: ^0.9.4
+  shimmer: ^3.0.0
 
 dependency_overrides:
   http: ^0.13.5

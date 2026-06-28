@@ -1,6 +1,8 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/material.dart';
+import 'package:timezone/timezone.dart' as tz;
+import 'package:timezone/data/latest_all.dart' as tz_data;
 import '../repositories/app_repositories.dart';
 import '../navigation/session_navigation.dart';
 
@@ -21,6 +23,9 @@ class NotificationService {
 
   Future<void> initialize() async {
     if (_initialized) return;
+
+    // 0. Initialize timezone data
+    tz_data.initializeTimeZones();
 
     // 1. Request Permission
     await _fcm.requestPermission(
@@ -119,6 +124,57 @@ class NotificationService {
     });
 
     _initialized = true;
+  }
+
+  /// Schedule a local notification 1 hour before [sessionTime].
+  /// [notificationId] should be unique per session (e.g. hash of session doc ID).
+  Future<void> scheduleSessionReminder({
+    required int notificationId,
+    required DateTime sessionTime,
+    required String therapistName,
+  }) async {
+    final fireAt = sessionTime.subtract(const Duration(hours: 1));
+    if (fireAt.isBefore(DateTime.now())) return; // Already past
+
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'autiease_session_channel',
+        'Session Reminders',
+        channelDescription: 'Reminders sent 1 hour before a booked therapy session.',
+        importance: Importance.high,
+        priority: Priority.high,
+        icon: '@mipmap/ic_launcher',
+      ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      ),
+    );
+
+    await _localNotifications.zonedSchedule(
+      notificationId,
+      'Session in 1 hour',
+      'Your session with $therapistName starts at ${_fmt(sessionTime)}. Get ready!',
+      tz.TZDateTime.from(fireAt, tz.local),
+      details,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      payload: 'session_reminder',
+    );
+  }
+
+  /// Cancel a previously scheduled session reminder by [notificationId].
+  Future<void> cancelSessionReminder(int notificationId) async {
+    await _localNotifications.cancel(notificationId);
+  }
+
+  String _fmt(DateTime dt) {
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final m = dt.minute.toString().padLeft(2, '0');
+    final amPm = dt.hour < 12 ? 'AM' : 'PM';
+    return '$h:$m $amPm';
   }
 
   void _handleNotificationTap(String? route) {

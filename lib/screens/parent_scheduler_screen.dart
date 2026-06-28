@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
+import '../services/notification_service.dart';
 
 class ParentSchedulerScreen extends StatefulWidget {
   const ParentSchedulerScreen({
@@ -104,7 +105,7 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
                       return InkWell(
                         onTap: () {
                           setState(() {
-                            _selectedSlot = slot;
+                            _selectedSlot = (_selectedSlot?.id == slot.id) ? null : slot;
                           });
                         },
                         child: Container(
@@ -198,10 +199,16 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
                                   childName: widget.childName,
                                   notes: _notesCtrl.text.trim(),
                                 );
+                                // Schedule a 1-hour-before reminder notification
+                                await NotificationService.instance.scheduleSessionReminder(
+                                  notificationId: _selectedSlot!.id.hashCode.abs(),
+                                  sessionTime: _selectedSlot!.dateTime,
+                                  therapistName: widget.therapistName,
+                                );
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
-                                      content: Text('Session booked successfully!'),
+                                      content: Text("Session booked! You'll get a reminder 1 hour before."),
                                       backgroundColor: Color(0xFF059669),
                                     ),
                                   );

@@ -118,6 +118,17 @@ abstract class SupportRepository {
     required String body,
     List<String> attachments = const <String>[],
     String messageType = 'text',
+    String? replyToId,
+    String? replyToPreview,
+  });
+  Future<void> toggleMessageReaction({
+    required String threadId,
+    required String messageId,
+    required String? reaction,
+  });
+  Future<void> updateUserActiveStatus({
+    required String userId,
+    required String role,
   });
   Future<void> requestEmergency({
     required String threadId,
@@ -1448,6 +1459,8 @@ class FirebaseSupportRepository implements SupportRepository {
     required String body,
     List<String> attachments = const <String>[],
     String messageType = 'text',
+    String? replyToId,
+    String? replyToPreview,
   }) async {
     final senderId = _auth.currentUser?.uid;
     if (senderId == null) {
@@ -1465,6 +1478,8 @@ class FirebaseSupportRepository implements SupportRepository {
           'messageType': messageType,
           'deliveryStatus': 'sent',
           'sentAt': FieldValue.serverTimestamp(),
+          if (replyToId != null) 'replyToId': replyToId,
+          if (replyToPreview != null) 'replyToPreview': replyToPreview,
         });
 
     await _firestore
@@ -1478,6 +1493,44 @@ class FirebaseSupportRepository implements SupportRepository {
                   ? body
                   : '${body.substring(0, 117)}...',
         }, SetOptions(merge: true));
+  }
+
+  @override
+  Future<void> toggleMessageReaction({
+    required String threadId,
+    required String messageId,
+    required String? reaction,
+  }) async {
+    await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .doc(threadId)
+        .collection('messages')
+        .doc(messageId)
+        .update({
+          'reaction': reaction,
+        });
+  }
+
+  @override
+  Future<void> updateUserActiveStatus({
+    required String userId,
+    required String role,
+  }) async {
+    if (role == 'therapist') {
+      await _firestore
+          .collection(FirestoreCollections.therapistProfiles)
+          .doc(userId)
+          .set({
+            'lastActiveAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+    } else {
+      await _firestore
+          .collection(FirestoreCollections.users)
+          .doc(userId)
+          .set({
+            'lastActiveAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+    }
   }
 
   @override
