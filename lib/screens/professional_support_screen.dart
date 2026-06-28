@@ -1436,14 +1436,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                 onTap: () =>
                     _openTherapistChat(therapist, chatEnabled: chatEnabled),
               ),
-            if (backendThreads.isNotEmpty)
-              _ProgressMiniCard(
-                lastMessageAt: backendThreads.first.lastMessageAt,
-                threadStatus: backendThreads.first.status,
-                therapistName: backendThreads.first.therapistDisplayName.isNotEmpty
-                    ? backendThreads.first.therapistDisplayName
-                    : (therapistById[backendThreads.first.therapistId]?.displayName ?? 'your therapist'),
-              ),
+
           ],
         );
       },
@@ -1871,125 +1864,7 @@ class _MessageHomeCard extends StatelessWidget {
   }
 }
 
-class _ProgressMiniCard extends StatelessWidget {
-  const _ProgressMiniCard({
-    required this.lastMessageAt,
-    required this.threadStatus,
-    required this.therapistName,
-  });
 
-  final DateTime? lastMessageAt;
-  final String threadStatus;
-  final String therapistName;
-
-  String _lastSessionLabel() {
-    if (lastMessageAt == null) return 'No session yet';
-    final diff = DateTime.now().difference(lastMessageAt!);
-    if (diff.inDays >= 1) return '${diff.inDays}d ago';
-    if (diff.inHours >= 1) return '${diff.inHours}h ago';
-    return '${diff.inMinutes}m ago';
-  }
-
-  bool get _isActive =>
-      threadStatus == 'active' ||
-      threadStatus == 'trialing' ||
-      threadStatus == 'grace_period';
-
-  @override
-  Widget build(BuildContext context) {
-    final statusColor = _isActive ? const Color(0xFF00C853) : const Color(0xFFEF4444);
-    final statusLabel = _isActive ? 'Active' : 'Inactive';
-    final statusBg = _isActive ? const Color(0xFFE8FDF0) : const Color(0xFFFEE2E2);
-
-    return Container(
-      margin: const EdgeInsets.only(top: 6, bottom: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFF0FDF4), Color(0xFFECFDF5)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFBBF7D0), width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: const BoxDecoration(
-              color: Color(0xFFDCFCE7),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.insights_rounded, color: Color(0xFF16A34A), size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Child Progress',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF15803D),
-                    letterSpacing: 0.3,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  'Last session with $therapistName',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11.5, color: Color(0xFF4B5563)),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                _lastSessionLabel(),
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF374151),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: statusBg,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  statusLabel,
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    color: statusColor,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class SupportTherapistDetailsScreen extends StatefulWidget {
   const SupportTherapistDetailsScreen({
