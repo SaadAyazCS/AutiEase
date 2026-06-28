@@ -1662,7 +1662,8 @@ app.post('/api/v1/checkout/status', requireAuth, async (req, res) => {
 async function processTransactionResult(rawPayload) {
   const normalized = normalizeProviderPayload(rawPayload);
   if (!normalized.basketId) {
-    throw new Error('Missing basket id in payload');
+    console.log('processTransactionResult: Ignoring event with missing basket ID (non-actionable event).');
+    return { received: true, status: 'ignored', reason: 'Missing basket id in payload' };
   }
 
   const eventKey = normalized.transactionId || `${normalized.basketId}:${normalized.responseCode}:${normalized.status}`;
@@ -1675,7 +1676,8 @@ async function processTransactionResult(rawPayload) {
 
   const subscriptionDoc = await findSubscriptionByBasketId(normalized.basketId);
   if (!subscriptionDoc) {
-    throw new Error(`Subscription not found for basket ${normalized.basketId}`);
+    console.log(`processTransactionResult: Subscription not found for basket ${normalized.basketId} (ignoring).`);
+    return { received: true, status: 'ignored', reason: `Subscription not found for basket ${normalized.basketId}` };
   }
   const subscription = subscriptionDoc.data() || {};
   const subscriptionUserId = normalizeValue(subscription.userId);
