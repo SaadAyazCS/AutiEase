@@ -1171,6 +1171,27 @@ class AdminAuditLog {
   }
 }
 
+
+/// Describes the block relationship between two users in a thread.
+class BlockInfo {
+  const BlockInfo({
+    this.iBlockedThem = false,
+    this.theyBlockedMe = false,
+    this.blockerDisplayName = '',
+  });
+
+  /// True if the current user is the one who initiated the block.
+  final bool iBlockedThem;
+
+  /// True if the peer has blocked the current user.
+  final bool theyBlockedMe;
+
+  /// Display name of whoever did the blocking (used for dynamic UI text).
+  final String blockerDisplayName;
+
+  bool get isBlocked => iBlockedThem || theyBlockedMe;
+}
+
 class TherapistThread {
   const TherapistThread({
     required this.id,
@@ -1192,6 +1213,12 @@ class TherapistThread {
     this.therapistTyping = false,
     this.parentLastRead,
     this.therapistLastRead,
+    this.blockedByParent = false,
+    this.blockedByTherapist = false,
+    this.finalMessageSentByParent = false,
+    this.finalMessageSentByTherapist = false,
+    this.finalReplySentByParent = false,
+    this.finalReplySentByTherapist = false,
   });
 
   final String id;
@@ -1213,9 +1240,16 @@ class TherapistThread {
   final bool therapistTyping;
   final DateTime? parentLastRead;
   final DateTime? therapistLastRead;
+  final bool blockedByParent;
+  final bool blockedByTherapist;
+  final bool finalMessageSentByParent;
+  final bool finalMessageSentByTherapist;
+  final bool finalReplySentByParent;
+  final bool finalReplySentByTherapist;
 
   bool get hasOpenEmergency => emergencyStatus == 'requested';
   bool get emergencyResponded => emergencyStatus == 'responded';
+  bool get isBlocked => blockedByParent || blockedByTherapist;
 
   factory TherapistThread.fromMap(String id, Map<String, dynamic> data) {
     return TherapistThread(
@@ -1238,6 +1272,12 @@ class TherapistThread {
       therapistTyping: data['therapistTyping'] == true,
       parentLastRead: dateTimeFromFirestore(data['parentLastRead']),
       therapistLastRead: dateTimeFromFirestore(data['therapistLastRead']),
+      blockedByParent: data['blockedByParent'] == true,
+      blockedByTherapist: data['blockedByTherapist'] == true,
+      finalMessageSentByParent: data['finalMessageSentByParent'] == true,
+      finalMessageSentByTherapist: data['finalMessageSentByTherapist'] == true,
+      finalReplySentByParent: data['finalReplySentByParent'] == true,
+      finalReplySentByTherapist: data['finalReplySentByTherapist'] == true,
     );
   }
 
@@ -1256,6 +1296,12 @@ class TherapistThread {
     bool? therapistTyping,
     DateTime? parentLastRead,
     DateTime? therapistLastRead,
+    bool? blockedByParent,
+    bool? blockedByTherapist,
+    bool? finalMessageSentByParent,
+    bool? finalMessageSentByTherapist,
+    bool? finalReplySentByParent,
+    bool? finalReplySentByTherapist,
   }) {
     return TherapistThread(
       id: id,
@@ -1277,6 +1323,12 @@ class TherapistThread {
       therapistTyping: therapistTyping ?? this.therapistTyping,
       parentLastRead: parentLastRead ?? this.parentLastRead,
       therapistLastRead: therapistLastRead ?? this.therapistLastRead,
+      blockedByParent: blockedByParent ?? this.blockedByParent,
+      blockedByTherapist: blockedByTherapist ?? this.blockedByTherapist,
+      finalMessageSentByParent: finalMessageSentByParent ?? this.finalMessageSentByParent,
+      finalMessageSentByTherapist: finalMessageSentByTherapist ?? this.finalMessageSentByTherapist,
+      finalReplySentByParent: finalReplySentByParent ?? this.finalReplySentByParent,
+      finalReplySentByTherapist: finalReplySentByTherapist ?? this.finalReplySentByTherapist,
     );
   }
 
@@ -1290,12 +1342,18 @@ class TherapistThread {
       'parentDisplayName': parentDisplayName,
       'therapistDisplayName': therapistDisplayName,
       'lastMessagePreview': lastMessagePreview,
-      'lastMessageAt': lastMessageAt,
+      if (lastMessageAt != null) 'lastMessageAt': lastMessageAt,
       'emergencyStatus': emergencyStatus,
       'emergencyRequestedBy': emergencyRequestedBy,
       'emergencyRequestedAt': emergencyRequestedAt,
       'emergencyRespondedAt': emergencyRespondedAt,
       'postCancelVisible': postCancelVisible,
+      'blockedByParent': blockedByParent,
+      'blockedByTherapist': blockedByTherapist,
+      'finalMessageSentByParent': finalMessageSentByParent,
+      'finalMessageSentByTherapist': finalMessageSentByTherapist,
+      'finalReplySentByParent': finalReplySentByParent,
+      'finalReplySentByTherapist': finalReplySentByTherapist,
     };
   }
 }

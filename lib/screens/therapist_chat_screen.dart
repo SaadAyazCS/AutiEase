@@ -118,8 +118,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   // Rate Limiting (max 5 messages per 10 seconds)
   final List<DateTime> _messageTimestamps = [];
 
-  // Blocking status
-  bool _isBlocked = false;
+  // Blocking status (populated from live thread stream)
+  BlockInfo _blockInfo = const BlockInfo();
 
   // Emojis panel state
   bool _showEmojiPicker = false;
@@ -184,7 +184,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _peerTherapistProfile = widget.therapistProfile;
-    _checkBlockedStatus();
     _loadPeerProfile();
     _controller.addListener(_onComposerChanged);
     _scheduleLastReadSync();
@@ -256,15 +255,31 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   }
 
 
-  Future<void> _checkBlockedStatus() async {
-    final peerId = widget.senderRole == 'parent' ? widget.thread.therapistId : widget.thread.parentId;
-    final blocked = await AppRepositories.support.isUserBlocked(peerId);
+  /// Refresh block info from a live thread snapshot.
+  void _refreshBlockInfoFromThread(TherapistThread thread) {
+    final myRole = widget.senderRole;
+    final iBlockedThem = myRole == 'parent'
+        ? thread.blockedByParent
+        : thread.blockedByTherapist;
+    final theyBlockedMe = myRole == 'parent'
+        ? thread.blockedByTherapist
+        : thread.blockedByParent;
+    final blockerName = iBlockedThem
+        ? (myRole == 'parent' ? thread.parentDisplayName : thread.therapistDisplayName)
+        : (theyBlockedMe
+            ? (myRole == 'parent' ? thread.therapistDisplayName : thread.parentDisplayName)
+            : '');
     if (mounted) {
       setState(() {
-        _isBlocked = blocked;
+        _blockInfo = BlockInfo(
+          iBlockedThem: iBlockedThem,
+          theyBlockedMe: theyBlockedMe,
+          blockerDisplayName: blockerName,
+        );
       });
     }
   }
+
 
   Future<void> _loadPeerProfile() async {
     final peerId = widget.senderRole == 'parent' ? widget.thread.therapistId : widget.thread.parentId;
@@ -339,13 +354,39 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   }
 
   bool _canSendMessage(TherapistThread thread) {
-    if (widget.readOnly || _isBlocked) {
-      return false;
+    if (widget.readOnly) return false;
+    if (!thread.isBlocked) {
+      // No block: normal rules
+      if (widget.senderRole == 'parent') {
+        return thread.status == 'active' && thread.postCancelVisible;
+      }
+      return true;
     }
-    if (widget.senderRole == 'parent') {
-      return thread.status == 'active' && thread.postCancelVisible;
-    }
-    return true;
+    // Block is active — nobody can send regular messages
+    return false;
+  }
+
+  /// Whether the BLOCKED party can still send their one-time final message.
+  bool _canSendFinalMessage(TherapistThread thread) {
+    if (!_blockInfo.theyBlockedMe) return false;
+    final alreadySent = widget.senderRole == 'parent'
+        ? thread.finalMessageSentByParent
+        : thread.finalMessageSentByTherapist;
+    return !alreadySent;
+  }
+
+  /// Whether the BLOCKER can send a one-time reply (after the blocked user sent their final message).
+  bool _canSendFinalReply(TherapistThread thread) {
+    if (!_blockInfo.iBlockedThem) return false;
+    // Blocker can reply only after blocked party sent their final message
+    final blockedPartyHasSent = widget.senderRole == 'parent'
+        ? thread.finalMessageSentByTherapist
+        : thread.finalMessageSentByParent;
+    if (!blockedPartyHasSent) return false;
+    final alreadyReplied = widget.senderRole == 'parent'
+        ? thread.finalReplySentByParent
+        : thread.finalReplySentByTherapist;
+    return !alreadyReplied;
   }
 
   bool _checkRateLimit() {
@@ -528,30 +569,121 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     }
   }
 
-  Future<void> _toggleBlockStatus() async {
-    final peerId = widget.senderRole == 'parent' ? widget.thread.therapistId : widget.thread.parentId;
-    try {
-      if (_isBlocked) {
-        await AppRepositories.support.unblockUser(blockedId: peerId);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('User unblocked.')),
-          );
-        }
-      } else {
-        await AppRepositories.support.blockUser(blockedId: peerId);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('User blocked.')),
-          );
-        }
-      }
-      await _checkBlockedStatus();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Action failed: $e')),
+  Future<void> _toggleBlockStatus(TherapistThread thread) async {
+    final peerId = widget.senderRole == 'parent' ? thread.therapistId : thread.parentId;
+    final myDisplayName = widget.senderRole == 'parent'
+        ? thread.parentDisplayName
+        : thread.therapistDisplayName;
+    final peerDisplayName = widget.senderRole == 'parent'
+        ? thread.therapistDisplayName
+        : thread.parentDisplayName;
+
+    final isCurrentlyBlocking = _blockInfo.iBlockedThem;
+
+    if (isCurrentlyBlocking) {
+      // Unblock
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Unblock User', style: TextStyle(fontWeight: FontWeight.bold)),
+          content: Text(
+            'Are you sure you want to unblock $peerDisplayName? Normal messaging will be restored for both parties.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), foregroundColor: Colors.white),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Unblock'),
+            ),
+          ],
+        ),
       );
+      if (confirm != true) return;
+      try {
+        await AppRepositories.support.unblockUser(
+          blockedId: peerId,
+          threadId: thread.id,
+          unblockerRole: widget.senderRole,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$peerDisplayName has been unblocked.')),
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to unblock: $e')));
+      }
+    } else {
+      // Block
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.block, color: Color(0xFFDC2626), size: 22),
+              const SizedBox(width: 8),
+              const Text('Block User', style: TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Are you sure you want to block $peerDisplayName?'),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFCA5A5)),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('\u2022 They will receive a notification that they have been blocked.', style: TextStyle(fontSize: 13)),
+                    SizedBox(height: 4),
+                    Text('\u2022 They can send one final message to you.', style: TextStyle(fontSize: 13)),
+                    SizedBox(height: 4),
+                    Text('\u2022 You can send one reply to their final message.', style: TextStyle(fontSize: 13)),
+                    SizedBox(height: 4),
+                    Text('\u2022 No further messages are possible until you unblock them.', style: TextStyle(fontSize: 13)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDC2626), foregroundColor: Colors.white),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Block'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+      try {
+        await AppRepositories.support.blockUser(
+          blockedId: peerId,
+          threadId: thread.id,
+          blockerDisplayName: myDisplayName,
+          blockerRole: widget.senderRole,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$peerDisplayName has been blocked.')),
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Action failed: $e')));
+      }
     }
   }
 
@@ -1864,7 +1996,57 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         ],
       );
     } else {
-      bodyWidget = _highlightedText(message.body, isMine);
+      if (message.messageType == 'final') {
+        bodyWidget = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.mail_outline, size: 14, color: isMine ? Colors.white : const Color(0xFFB45309)),
+                const SizedBox(width: 4),
+                Text(
+                  'Final Message',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                    color: isMine ? Colors.white : const Color(0xFFB45309),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            _highlightedText(message.body, isMine),
+          ],
+        );
+      } else if (message.messageType == 'final_reply') {
+        bodyWidget = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.reply, size: 14, color: isMine ? Colors.white : const Color(0xFF0E7490)),
+                const SizedBox(width: 4),
+                Text(
+                  'One-Time Reply',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                    color: isMine ? Colors.white : const Color(0xFF0E7490),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            _highlightedText(message.body, isMine),
+          ],
+        );
+      } else {
+        bodyWidget = _highlightedText(message.body, isMine);
+      }
     }
 
     if (message.replyToId != null && message.replyToPreview != null) {
@@ -2205,7 +2387,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                       } else if (value == 'report') {
                         _openReportFlow();
                       } else if (value == 'block') {
-                        _toggleBlockStatus();
+                        _toggleBlockStatus(_lastSeenThread ?? widget.thread);
                       } else if (value == 'media') {
                         final list = await AppRepositories.support.watchMessages(widget.thread.id).first;
                         _openMediaGallery(list);
@@ -2259,14 +2441,15 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                         value: 'block',
                         child: Row(
                           children: [
-                            Icon(_isBlocked ? Icons.lock_open : Icons.block, size: 20, color: Colors.black87),
+                            Icon(_blockInfo.iBlockedThem ? Icons.lock_open : Icons.block, size: 20, color: Colors.black87),
                             SizedBox(width: 8),
-                            Text(_isBlocked ? 'Unblock User' : 'Block User'),
+                            Text(_blockInfo.iBlockedThem ? 'Unblock User' : 'Block User'),
                           ],
                         ),
                       ),
                     ],
                   ),
+
           ],
         ),
         body: StreamBuilder<TherapistThread?>(
@@ -2275,7 +2458,10 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
             final thread = threadSnapshot.data ?? widget.thread;
             _lastSeenThread = thread;
             _syncResolvedBanner(thread);
+            WidgetsBinding.instance.addPostFrameCallback((_) => _refreshBlockInfoFromThread(thread));
             final canSendMessage = _canSendMessage(thread);
+            final canSendFinal = _canSendFinalMessage(thread);
+            final canReplyOnce = _canSendFinalReply(thread);
             return LayoutBuilder(
               builder: (context, constraints) {
                 final composerMaxHeight = (constraints.maxHeight * 0.45)
@@ -2300,11 +2486,15 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                         text: 'Emergency response has been recorded.',
                         color: Color(0xFFD8F4DD),
                       ),
-                    if (_isBlocked)
-                      const _ChatStateBanner(
-                        text: 'This conversation is disabled because a user is blocked.',
-                        color: Color(0xFFFEE2E2),
+                    if (thread.isBlocked)
+                      _BlockedBanner(
+                        iBlockedThem: _blockInfo.iBlockedThem,
+                        blockerDisplayName: _blockInfo.blockerDisplayName,
+                        peerDisplayName: widget.senderRole == 'parent'
+                            ? thread.therapistDisplayName
+                            : thread.parentDisplayName,
                       ),
+
                     Expanded(
                       child: StreamBuilder<List<TherapistMessage>>(
                         stream: AppRepositories.support.watchMessages(
@@ -2442,9 +2632,11 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                        maxWidth: MediaQuery.of(context).size.width * 0.75,
                                                      ),
                                                      decoration: BoxDecoration(
-                                                       color: isMine
-                                                           ? const Color(0xFF00C853)
-                                                           : const Color(0xFFE9EAF0),
+                                                       color: message.messageType == 'final'
+                                                           ? (isMine ? const Color(0xFFD97706) : const Color(0xFFFEF3C7))
+                                                           : message.messageType == 'final_reply'
+                                                               ? (isMine ? const Color(0xFF0891B2) : const Color(0xFFECFEFF))
+                                                               : (isMine ? const Color(0xFF00C853) : const Color(0xFFE9EAF0)),
                                                        borderRadius: BorderRadius.only(
                                                          topLeft: const Radius.circular(16),
                                                          topRight: const Radius.circular(16),
@@ -2622,204 +2814,201 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                   ),
                                 ),
                               if (!canSendMessage)
-                                Container(
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFFFFBEB),
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(color: const Color(0xFFFDE68A), width: 1.5),
-                                  ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        _isBlocked 
-                                            ? 'This conversation is disabled because a user is blocked.'
-                                            : 'This chat is read-only because the subscription was cancelled.',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                          color: _isBlocked ? const Color(0xFF991B1B) : const Color(0xFF92400E),
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                      if (!_isBlocked && widget.senderRole == 'parent') ...[
-                                        const SizedBox(height: 12),
-                                        ElevatedButton(
-                                          onPressed: () async {
-                                            _activeCheckoutTherapistId = widget.thread.therapistId;
-                                            _isCheckoutCancelled = false;
-                                            _isPaymentFailed = false;
-                                            _isCheckoutUrlLaunched = false;
-                                            _isProgrammaticPop = false;
-                                            bool isDialogOpen = false;
-                                            BuildContext? dialogContext;
+                                _BlockedInputArea(
+                                  thread: thread,
+                                  senderRole: widget.senderRole,
+                                  blockInfo: _blockInfo,
+                                  canSendFinal: canSendFinal,
+                                  canReplyOnce: canReplyOnce,
+                                  onFinalMessage: (body) async {
+                                    final messenger = ScaffoldMessenger.of(context);
+                                    try {
+                                      await AppRepositories.support.sendFinalMessage(
+                                        threadId: thread.id,
+                                        senderRole: widget.senderRole,
+                                        body: body,
+                                      );
+                                    } catch (e) {
+                                      if (mounted) {
+                                        messenger.showSnackBar(
+                                          SnackBar(content: Text('Failed to send: $e')),
+                                        );
+                                      }
+                                    }
+                                  },
+                                  onReplyOnce: (body) async {
+                                    final messenger = ScaffoldMessenger.of(context);
+                                    try {
+                                      await AppRepositories.support.sendFinalReply(
+                                        threadId: thread.id,
+                                        senderRole: widget.senderRole,
+                                        body: body,
+                                      );
+                                    } catch (e) {
+                                      if (mounted) {
+                                        messenger.showSnackBar(
+                                          SnackBar(content: Text('Failed to send: $e')),
+                                        );
+                                      }
+                                    }
+                                  },
+                                  onRenewSubscription: widget.senderRole == 'parent' && !thread.isBlocked ? () async {
+                                    final messenger = ScaffoldMessenger.of(context);
+                                    _activeCheckoutTherapistId = widget.thread.therapistId;
+                                    _isCheckoutCancelled = false;
+                                    _isPaymentFailed = false;
+                                    _isCheckoutUrlLaunched = false;
+                                    _isProgrammaticPop = false;
+                                    bool isDialogOpen = false;
+                                    BuildContext? dialogContext;
 
-                                            if (mounted) {
-                                              isDialogOpen = true;
-                                              showDialog<void>(
-                                                context: context,
-                                                barrierDismissible: false, // Cannot dismiss while checkout is in progress
-                                                builder: (BuildContext dialogCtx) {
-                                                  dialogContext = dialogCtx;
-                                                  return PopScope(
-                                                    canPop: false, // Prevent accidental dismiss — only Cancel button or payment result closes this
-                                                    onPopInvokedWithResult: (didPop, _) {
-                                                      // Do NOT cancel checkout on back/barrier — SafePay may have redirected naturally.
-                                                      // Only the explicit 'Cancel Payment' button sets _isCheckoutCancelled.
-                                                      if (didPop && !_isProgrammaticPop) {
-                                                        isDialogOpen = false;
-                                                      }
-                                                    },
-                                                    child: AlertDialog(
-                                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                                      title: const Text(
-                                                        'Opening Secure Checkout',
-                                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                                                        textAlign: TextAlign.center,
-                                                      ),
-                                                      contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
-                                                      content: const Column(
-                                                        mainAxisSize: MainAxisSize.min,
-                                                        children: [
-                                                          CircularProgressIndicator(color: Color(0xFF00C853)),
-                                                          SizedBox(height: 16),
-                                                          Text(
-                                                            'Your secure checkout page will open in a few seconds. Please wait while we redirect you to your browser.',
-                                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                                            textAlign: TextAlign.center,
-                                                          ),
-                                                          SizedBox(height: 12),
-                                                          Text(
-                                                            'Instructions:\n'
-                                                            '• After a successful payment, you will be automatically redirected back to the app and your subscription will be activated.\n'
-                                                            '• If you cancel the payment or return without completing the transaction, you will be redirected back to the app\'s home screen and no subscription will be created.\n'
-                                                            '• If you do not wish to continue, you can tap Cancel below to stop the process before the checkout page opens.',
-                                                            style: TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.4),
-                                                            textAlign: TextAlign.left,
-                                                          ),
-                                                        ],
-                                                      ),
-                                                      actions: [
-                                                        TextButton(
-                                                          onPressed: () {
-                                                            isDialogOpen = false;
-                                                            setState(() {
-                                                              _isCheckoutCancelled = true;
-                                                            });
-                                                            if (dialogContext != null) {
-                                                              Navigator.pop(dialogContext!);
-                                                            }
-                                                          },
-                                                          style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
-                                                          child: const Text('Cancel'),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  );
-                                                },
-                                              );
-                                            }
-                                            try {
-                                              final success = await AppRepositories.billing
-                                                  .purchaseTherapistSubscription(
-                                                    widget.thread.therapistId,
-                                                    isCancelledCheck: () => _isCheckoutCancelled,
-                                                    onUrlLaunched: () {
-                                                      if (mounted) {
-                                                        setState(() {
-                                                          _isCheckoutUrlLaunched = true;
-                                                        });
-                                                      }
-                                                    },
-                                                  );
-                                              if (isDialogOpen && dialogContext != null && dialogContext!.mounted) {
-                                                  isDialogOpen = false;
-                                                  setState(() {
-                                                    _isProgrammaticPop = true;
-                                                  });
-                                                  Navigator.pop(dialogContext!);
-                                                }
-                                              if (_isCheckoutCancelled) {
-                                                AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
-                                                if (context.mounted) {
-                                                  if (_isPaymentFailed) {
-                                                    ScaffoldMessenger.of(context).showSnackBar(
-                                                      const SnackBar(
-                                                        content: Text('Payment failed. Please check your card details and try again.'),
-                                                        backgroundColor: AppColors.errorRed,
-                                                        duration: Duration(seconds: 5),
-                                                      ),
-                                                    );
-                                                  } else {
-                                                    ScaffoldMessenger.of(context).showSnackBar(
-                                                      const SnackBar(
-                                                        content: Text('Payment cancelled. You can renew anytime.'),
-                                                        backgroundColor: Color(0xFF64748B),
-                                                        duration: Duration(seconds: 4),
-                                                      ),
-                                                    );
-                                                  }
-                                                }
-                                              } else if (success) {
-                                                if (context.mounted) {
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text('Subscription renewed successfully!'),
-                                                      backgroundColor: Color(0xFF00C853),
-                                                    ),
-                                                  );
-                                                }
-                                              } else {
-                                                AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
-                                                if (context.mounted) {
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text('Payment timed out. Please try again.'),
-                                                      backgroundColor: AppColors.errorRed,
-                                                      duration: Duration(seconds: 5),
-                                                    ),
-                                                  );
-                                                }
+                                    if (mounted) {
+                                      isDialogOpen = true;
+                                      showDialog<void>(
+                                        context: context,
+                                        barrierDismissible: false,
+                                        builder: (BuildContext dialogCtx) {
+                                          dialogContext = dialogCtx;
+                                          return PopScope(
+                                            canPop: false,
+                                            onPopInvokedWithResult: (didPop, _) {
+                                              if (didPop && !_isProgrammaticPop) {
+                                                isDialogOpen = false;
                                               }
-                                            } catch (e) {
-                                              setState(() {
-                                                _isCheckoutCancelled = true;
-                                                _isProgrammaticPop = true;
-                                              });
-                                              if (isDialogOpen && dialogContext != null && dialogContext!.mounted) {
-                                                 isDialogOpen = false;
-                                                 Navigator.pop(dialogContext!);
-                                               }
-                                              AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
-                                              if (context.mounted) {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  SnackBar(
-                                                    content: Text('Error: $e'),
-                                                    backgroundColor: AppColors.errorRed,
+                                            },
+                                            child: AlertDialog(
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                              title: const Text(
+                                                'Opening Secure Checkout',
+                                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                              contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+                                              content: const Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  CircularProgressIndicator(color: Color(0xFF00C853)),
+                                                  SizedBox(height: 16),
+                                                  Text(
+                                                    'Your secure checkout page will open in a few seconds. Please wait while we redirect you to your browser.',
+                                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                                    textAlign: TextAlign.center,
                                                   ),
-                                                );
-                                              }
-                                            } finally {
-                                              _activeCheckoutTherapistId = null;
-                                            }
-                                          },
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: const Color(0xFF00C853),
-                                            foregroundColor: Colors.white,
-                                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(10),
+                                                  SizedBox(height: 12),
+                                                  Text(
+                                                    'Instructions:\n'
+                                                    '• After a successful payment, you will be automatically redirected back to the app and your subscription will be activated.\n'
+                                                    '• If you cancel the payment or return without completing the transaction, you will be redirected back to the app\'s home screen and no subscription will be created.\n'
+                                                    '• If you do not wish to continue, you can tap Cancel below to stop the process before the checkout page opens.',
+                                                    style: TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.4),
+                                                    textAlign: TextAlign.left,
+                                                  ),
+                                                ],
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () {
+                                                    isDialogOpen = false;
+                                                    setState(() {
+                                                      _isCheckoutCancelled = true;
+                                                    });
+                                                    if (dialogContext != null) {
+                                                      Navigator.pop(dialogContext!);
+                                                    }
+                                                  },
+                                                  style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
+                                                  child: const Text('Cancel'),
+                                                ),
+                                              ],
                                             ),
+                                          );
+                                        },
+                                      );
+                                    }
+                                    try {
+                                      final success = await AppRepositories.billing
+                                          .purchaseTherapistSubscription(
+                                            widget.thread.therapistId,
+                                            isCancelledCheck: () => _isCheckoutCancelled,
+                                            onUrlLaunched: () {
+                                              if (mounted) {
+                                                setState(() {
+                                                  _isCheckoutUrlLaunched = true;
+                                                });
+                                              }
+                                            },
+                                          );
+                                      if (isDialogOpen && dialogContext != null && dialogContext!.mounted) {
+                                          isDialogOpen = false;
+                                          setState(() {
+                                            _isProgrammaticPop = true;
+                                          });
+                                          Navigator.pop(dialogContext!);
+                                        }
+                                      if (_isCheckoutCancelled) {
+                                        AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
+                                        if (mounted) {
+                                          if (_isPaymentFailed) {
+                                            messenger.showSnackBar(
+                                              const SnackBar(
+                                                content: Text('Payment failed. Please check your card details and try again.'),
+                                                backgroundColor: AppColors.errorRed,
+                                                duration: Duration(seconds: 5),
+                                              ),
+                                            );
+                                          } else {
+                                            messenger.showSnackBar(
+                                              const SnackBar(
+                                                content: Text('Payment cancelled. You can renew anytime.'),
+                                                backgroundColor: Color(0xFF64748B),
+                                                duration: Duration(seconds: 4),
+                                              ),
+                                            );
+                                          }
+                                        }
+                                      } else if (success) {
+                                        if (mounted) {
+                                          messenger.showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Subscription renewed successfully!'),
+                                              backgroundColor: Color(0xFF00C853),
+                                            ),
+                                          );
+                                        }
+                                      } else {
+                                        AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
+                                        if (mounted) {
+                                          messenger.showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Payment timed out. Please try again.'),
+                                              backgroundColor: AppColors.errorRed,
+                                              duration: Duration(seconds: 5),
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    } catch (e) {
+                                      setState(() {
+                                        _isCheckoutCancelled = true;
+                                        _isProgrammaticPop = true;
+                                      });
+                                      if (isDialogOpen && dialogContext != null && dialogContext!.mounted) {
+                                         isDialogOpen = false;
+                                         Navigator.pop(dialogContext!);
+                                       }
+                                      AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
+                                      if (mounted) {
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            content: Text('Error: $e'),
+                                            backgroundColor: AppColors.errorRed,
                                           ),
-                                          child: const Text(
-                                            'Renew Subscription to Chat',
-                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
+                                        );
+                                      }
+                                    } finally {
+                                      _activeCheckoutTherapistId = null;
+                                    }
+                                  } : null,
                                 )
                               else if (_isRecording)
                                 Row(
@@ -3737,3 +3926,327 @@ class _ImageZoomViewer extends StatelessWidget {
   }
 }
 
+// ─── Block-aware Banner ──────────────────────────────────────────────────────
+
+class _BlockedBanner extends StatelessWidget {
+  const _BlockedBanner({
+    required this.iBlockedThem,
+    required this.blockerDisplayName,
+    required this.peerDisplayName,
+  });
+
+  final bool iBlockedThem;
+  final String blockerDisplayName;
+  final String peerDisplayName;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = iBlockedThem ? Icons.block : Icons.do_not_disturb_on_outlined;
+    final message = iBlockedThem
+        ? 'You have blocked $peerDisplayName. Communication is paused. You can unblock them at any time from the menu.'
+        : '${blockerDisplayName.isNotEmpty ? blockerDisplayName : 'The other user'} has blocked you. You may send one final message to ask for clarification.';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: const BoxDecoration(
+        color: Color(0xFFFEE2E2),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFFCA5A5), width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: const Color(0xFFDC2626), size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF991B1B),
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Block-aware Input Area ──────────────────────────────────────────────────
+
+class _BlockedInputArea extends StatefulWidget {
+  const _BlockedInputArea({
+    required this.thread,
+    required this.senderRole,
+    required this.blockInfo,
+    required this.canSendFinal,
+    required this.canReplyOnce,
+    required this.onFinalMessage,
+    required this.onReplyOnce,
+    this.onRenewSubscription,
+  });
+
+  final TherapistThread thread;
+  final String senderRole;
+  final BlockInfo blockInfo;
+  final bool canSendFinal;
+  final bool canReplyOnce;
+  final Future<void> Function(String body) onFinalMessage;
+  final Future<void> Function(String body) onReplyOnce;
+  final VoidCallback? onRenewSubscription;
+
+  @override
+  State<_BlockedInputArea> createState() => _BlockedInputAreaState();
+}
+
+class _BlockedInputAreaState extends State<_BlockedInputArea> {
+  bool _sending = false;
+
+  Future<void> _showFinalMessageDialog(bool isReply) async {
+    final controller = TextEditingController();
+    final title = isReply ? 'Send One-Time Reply' : 'Send Final Message';
+    final hint = isReply
+        ? 'Type your reply...'
+        : 'Type your final message...';
+    final warning = isReply
+        ? 'This will be your one-time reply while this user is blocked. Please explain the reason for blocking or respond to their message carefully. After sending, neither of you can exchange further messages until you choose to unblock them.'
+        : 'You have been blocked. You may send one final message to ask for clarification or explain your situation. This is the only message you can send while blocked. After sending it, you will not be able to contact this user again unless they unblock you.';
+
+    final body = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(
+                isReply ? Icons.reply_rounded : Icons.mail_outline_rounded,
+                color: isReply ? const Color(0xFF0891B2) : const Color(0xFFF59E0B),
+                size: 22,
+              ),
+              const SizedBox(width: 8),
+              Flexible(child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: isReply ? const Color(0xFFECFEFF) : const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isReply ? const Color(0xFF67E8F9) : const Color(0xFFFDE68A),
+                    ),
+                  ),
+                  child: Text(warning, style: const TextStyle(fontSize: 12.5, height: 1.4, color: Color(0xFF374151))),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: controller,
+                  maxLines: 4,
+                  maxLength: 500,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: hint,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    contentPadding: const EdgeInsets.all(12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isReply ? const Color(0xFF0891B2) : const Color(0xFFF59E0B),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                final text = controller.text.trim();
+                if (text.isNotEmpty) Navigator.pop(ctx, text);
+              },
+              child: Text(isReply ? 'Send Reply' : 'Send Message'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (body == null || body.isEmpty || !mounted) return;
+    setState(() => _sending = true);
+    try {
+      if (isReply) {
+        await widget.onReplyOnce(body);
+      } else {
+        await widget.onFinalMessage(body);
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final thread = widget.thread;
+    final isBlocked = thread.isBlocked;
+
+    // Non-block scenario: subscription cancelled — show renew
+    if (!isBlocked) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFFBEB),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFFDE68A), width: 1.5),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'This chat is read-only because the subscription was cancelled.',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
+              textAlign: TextAlign.center,
+            ),
+            if (widget.onRenewSubscription != null) ...[
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: widget.onRenewSubscription,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00C853),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text('Renew Subscription to Chat', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    // Blocked — show contextual buttons
+    final blockInfo = widget.blockInfo;
+    final alreadySentFinal = widget.senderRole == 'parent'
+        ? thread.finalMessageSentByParent
+        : thread.finalMessageSentByTherapist;
+    final alreadyReplied = widget.senderRole == 'parent'
+        ? thread.finalReplySentByParent
+        : thread.finalReplySentByTherapist;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF2F2),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFCA5A5), width: 1.5),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (blockInfo.theyBlockedMe) ...[
+            // I am the BLOCKED party
+            if (!alreadySentFinal) ...[
+              const Text(
+                'You have been blocked. You may send one final message.',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF991B1B)),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _sending ? null : () => _showFinalMessageDialog(false),
+                  icon: const Icon(Icons.mail_outline_rounded, size: 18),
+                  label: _sending
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Send Final Message', style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF59E0B),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+            ] else ...[
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle_outline, color: Color(0xFF6B7280), size: 18),
+                  SizedBox(width: 6),
+                  Text(
+                    'Your final message has been sent.',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'No further messages are possible unless you are unblocked.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ] else if (blockInfo.iBlockedThem) ...[
+            // I am the BLOCKER
+            if (widget.canReplyOnce) ...[
+              const Text(
+                'The blocked user has sent you a final message. You may send one reply.',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1D4ED8)),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _sending ? null : () => _showFinalMessageDialog(true),
+                  icon: const Icon(Icons.reply_rounded, size: 18),
+                  label: _sending
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Reply Once', style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0891B2),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+            ] else if (alreadyReplied) ...[
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle_outline, color: Color(0xFF6B7280), size: 18),
+                  SizedBox(width: 6),
+                  Text(
+                    'You have sent your one-time reply.',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Unblock this user to resume normal messaging.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+                textAlign: TextAlign.center,
+              ),
+            ] else ...[
+              const Text(
+                'You have blocked this user. They may send one final message, after which you can reply once.',
+                style: TextStyle(fontSize: 13, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}

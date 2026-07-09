@@ -156,9 +156,33 @@ abstract class SupportRepository {
     required String comments,
     required List<Map<String, dynamic>> chatContext,
   });
-  Future<void> blockUser({required String blockedId});
-  Future<void> unblockUser({required String blockedId});
+  Future<void> blockUser({
+    required String blockedId,
+    required String threadId,
+    required String blockerDisplayName,
+    required String blockerRole,
+  });
+  Future<void> unblockUser({
+    required String blockedId,
+    required String threadId,
+    required String unblockerRole,
+  });
   Future<bool> isUserBlocked(String userId);
+  Future<BlockInfo> isUserBlockedWithInfo({
+    required String peerId,
+    required TherapistThread thread,
+    required String myRole,
+  });
+  Future<void> sendFinalMessage({
+    required String threadId,
+    required String senderRole,
+    required String body,
+  });
+  Future<void> sendFinalReply({
+    required String threadId,
+    required String senderRole,
+    required String body,
+  });
 
   // In-app Notifications
   Stream<List<NotificationInboxItem>> watchNotifications();
@@ -1842,23 +1866,84 @@ class FirebaseSupportRepository implements SupportRepository {
   }
 
   @override
-  Future<void> blockUser({required String blockedId}) async {
+  Future<void> blockUser({
+    required String blockedId,
+    required String threadId,
+    required String blockerDisplayName,
+    required String blockerRole,
+  }) async {
     final myId = _auth.currentUser?.uid;
     if (myId == null) throw StateError('No logged in user');
 
+    // 1. Add to blocker's user doc
     await _firestore.collection(FirestoreCollections.users).doc(myId).update({
       'blockedUserIds': FieldValue.arrayUnion([blockedId]),
     });
+
+    // 2. Mark the thread with who blocked whom
+    final blockField = blockerRole == 'parent' ? 'blockedByParent' : 'blockedByTherapist';
+    await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .doc(threadId)
+        .set({blockField: true}, SetOptions(merge: true));
+
+    // 3. Notify the blocked user
+    try {
+      await _firestore.collection('notifications').add({
+        'userId': blockedId,
+        'title': '\uD83D\uDEAB You have been blocked',
+        'message': '$blockerDisplayName has blocked you. You can no longer send messages until you are unblocked.',
+        'category': 'messages',
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+        'navigationTarget': {'route': 'chat', 'threadId': threadId},
+      });
+    } catch (_) {}
   }
 
   @override
-  Future<void> unblockUser({required String blockedId}) async {
+  Future<void> unblockUser({
+    required String blockedId,
+    required String threadId,
+    required String unblockerRole,
+  }) async {
     final myId = _auth.currentUser?.uid;
     if (myId == null) throw StateError('No logged in user');
 
+    // 1. Remove from blocker's user doc
     await _firestore.collection(FirestoreCollections.users).doc(myId).update({
       'blockedUserIds': FieldValue.arrayRemove([blockedId]),
     });
+
+    // 2. Clear the thread block flag and reset one-time message/reply flags
+    final blockField = unblockerRole == 'parent' ? 'blockedByParent' : 'blockedByTherapist';
+    final finalMsgField = unblockerRole == 'parent'
+        ? 'finalMessageSentByTherapist'  // if parent blocked therapist, therapist was the blocked party
+        : 'finalMessageSentByParent';    // if therapist blocked parent, parent was the blocked party
+    final finalReplyField = unblockerRole == 'parent'
+        ? 'finalReplySentByParent'
+        : 'finalReplySentByTherapist';
+    await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .doc(threadId)
+        .set({
+          blockField: false,
+          finalMsgField: false,
+          finalReplyField: false,
+        }, SetOptions(merge: true));
+
+    // 3. Notify unblocked user
+    try {
+      await _firestore.collection('notifications').add({
+        'userId': blockedId,
+        'title': '\u2705 You have been unblocked',
+        'message': 'You have been unblocked. Normal messaging has been restored.',
+        'category': 'messages',
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+        'navigationTarget': {'route': 'chat', 'threadId': threadId},
+      });
+    } catch (_) {}
   }
 
   @override
@@ -1875,6 +1960,141 @@ class FirebaseSupportRepository implements SupportRepository {
     if (peerBlocked.contains(myId)) return true;
 
     return false;
+  }
+
+  @override
+  Future<BlockInfo> isUserBlockedWithInfo({
+    required String peerId,
+    required TherapistThread thread,
+    required String myRole,
+  }) async {
+    final myId = _auth.currentUser?.uid;
+    if (myId == null) return const BlockInfo();
+
+    // Use thread flags (live, fast)
+    final iBlockedThem = myRole == 'parent'
+        ? thread.blockedByParent
+        : thread.blockedByTherapist;
+    final theyBlockedMe = myRole == 'parent'
+        ? thread.blockedByTherapist
+        : thread.blockedByParent;
+
+    String blockerName = '';
+    if (iBlockedThem) {
+      blockerName = myRole == 'parent'
+          ? thread.parentDisplayName
+          : thread.therapistDisplayName;
+    } else if (theyBlockedMe) {
+      blockerName = myRole == 'parent'
+          ? thread.therapistDisplayName
+          : thread.parentDisplayName;
+    }
+
+    return BlockInfo(
+      iBlockedThem: iBlockedThem,
+      theyBlockedMe: theyBlockedMe,
+      blockerDisplayName: blockerName,
+    );
+  }
+
+  @override
+  Future<void> sendFinalMessage({
+    required String threadId,
+    required String senderRole,
+    required String body,
+  }) async {
+    final myId = _auth.currentUser?.uid;
+    if (myId == null) throw StateError('No logged in user');
+
+    final threadDoc = await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .doc(threadId)
+        .get();
+    final data = threadDoc.data() ?? {};
+    final alreadySent = senderRole == 'parent'
+        ? data['finalMessageSentByParent'] == true
+        : data['finalMessageSentByTherapist'] == true;
+    if (alreadySent) {
+      throw StateError('Final message already sent.');
+    }
+
+    // Write the message with messageType: 'final'
+    await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .doc(threadId)
+        .collection('messages')
+        .add({
+          'senderId': myId,
+          'senderRole': senderRole,
+          'body': body,
+          'attachments': <String>[],
+          'messageType': 'final',
+          'deliveryStatus': 'sent',
+          'sentAt': FieldValue.serverTimestamp(),
+        });
+
+    // Flip the flag
+    final flagField = senderRole == 'parent'
+        ? 'finalMessageSentByParent'
+        : 'finalMessageSentByTherapist';
+    await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .doc(threadId)
+        .set({
+          flagField: true,
+          'lastMessageAt': FieldValue.serverTimestamp(),
+          'lastMessagePreview': '\uD83D\uDCE9 Final message sent',
+        }, SetOptions(merge: true));
+  }
+
+  @override
+  Future<void> sendFinalReply({
+    required String threadId,
+    required String senderRole,
+    required String body,
+  }) async {
+    final myId = _auth.currentUser?.uid;
+    if (myId == null) throw StateError('No logged in user');
+
+    final threadDoc = await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .doc(threadId)
+        .get();
+    final data = threadDoc.data() ?? {};
+    final alreadyReplied = senderRole == 'parent'
+        ? data['finalReplySentByParent'] == true
+        : data['finalReplySentByTherapist'] == true;
+    if (alreadyReplied) {
+      throw StateError('Final reply already sent.');
+    }
+
+    // Write the reply message with messageType: 'final_reply'
+    await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .doc(threadId)
+        .collection('messages')
+        .add({
+          'senderId': myId,
+          'senderRole': senderRole,
+          'body': body,
+          'attachments': <String>[],
+          'messageType': 'final_reply',
+          'deliveryStatus': 'sent',
+          'sentAt': FieldValue.serverTimestamp(),
+        });
+
+    // Flip the flag
+    final flagField = senderRole == 'parent'
+        ? 'finalReplySentByParent'
+        : 'finalReplySentByTherapist';
+    await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .doc(threadId)
+        .set({
+          flagField: true,
+          'lastMessageAt': FieldValue.serverTimestamp(),
+          'lastMessagePreview': '\uD83D\uDCAC One-time reply sent',
+        }, SetOptions(merge: true));
   }
 
   // In-app Notifications
