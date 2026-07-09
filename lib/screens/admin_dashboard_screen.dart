@@ -4248,28 +4248,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                               onPressed: () async {
                                 final scaffoldMessenger = ScaffoldMessenger.of(context);
                                 try {
+                                  final parent = await AppRepositories.users.getUserProfile(sub.userId);
+                                  if (parent == null) {
+                                    throw Exception('Parent profile not found.');
+                                  }
                                   final children = await AppRepositories.users.getChildrenForParent(sub.userId);
                                   if (context.mounted) {
                                     Navigator.pop(ctx);
-                                    _showParentDetailsDialog(
-                                      UserProfile(
-                                        uid: sub.userId,
-                                        firstName: parentName.split(' ').first,
-                                        lastName: parentName.contains(' ') ? parentName.split(' ').last : '',
-                                        email: parentEmail,
-                                        phone: '',
-                                        photoUrl: '',
-                                        role: 'parent',
-                                        status: 'active',
-                                        subscriptionTier: 'free',
-                                        entitlements: const {},
-                                        notificationPreferences: const {},
-                                        playSettings: const {},
-                                        createdAt: createdDate,
-                                        updatedAt: DateTime.now(),
-                                      ),
-                                      children,
-                                    );
+                                    _showParentDetailsDialog(parent, children);
                                   }
                                 } catch (e) {
                                   scaffoldMessenger.showSnackBar(
