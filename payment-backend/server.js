@@ -852,6 +852,26 @@ async function updateTherapistThreadAccess(userId, therapistId, active) {
   await batch.commit();
 }
 
+/**
+ * Writes a subscription-related notification document to Firestore for a given user.
+ */
+async function createSubscriptionNotification({ userId, title, message, navigationTarget }) {
+  if (!userId) return;
+  try {
+    await db.collection('notifications').add({
+      userId,
+      title,
+      message,
+      category: 'subscription',
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      isRead: false,
+      navigationTarget: navigationTarget || {},
+    });
+  } catch (err) {
+    console.warn(`createSubscriptionNotification: failed to write notification for ${userId}:`, err?.message || err);
+  }
+}
+
 async function markPaymentEventProcessed(eventId, payload) {
   const ref = db.collection('payment_events').doc(eventId);
   try {
@@ -1051,6 +1071,41 @@ async function activateSubscription(basketId, transactionId, source, additionalP
     await syncUserSubscriptionEntitlements(subscriptionUserId);
   }
 
+  // Notify parent and therapist of new subscription activation
+  try {
+    // Fetch display names for notification messages
+    let parentDisplayName = 'Parent';
+    let therapistDisplayName = 'Therapist';
+    if (subscriptionUserId) {
+      const userSnap = await db.collection('users').doc(subscriptionUserId).get();
+      if (userSnap.exists) {
+        parentDisplayName = (userSnap.data().displayName || userSnap.data().email || 'Parent').split(' ')[0];
+      }
+    }
+    if (therapistId) {
+      const therapistSnap = await db.collection('therapist_profiles').doc(therapistId).get();
+      if (therapistSnap.exists) {
+        therapistDisplayName = therapistSnap.data().displayName || 'Therapist';
+      }
+    }
+    // Notify parent
+    await createSubscriptionNotification({
+      userId: subscriptionUserId,
+      title: '✅ Subscription Activated!',
+      message: `Your subscription to ${therapistDisplayName} has been activated successfully.`,
+      navigationTarget: { route: 'ProfessionalSupport' },
+    });
+    // Notify therapist
+    await createSubscriptionNotification({
+      userId: therapistId,
+      title: '💳 New Subscription!',
+      message: `${parentDisplayName} has subscribed to one of your packages.`,
+      navigationTarget: { route: 'TherapistDashboard' },
+    });
+  } catch (notifErr) {
+    console.warn('activateSubscription: failed to send notifications:', notifErr?.message || notifErr);
+  }
+
   // Update checkout session
   const checkoutSessionSnapshot = await db
     .collection('checkout_sessions')
@@ -1183,6 +1238,44 @@ async function reconcileExpiredSubscriptions() {
   }
   for (const userId of updatedUserIds) {
     await syncUserSubscriptionEntitlements(userId);
+  }
+
+  // Send expiry notifications for expired subscriptions
+  for (const doc of expiredSnapshot.docs) {
+    const data = doc.data() || {};
+    const userId = normalizeValue(data.userId);
+    const therapistId = normalizeValue(data.therapistId);
+    if (!userId) continue;
+    try {
+      let therapistDisplayName = 'Therapist';
+      let parentDisplayName = 'Parent';
+      if (therapistId) {
+        const therapistSnap = await db.collection('therapist_profiles').doc(therapistId).get();
+        if (therapistSnap.exists) {
+          therapistDisplayName = therapistSnap.data().displayName || 'Therapist';
+        }
+      }
+      const userSnap = await db.collection('users').doc(userId).get();
+      if (userSnap.exists) {
+        parentDisplayName = (userSnap.data().displayName || userSnap.data().email || 'Parent').split(' ')[0];
+      }
+      await createSubscriptionNotification({
+        userId,
+        title: '⏰ Subscription Expired',
+        message: `Your subscription to ${therapistDisplayName} has expired.`,
+        navigationTarget: { route: 'ProfessionalSupport' },
+      });
+      if (therapistId) {
+        await createSubscriptionNotification({
+          userId: therapistId,
+          title: '⏰ Subscription Expired',
+          message: `${parentDisplayName}'s subscription has expired.`,
+          navigationTarget: { route: 'TherapistDashboard' },
+        });
+      }
+    } catch (notifErr) {
+      console.warn('reconcileExpiredSubscriptions: notification error:', notifErr?.message || notifErr);
+    }
   }
 
   return {
@@ -1970,6 +2063,39 @@ app.post('/api/v1/subscription/cancel', requireAuth, async (req, res) => {
     await updateTherapistThreadAccess(uid, normalizeValue(subscription.therapistId), false);
     await syncUserSubscriptionEntitlements(uid);
 
+    // Notify parent and therapist of cancellation
+    try {
+      const therapistIdForNotif = normalizeValue(subscription.therapistId);
+      let parentDisplayName = 'Parent';
+      let therapistDisplayName = 'Therapist';
+      const userSnap = await db.collection('users').doc(uid).get();
+      if (userSnap.exists) {
+        parentDisplayName = (userSnap.data().displayName || userSnap.data().email || 'Parent').split(' ')[0];
+      }
+      if (therapistIdForNotif) {
+        const therapistSnap = await db.collection('therapist_profiles').doc(therapistIdForNotif).get();
+        if (therapistSnap.exists) {
+          therapistDisplayName = therapistSnap.data().displayName || 'Therapist';
+        }
+      }
+      await createSubscriptionNotification({
+        userId: uid,
+        title: '❌ Subscription Cancelled',
+        message: `Your subscription to ${therapistDisplayName} has been cancelled.`,
+        navigationTarget: { route: 'ProfessionalSupport' },
+      });
+      if (therapistIdForNotif) {
+        await createSubscriptionNotification({
+          userId: therapistIdForNotif,
+          title: '❌ Subscription Cancelled',
+          message: `${parentDisplayName} has cancelled their subscription.`,
+          navigationTarget: { route: 'TherapistDashboard' },
+        });
+      }
+    } catch (notifErr) {
+      console.warn('cancel subscription: failed to send notifications:', notifErr?.message || notifErr);
+    }
+
     return res.status(200).json({ status: 'canceled' });
   } catch (error) {
     console.error('Cancel subscription failed:', error?.message || error);
@@ -2010,6 +2136,39 @@ app.post('/api/v1/subscription/reactivate', requireAuth, async (req, res) => {
     );
     await updateTherapistThreadAccess(uid, normalizeValue(subscription.therapistId), periodStillActive);
     await syncUserSubscriptionEntitlements(uid);
+
+    // Notify parent and therapist of reactivation
+    try {
+      const therapistIdForNotif = normalizeValue(subscription.therapistId);
+      let parentDisplayName = 'Parent';
+      let therapistDisplayName = 'Therapist';
+      const userSnap = await db.collection('users').doc(uid).get();
+      if (userSnap.exists) {
+        parentDisplayName = (userSnap.data().displayName || userSnap.data().email || 'Parent').split(' ')[0];
+      }
+      if (therapistIdForNotif) {
+        const therapistSnap = await db.collection('therapist_profiles').doc(therapistIdForNotif).get();
+        if (therapistSnap.exists) {
+          therapistDisplayName = therapistSnap.data().displayName || 'Therapist';
+        }
+      }
+      await createSubscriptionNotification({
+        userId: uid,
+        title: '🔄 Subscription Reactivated',
+        message: `Your subscription to ${therapistDisplayName} has been reactivated.`,
+        navigationTarget: { route: 'ProfessionalSupport' },
+      });
+      if (therapistIdForNotif) {
+        await createSubscriptionNotification({
+          userId: therapistIdForNotif,
+          title: '🔄 Subscription Reactivated',
+          message: `${parentDisplayName} has reactivated their subscription.`,
+          navigationTarget: { route: 'TherapistDashboard' },
+        });
+      }
+    } catch (notifErr) {
+      console.warn('reactivate subscription: failed to send notifications:', notifErr?.message || notifErr);
+    }
 
     return res.status(200).json({ status: periodStillActive ? 'reactivated' : 'expired_needs_renewal' });
   } catch (error) {

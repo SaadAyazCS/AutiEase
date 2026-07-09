@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../services/notification_service.dart';
@@ -198,6 +199,8 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
                                   childId: widget.childId,
                                   childName: widget.childName,
                                   notes: _notesCtrl.text.trim(),
+                                  therapistId: widget.therapistId,
+                                  parentName: FirebaseAuth.instance.currentUser?.displayName ?? '',
                                 );
                                 // Schedule a 1-hour-before reminder notification
                                 await NotificationService.instance.scheduleSessionReminder(

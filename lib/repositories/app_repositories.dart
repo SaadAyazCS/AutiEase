@@ -203,8 +203,14 @@ abstract class SupportRepository {
     required String childId,
     required String childName,
     required String notes,
+    String? therapistId,
+    String? parentName,
   });
-  Future<void> cancelAppointmentSlot(String slotId);
+  Future<void> cancelAppointmentSlot(String slotId, {
+    String? parentId,
+    String? therapistId,
+    String? parentName,
+  });
   Future<void> deleteAppointmentSlot(String slotId);
 }
 
@@ -1510,26 +1516,43 @@ class FirebaseSupportRepository implements SupportRepository {
     await batch.commit();
 
     try {
+      // Notify therapist: new subscription
       final therapistUserDoc = await _firestore.collection(FirestoreCollections.users).doc(therapistId).get();
       if (therapistUserDoc.exists && therapistUserDoc.data() != null) {
         final prefs = boolMapFrom(therapistUserDoc.data()?['therapistNotificationPreferences']);
         final enabled = prefs['bookings'] != false;
-        
+
         if (enabled) {
           await _firestore.collection('notifications').add({
             'userId': therapistId,
-            'title': '📅 New Connection Request!',
-            'message': '$parentDisplayName has connected with you.',
-            'category': 'reviews', // maps to therapist bookings settings check
+            'title': '\u{1F4B3} New Subscription!',
+            'message': '$parentDisplayName has subscribed to one of your packages.',
+            'category': 'subscription',
             'timestamp': FieldValue.serverTimestamp(),
             'isRead': false,
             'navigationTarget': {
-              'route': 'chat',
-              'threadId': ref.id,
+              'route': 'TherapistDashboard',
             },
           });
         }
       }
+      // Notify parent: subscription activated
+      final therapistProfileDoc = await _firestore
+          .collection(FirestoreCollections.therapistProfiles)
+          .doc(therapistId)
+          .get();
+      final therapistDisplayName = therapistProfileDoc.data()?['displayName']?.toString() ?? 'Therapist';
+      await _firestore.collection('notifications').add({
+        'userId': parentId,
+        'title': '\u2705 Subscription Activated!',
+        'message': 'Your subscription to $therapistDisplayName has been activated successfully.',
+        'category': 'subscription',
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+        'navigationTarget': {
+          'route': 'ProfessionalSupport',
+        },
+      });
     } catch (_) {
       // Prevent notifications from failing the connection creation
     }
@@ -2074,7 +2097,33 @@ class FirebaseSupportRepository implements SupportRepository {
     required String childId,
     required String childName,
     required String notes,
+    String? therapistId,
+    String? parentName,
   }) async {
+    // Detect if parent already has a booked slot with this therapist → reschedule
+    if (therapistId != null && therapistId.isNotEmpty) {
+      try {
+        final existingSnapshot = await _firestore
+            .collection(FirestoreCollections.appointmentSlots)
+            .where('therapistId', isEqualTo: therapistId)
+            .where('bookedByParentId', isEqualTo: parentId)
+            .where('status', isEqualTo: 'booked')
+            .get();
+        for (final oldDoc in existingSnapshot.docs) {
+          if (oldDoc.id != slotId) {
+            // Free the old slot
+            await oldDoc.reference.update({
+              'status': 'available',
+              'bookedByParentId': FieldValue.delete(),
+              'bookedForChildId': FieldValue.delete(),
+              'bookedForChildName': FieldValue.delete(),
+              'notes': FieldValue.delete(),
+            });
+          }
+        }
+      } catch (_) {}
+    }
+
     await _firestore.collection(FirestoreCollections.appointmentSlots).doc(slotId).update({
       'status': 'booked',
       'bookedByParentId': parentId,
@@ -2082,10 +2131,43 @@ class FirebaseSupportRepository implements SupportRepository {
       'bookedForChildName': childName,
       'notes': notes,
     });
+
+    // Notify therapist
+    if (therapistId != null && therapistId.isNotEmpty) {
+      try {
+        final slotDoc = await _firestore.collection(FirestoreCollections.appointmentSlots).doc(slotId).get();
+        final slotData = slotDoc.data();
+        final sessionDt = slotData?['dateTime'] != null
+            ? (slotData!['dateTime'] as dynamic).toDate() as DateTime
+            : DateTime.now();
+        final day = sessionDt.day.toString().padLeft(2, '0');
+        final month = sessionDt.month.toString().padLeft(2, '0');
+        final dateStr = '$day/$month/${sessionDt.year}';
+        final hour = sessionDt.hour;
+        final hourStr = (hour % 12 == 0 ? 12 : hour % 12).toString();
+        final minStr = sessionDt.minute.toString().padLeft(2, '0');
+        final ampm = hour >= 12 ? 'PM' : 'AM';
+        final timeStr = '$hourStr:$minStr $ampm';
+        final displayName = (parentName ?? '').isNotEmpty ? parentName! : 'A parent';
+        await _firestore.collection('notifications').add({
+          'userId': therapistId,
+          'title': '\u{1F4C5} Session Booked!',
+          'message': '$displayName has booked a session with you on $dateStr at $timeStr.',
+          'category': 'activities',
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false,
+          'navigationTarget': {'route': 'TherapistScheduler'},
+        });
+      } catch (_) {}
+    }
   }
 
   @override
-  Future<void> cancelAppointmentSlot(String slotId) async {
+  Future<void> cancelAppointmentSlot(String slotId, {
+    String? parentId,
+    String? therapistId,
+    String? parentName,
+  }) async {
     await _firestore.collection(FirestoreCollections.appointmentSlots).doc(slotId).update({
       'status': 'available',
       'bookedByParentId': FieldValue.delete(),
@@ -2093,6 +2175,35 @@ class FirebaseSupportRepository implements SupportRepository {
       'bookedForChildName': FieldValue.delete(),
       'notes': FieldValue.delete(),
     });
+    // Notify therapist that session was cancelled
+    if (therapistId != null && therapistId.isNotEmpty) {
+      try {
+        final displayName = (parentName ?? '').isNotEmpty ? parentName! : 'A parent';
+        await _firestore.collection('notifications').add({
+          'userId': therapistId,
+          'title': '\u274C Session Cancelled',
+          'message': '$displayName has cancelled the scheduled session.',
+          'category': 'activities',
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false,
+          'navigationTarget': {'route': 'TherapistScheduler'},
+        });
+      } catch (_) {}
+    }
+    // Notify parent that session was cancelled (when cancelled by therapist)
+    if (parentId != null && parentId.isNotEmpty) {
+      try {
+        await _firestore.collection('notifications').add({
+          'userId': parentId,
+          'title': '\u274C Session Cancelled',
+          'message': 'Your scheduled session has been cancelled.',
+          'category': 'activities',
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false,
+          'navigationTarget': {'route': 'ProfessionalSupport'},
+        });
+      } catch (_) {}
+    }
   }
 
   @override
@@ -2608,6 +2719,37 @@ class FirebaseBillingRepository implements BillingRepository {
     }
 
     await _updateUserEntitlements(userId);
+
+    // Bypass mode: notify parent and therapist of cancellation client-side
+    if (AppRuntimeConfig.bypassProSupportPaywall) {
+      try {
+        final therapistProfile = await _firestore
+            .collection(FirestoreCollections.therapistProfiles)
+            .doc(normalizedTherapistId)
+            .get();
+        final therapistDisplayName = therapistProfile.data()?['displayName']?.toString() ?? 'Therapist';
+        final parentDoc = await _firestore.collection(FirestoreCollections.users).doc(userId).get();
+        final parentDisplayName = (parentDoc.data()?['displayName']?.toString() ?? '').split(' ').first;
+        await _firestore.collection('notifications').add({
+          'userId': userId,
+          'title': '\u274C Subscription Cancelled',
+          'message': 'Your subscription to $therapistDisplayName has been cancelled.',
+          'category': 'subscription',
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false,
+          'navigationTarget': {'route': 'ProfessionalSupport'},
+        });
+        await _firestore.collection('notifications').add({
+          'userId': normalizedTherapistId,
+          'title': '\u274C Subscription Cancelled',
+          'message': '$parentDisplayName has cancelled their subscription.',
+          'category': 'subscription',
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false,
+          'navigationTarget': {'route': 'TherapistDashboard'},
+        });
+      } catch (_) {}
+    }
   }
 
   @override
@@ -2652,6 +2794,37 @@ class FirebaseBillingRepository implements BillingRepository {
     }
 
     await _updateUserEntitlements(userId);
+
+    // Bypass mode: notify parent and therapist of reactivation client-side
+    if (AppRuntimeConfig.bypassProSupportPaywall) {
+      try {
+        final therapistProfile = await _firestore
+            .collection(FirestoreCollections.therapistProfiles)
+            .doc(normalizedTherapistId)
+            .get();
+        final therapistDisplayName = therapistProfile.data()?['displayName']?.toString() ?? 'Therapist';
+        final parentDoc = await _firestore.collection(FirestoreCollections.users).doc(userId).get();
+        final parentDisplayName = (parentDoc.data()?['displayName']?.toString() ?? '').split(' ').first;
+        await _firestore.collection('notifications').add({
+          'userId': userId,
+          'title': '\u{1F504} Subscription Reactivated',
+          'message': 'Your subscription to $therapistDisplayName has been reactivated.',
+          'category': 'subscription',
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false,
+          'navigationTarget': {'route': 'ProfessionalSupport'},
+        });
+        await _firestore.collection('notifications').add({
+          'userId': normalizedTherapistId,
+          'title': '\u{1F504} Subscription Reactivated',
+          'message': '$parentDisplayName has reactivated their subscription.',
+          'category': 'subscription',
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false,
+          'navigationTarget': {'route': 'TherapistDashboard'},
+        });
+      } catch (_) {}
+    }
   }
 
   @override

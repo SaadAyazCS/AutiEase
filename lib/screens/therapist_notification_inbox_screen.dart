@@ -48,6 +48,8 @@ class _TherapistNotificationInboxScreenState
     super.initState();
     _tabController = TabController(length: _tabs.length, vsync: this);
     _currentPrefs = Map<String, bool>.from(widget.initialPrefs);
+    // Auto-generate session reminder and completion notifications
+    _checkAndGenerateSessionNotifications();
   }
 
   @override
@@ -102,6 +104,87 @@ class _TherapistNotificationInboxScreenState
       case 'system':
       default:
         return const Color(0xFF64748B); // slate 500
+    }
+  }
+
+  /// Auto-generates in-app activity notifications for upcoming session reminders
+  /// (30 minutes before) and session completions (slots that have passed).
+  Future<void> _checkAndGenerateSessionNotifications() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final now = DateTime.now();
+      final slotsSnap = await FirebaseFirestore.instance
+          .collection(FirestoreCollections.appointmentSlots)
+          .where('therapistId', isEqualTo: uid)
+          .where('status', isEqualTo: 'booked')
+          .get();
+
+      for (final slotDoc in slotsSnap.docs) {
+        final data = slotDoc.data();
+        final tsRaw = data['dateTime'];
+        if (tsRaw == null) continue;
+        final sessionDt = (tsRaw as Timestamp).toDate().toLocal();
+        final parentName = (data['bookedForChildName']?.toString() ?? '').isNotEmpty
+            ? data['bookedForChildName'].toString()
+            : 'A parent';
+
+        final minutesUntil = sessionDt.difference(now).inMinutes;
+
+        if (minutesUntil > 0 && minutesUntil <= 30) {
+          // Upcoming in ≤30 minutes — send reminder if not already sent
+          final existingReminder = await FirebaseFirestore.instance
+              .collection('notifications')
+              .where('userId', isEqualTo: uid)
+              .where('navigationTarget.slotId', isEqualTo: slotDoc.id)
+              .where('title', isEqualTo: '⏰ Session Reminder')
+              .limit(1)
+              .get();
+          if (existingReminder.docs.isEmpty) {
+            await FirebaseFirestore.instance.collection('notifications').add({
+              'userId': uid,
+              'title': '\u23f0 Session Reminder',
+              'message': 'Reminder: You have a therapy session with $parentName in $minutesUntil minutes.',
+              'category': 'activities',
+              'timestamp': FieldValue.serverTimestamp(),
+              'isRead': false,
+              'navigationTarget': {
+                'route': 'TherapistScheduler',
+                'slotId': slotDoc.id,
+              },
+            });
+          }
+        } else if (minutesUntil <= 0) {
+          // Session time has passed — mark as completed and notify if not already done
+          final existingCompletion = await FirebaseFirestore.instance
+              .collection('notifications')
+              .where('userId', isEqualTo: uid)
+              .where('navigationTarget.slotId', isEqualTo: slotDoc.id)
+              .where('title', isEqualTo: '✅ Session Completed')
+              .limit(1)
+              .get();
+          if (existingCompletion.docs.isEmpty) {
+            await FirebaseFirestore.instance.collection('notifications').add({
+              'userId': uid,
+              'title': '✅ Session Completed',
+              'message': 'Your session with $parentName has been marked as completed.',
+              'category': 'activities',
+              'timestamp': FieldValue.serverTimestamp(),
+              'isRead': false,
+              'navigationTarget': {
+                'route': 'TherapistScheduler',
+                'slotId': slotDoc.id,
+              },
+            });
+          }
+          // Mark the slot as completed
+          try {
+            await slotDoc.reference.update({'status': 'completed'});
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      debugPrint('_checkAndGenerateSessionNotifications error: $e');
     }
   }
 

@@ -226,7 +226,11 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
                                   ),
                                 );
                                 if (confirm == true) {
-                                  await AppRepositories.support.cancelAppointmentSlot(slot.id);
+                                  await AppRepositories.support.cancelAppointmentSlot(
+                                    slot.id,
+                                    therapistId: widget.therapistId,
+                                    parentId: slot.bookedByParentId,
+                                  );
                                 }
                               },
                               icon: const Icon(Icons.cancel_outlined, size: 16),
