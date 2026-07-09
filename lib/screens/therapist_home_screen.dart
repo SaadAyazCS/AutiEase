@@ -1044,6 +1044,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
         ),
       ),
     );
+    _loadState();
   }
 
   void _showComingSoon() {
@@ -1936,6 +1937,7 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
     _profile = widget.profile;
     _isActive = _profile.isActive;
     _isAcceptingClients = _profile.isAcceptingClients;
+    _refreshProfile();
   }
 
   @override
@@ -2115,6 +2117,7 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
     setState(() {
       _updatingAccepting = true;
       _isAcceptingClients = next;
+      _profile = _profile.copyWith(isAcceptingClients: next);
     });
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -2143,7 +2146,10 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
       );
     } catch (_) {
       if (!mounted) return;
-      setState(() => _isAcceptingClients = !next);
+      setState(() {
+        _isAcceptingClients = !next;
+        _profile = _profile.copyWith(isAcceptingClients: !next);
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Unable to update client availability. Please try again.'),
