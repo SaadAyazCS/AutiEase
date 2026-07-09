@@ -1099,6 +1099,12 @@ class UserReport {
     required this.chatContext,
     required this.timestamp,
     required this.status,
+    this.threadId,
+    this.subscriptionStatus = 'none',
+    this.parentAction = 'none',
+    this.adminDecision,
+    this.adminNotes,
+    this.resolvedAt,
   });
 
   final String id;
@@ -1109,7 +1115,13 @@ class UserReport {
   final String comments;
   final List<Map<String, dynamic>> chatContext;
   final DateTime timestamp;
-  final String status; // 'pending', 'dismissed', 'warned', 'suspended', 'banned'
+  final String status; // 'pending', 'dismissed', 'warned', 'suspended', 'banned', 'resolved'
+  final String? threadId;
+  final String subscriptionStatus;
+  final String parentAction;
+  final String? adminDecision;
+  final String? adminNotes;
+  final DateTime? resolvedAt;
 
   factory UserReport.fromMap(String id, Map<String, dynamic> data) {
     final rawContext = data['chatContext'] as List?;
@@ -1127,6 +1139,12 @@ class UserReport {
       chatContext: context,
       timestamp: dateTimeFromFirestore(data['timestamp']) ?? DateTime.now(),
       status: (data['status'] ?? 'pending').toString(),
+      threadId: data['threadId']?.toString(),
+      subscriptionStatus: (data['subscriptionStatus'] ?? 'none').toString(),
+      parentAction: (data['parentAction'] ?? 'none').toString(),
+      adminDecision: data['adminDecision']?.toString(),
+      adminNotes: data['adminNotes']?.toString(),
+      resolvedAt: dateTimeFromFirestore(data['resolvedAt']),
     );
   }
 
@@ -1140,6 +1158,12 @@ class UserReport {
       'chatContext': chatContext,
       'timestamp': timestamp,
       'status': status,
+      if (threadId != null) 'threadId': threadId,
+      'subscriptionStatus': subscriptionStatus,
+      'parentAction': parentAction,
+      if (adminDecision != null) 'adminDecision': adminDecision,
+      if (adminNotes != null) 'adminNotes': adminNotes,
+      if (resolvedAt != null) 'resolvedAt': resolvedAt,
     };
   }
 }
@@ -1350,6 +1374,7 @@ class TherapistThread {
     String? lastMessagePreview,
     DateTime? lastMessageAt,
     String? status,
+    String? subscriptionId,
     String? emergencyStatus,
     String? emergencyRequestedBy,
     DateTime? emergencyRequestedAt,
@@ -1371,7 +1396,7 @@ class TherapistThread {
       parentId: parentId,
       therapistId: therapistId,
       childId: childId,
-      subscriptionId: subscriptionId,
+      subscriptionId: subscriptionId ?? this.subscriptionId,
       status: status ?? this.status,
       parentDisplayName: parentDisplayName ?? this.parentDisplayName,
       therapistDisplayName: therapistDisplayName ?? this.therapistDisplayName,

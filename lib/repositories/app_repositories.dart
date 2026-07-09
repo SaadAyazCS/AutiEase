@@ -156,6 +156,14 @@ abstract class SupportRepository {
     required String reason,
     required String comments,
     required List<Map<String, dynamic>> chatContext,
+    String? threadId,
+    String subscriptionStatus = 'none',
+    String parentAction = 'none',
+  });
+  Future<void> resolveReport({
+    required String reportId,
+    required String action,
+    String notes = '',
   });
   Future<void> blockUser({
     required String blockedId,
@@ -1487,20 +1495,34 @@ class FirebaseSupportRepository implements SupportRepository {
         existing.docs.first.id,
         existing.docs.first.data(),
       );
+      var threadResult = existingThread;
+      
+      if (existingThread.status == 'locked' || existingThread.status == 'reported') {
+        await existing.docs.first.reference.update({
+          'status': 'active',
+          'subscriptionId': subscriptionId,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        threadResult = existingThread.copyWith(
+          status: 'active',
+          subscriptionId: subscriptionId,
+        );
+      }
+
       final needsMetadataPatch =
-          existingThread.parentDisplayName.isEmpty ||
-          existingThread.therapistDisplayName.isEmpty;
+          threadResult.parentDisplayName.isEmpty ||
+          threadResult.therapistDisplayName.isEmpty;
       if (needsMetadataPatch) {
         await existing.docs.first.reference.set({
           'parentDisplayName': parentDisplayName,
           'therapistDisplayName': therapistDisplayName,
         }, SetOptions(merge: true));
-        return existingThread.copyWith(
+        return threadResult.copyWith(
           parentDisplayName: parentDisplayName,
           therapistDisplayName: therapistDisplayName,
         );
       }
-      return existingThread;
+      return threadResult;
     }
 
     final ref = _firestore
@@ -1618,8 +1640,9 @@ class FirebaseSupportRepository implements SupportRepository {
         .collection(FirestoreCollections.therapistThreads)
         .doc(threadId)
         .get();
-    if (threadDoc.exists && threadDoc.data()?['status'] == 'locked') {
-      throw StateError('Cannot send message: This conversation is read-only because the subscription has ended.');
+    final status = threadDoc.data()?['status']?.toString();
+    if (threadDoc.exists && (status == 'locked' || status == 'reported')) {
+      throw StateError('Cannot send message: This conversation is currently locked.');
     }
 
     await _firestore
@@ -1848,6 +1871,9 @@ class FirebaseSupportRepository implements SupportRepository {
     required String reason,
     required String comments,
     required List<Map<String, dynamic>> chatContext,
+    String? threadId,
+    String subscriptionStatus = 'none',
+    String parentAction = 'none',
   }) async {
     final reporterId = _auth.currentUser?.uid;
     if (reporterId == null) throw StateError('No logged in user');
@@ -1866,11 +1892,201 @@ class FirebaseSupportRepository implements SupportRepository {
       chatContext: chatContext,
       timestamp: DateTime.now(),
       status: 'pending',
+      threadId: threadId,
+      subscriptionStatus: subscriptionStatus,
+      parentAction: parentAction,
     );
 
     await reportRef.set({
       ...report.toMap(),
       'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    if (threadId != null && threadId.trim().isNotEmpty) {
+      await _firestore
+          .collection(FirestoreCollections.therapistThreads)
+          .doc(threadId.trim())
+          .set({
+            'status': 'reported',
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+    }
+  }
+
+  @override
+  Future<void> resolveReport({
+    required String reportId,
+    required String action,
+    String notes = '',
+  }) async {
+    final adminId = _auth.currentUser?.uid;
+    if (adminId == null) throw StateError('No logged in admin');
+
+    // 1. Fetch the report
+    final reportDoc = await _firestore.collection('reports').doc(reportId).get();
+    if (!reportDoc.exists) {
+      throw StateError('Report $reportId not found');
+    }
+    final data = reportDoc.data() ?? {};
+    final reporterId = data['reporterId']?.toString() ?? '';
+    final reporterRole = data['reporterRole']?.toString() ?? 'parent';
+    final reportedId = data['reportedId']?.toString() ?? '';
+    final threadId = data['threadId']?.toString();
+
+    // 2. Resolve the report document
+    await _firestore.collection('reports').doc(reportId).update({
+      'status': 'resolved',
+      'adminDecision': action,
+      'adminNotes': notes,
+      'resolvedAt': FieldValue.serverTimestamp(),
+    });
+
+    // 3. Update the reported user doc if action is warning/suspension/ban/restriction
+    final userRef = _firestore.collection(FirestoreCollections.users).doc(reportedId);
+    final isSeverityAction = action == 'suspend' || action == 'ban' || action == 'restrict';
+
+    if (action == 'warn') {
+      await userRef.update({
+        'status': 'warned',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } else if (action == 'suspend') {
+      await userRef.update({
+        'status': 'suspended',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      await _firestore.collection(FirestoreCollections.therapistProfiles).doc(reportedId).set({
+        'verificationStatus': 'suspended',
+        'isActive': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } else if (action == 'ban') {
+      await userRef.update({
+        'status': 'banned',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      await _firestore.collection(FirestoreCollections.therapistProfiles).doc(reportedId).set({
+        'verificationStatus': 'suspended',
+        'isActive': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } else if (action == 'restrict') {
+      await userRef.update({
+        'status': 'restricted',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      await _firestore.collection(FirestoreCollections.therapistProfiles).doc(reportedId).set({
+        'verificationStatus': 'restricted',
+        'isActive': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    // 4. Thread Unlocking Logic
+    if (threadId != null && threadId.trim().isNotEmpty) {
+      final tid = threadId.trim();
+      if (isSeverityAction) {
+        // Locked forever due to suspension/ban/restriction
+        await _firestore.collection(FirestoreCollections.therapistThreads).doc(tid).update({
+          'status': 'locked',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        // Warning or No Action: unlock if subscription remains active
+        final parentId = reporterRole == 'parent' ? reporterId : reportedId;
+        final therapistId = reporterRole == 'parent' ? reportedId : reporterId;
+        final subDocId = 'sub_${parentId}_$therapistId';
+        final subDoc = await _firestore.collection(FirestoreCollections.subscriptions).doc(subDocId).get();
+        
+        final hasActiveSub = subDoc.exists && subDoc.data()?['isActive'] == true && subDoc.data()?['status'] != 'canceled';
+        
+        await _firestore.collection(FirestoreCollections.therapistThreads).doc(tid).update({
+          'status': hasActiveSub ? 'active' : 'locked',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    // 5. Audit Logging
+    final logRef = _firestore.collection('admin_audit_logs').doc();
+    final log = AdminAuditLog(
+      id: logRef.id,
+      adminUid: adminId,
+      adminEmail: _auth.currentUser?.email ?? '',
+      targetUid: reportId,
+      actionType: 'resolve_report',
+      details: 'Action: $action, Notes: $notes',
+      timestamp: DateTime.now(),
+    );
+    await logRef.set({
+      ...log.toMap(),
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    // 6. Send Notifications
+    final isNoAction = action == 'no_action' || action == 'remove' || action == 'close' || action == 'request_info';
+    final actionLabel = action == 'warn'
+        ? 'Warning'
+        : action == 'suspend'
+            ? 'Suspension'
+            : action == 'restrict'
+                ? 'Restriction'
+                : action == 'ban'
+                    ? 'Permanent Ban'
+                    : action;
+
+    // A. Notification for Reported User
+    String reportedMessage = '';
+    if (isNoAction) {
+      reportedMessage = 'A report regarding your account has been reviewed. No action has been taken after investigation.';
+    } else {
+      if (reporterRole == 'parent') {
+        // Reported is Therapist
+        reportedMessage = 'An action has been taken regarding the report submitted against your account. Action: $actionLabel. Please review our community guidelines and avoid future violations.';
+      } else {
+        // Reported is Parent
+        reportedMessage = 'An action has been taken regarding the report submitted against your account. Action: $actionLabel. Please review our community guidelines to avoid future violations.';
+      }
+    }
+
+    await _firestore.collection('notifications').add({
+      'userId': reportedId,
+      'title': isNoAction ? 'Report Investigation' : 'Account Warning / Action',
+      'message': reportedMessage,
+      'category': 'reports',
+      'isRead': false,
+      'timestamp': FieldValue.serverTimestamp(),
+      if (threadId != null)
+        'navigationTarget': {
+          'route': 'Chat',
+          'threadId': threadId,
+        },
+    });
+
+    // B. Notification for Reporter
+    String reporterMessage = '';
+    if (isNoAction) {
+      reporterMessage = 'Your report has been reviewed. After investigation, no policy violation was found. No action has been taken at this time.';
+    } else {
+      if (reporterRole == 'parent') {
+        reporterMessage = 'Your report has been reviewed. Action Taken: $actionLabel issued to the therapist. Thank you for helping us maintain a safe platform.';
+      } else {
+        reporterMessage = 'Your report has been reviewed. Action Taken: $actionLabel issued to the parent. Thank you for reporting the issue.';
+      }
+    }
+
+    await _firestore.collection('notifications').add({
+      'userId': reporterId,
+      'title': 'Report Status Update',
+      'message': reporterMessage,
+      'category': 'reports',
+      'isRead': false,
+      'timestamp': FieldValue.serverTimestamp(),
+      if (threadId != null)
+        'navigationTarget': {
+          'route': 'Chat',
+          'threadId': threadId,
+        },
     });
   }
 
@@ -2020,8 +2236,9 @@ class FirebaseSupportRepository implements SupportRepository {
         .doc(threadId)
         .get();
     final data = threadDoc.data() ?? {};
-    if (data['status'] == 'locked') {
-      throw StateError('Cannot send message: This conversation is read-only because the subscription has ended.');
+    final threadStatus = data['status']?.toString();
+    if (threadStatus == 'locked' || threadStatus == 'reported') {
+      throw StateError('Cannot send message: This conversation is currently locked.');
     }
     final alreadySent = senderRole == 'parent'
         ? data['finalMessageSentByParent'] == true
@@ -2073,8 +2290,9 @@ class FirebaseSupportRepository implements SupportRepository {
         .doc(threadId)
         .get();
     final data = threadDoc.data() ?? {};
-    if (data['status'] == 'locked') {
-      throw StateError('Cannot send message: This conversation is read-only because the subscription has ended.');
+    final threadStatus = data['status']?.toString();
+    if (threadStatus == 'locked' || threadStatus == 'reported') {
+      throw StateError('Cannot send message: This conversation is currently locked.');
     }
     final alreadyReplied = senderRole == 'parent'
         ? data['finalReplySentByParent'] == true

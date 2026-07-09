@@ -355,7 +355,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
   bool _canSendMessage(TherapistThread thread) {
     if (widget.readOnly) return false;
-    if (thread.status == 'locked') return false;
+    if (thread.status == 'locked' || thread.status == 'reported') return false;
     if (!thread.isBlocked) {
       // No block: normal rules
       if (widget.senderRole == 'parent') {
@@ -775,64 +775,205 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
     if (shouldReport == true) {
       if (!mounted) return;
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Confirm Report'),
-          content: const Text('Are you sure you want to submit this report? Admin team will review the conversation logs.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Confirm')),
-          ],
-        ),
-      );
+      final peerId = widget.senderRole == 'parent' ? widget.thread.therapistId : widget.thread.parentId;
 
-      if (confirm == true) {
-        try {
-          final peerId = widget.senderRole == 'parent' ? widget.thread.therapistId : widget.thread.parentId;
-          final messagesSnapshot = await FirebaseFirestore.instance
-              .collection(FirestoreCollections.therapistThreads)
-              .doc(widget.thread.id)
-              .collection('messages')
-              .orderBy('sentAt', descending: true)
-              .limit(15)
-              .get();
-          
-          final contextList = messagesSnapshot.docs
-              .map((d) => {
-                    'senderId': d.data()['senderId'] ?? '',
-                    'senderRole': d.data()['senderRole'] ?? '',
-                    'body': d.data()['body'] ?? '',
-                    'sentAt': d.data()['sentAt']?.toString() ?? '',
-                    'messageType': d.data()['messageType'] ?? d.data()['type'] ?? 'text',
-                    'attachments': d.data()['attachments'] ?? const [],
-                  })
-              .toList();
+      // 1. Gather chat context
+      final messagesSnapshot = await FirebaseFirestore.instance
+          .collection(FirestoreCollections.therapistThreads)
+          .doc(widget.thread.id)
+          .collection('messages')
+          .orderBy('sentAt', descending: true)
+          .limit(15)
+          .get();
+      
+      final contextList = messagesSnapshot.docs
+          .map((d) => {
+                'senderId': d.data()['senderId'] ?? '',
+                'senderRole': d.data()['senderRole'] ?? '',
+                'body': d.data()['body'] ?? '',
+                'sentAt': d.data()['sentAt']?.toString() ?? '',
+                'messageType': d.data()['messageType'] ?? d.data()['type'] ?? 'text',
+                'attachments': d.data()['attachments'] ?? const [],
+              })
+          .toList();
 
-          await AppRepositories.support.submitReport(
-            reportedId: peerId,
-            reason: selectedReason,
-            comments: selectedReason == 'Other' ? commentsController.text : 'Selected reason: $selectedReason',
-            chatContext: contextList,
-          );
+      if (widget.senderRole == 'parent') {
+        // Parent report dialog flow
+        bool flowCompleted = false;
+        String? choice; // 'keep' or 'cancel'
 
+        while (!flowCompleted) {
           if (!mounted) return;
-          showDialog<void>(
-            // ignore: use_build_context_synchronously
+          final subscriptionOption = await showDialog<String>(
             context: context,
+            barrierDismissible: false,
             builder: (context) => AlertDialog(
-              title: const Text('Report Submitted'),
-              content: const Text('Thank you. We have received your report and will take action if any violations are found.'),
+              title: const Text('Report Therapist', style: TextStyle(fontWeight: FontWeight.bold)),
+              content: const Text(
+                'You have reported this therapist. Would you like to continue your current subscription while the report is being reviewed?',
+                style: TextStyle(fontSize: 14),
+              ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, 'keep'),
+                  child: const Text('Keep Subscription'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, 'cancel'),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.errorRed, foregroundColor: Colors.white),
+                  child: const Text('Cancel Subscription'),
+                ),
               ],
             ),
           );
+
+          if (subscriptionOption == 'keep') {
+            choice = 'keep';
+            flowCompleted = true;
+          } else if (subscriptionOption == 'cancel') {
+            if (!mounted) return;
+            final confirmCancel = await showDialog<bool>(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => AlertDialog(
+                title: const Text('Confirm Cancellation', style: TextStyle(fontWeight: FontWeight.bold)),
+                content: const Text(
+                  'By continuing, you agree to cancel your current subscription with this therapist so that we can review and resolve the reported issue.',
+                  style: TextStyle(fontSize: 14),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false), // Go Back
+                    child: const Text('Go Back'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context, true), // Confirm Cancel
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.errorRed, foregroundColor: Colors.white),
+                    child: const Text('Cancel Subscription'),
+                  ),
+                ],
+              ),
+            );
+
+            if (confirmCancel == true) {
+              choice = 'cancel';
+              flowCompleted = true;
+            }
+          } else {
+            // Dismissed or Cancelled the dialog
+            return;
+          }
+        }
+
+        // Proceed to execute choice
+        try {
+          if (choice == 'keep') {
+            await AppRepositories.support.submitReport(
+              reportedId: peerId,
+              reason: selectedReason,
+              comments: selectedReason == 'Other' ? commentsController.text : 'Selected reason: $selectedReason',
+              chatContext: contextList,
+              threadId: widget.thread.id,
+              subscriptionStatus: 'active',
+              parentAction: 'kept',
+            );
+
+            if (!mounted) return;
+            await showDialog<void>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Report Submitted'),
+                content: const Text(
+                  'Your report has been submitted and is under review while your subscription remains active.',
+                ),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+                ],
+              ),
+            );
+          } else if (choice == 'cancel') {
+            // Cancel subscription in store
+            await AppRepositories.billing.cancelSubscriptionInStore(
+              widget.thread.therapistId,
+              keepAndLockChats: true,
+              reason: 'Reported therapist: $selectedReason',
+            );
+
+            await AppRepositories.support.submitReport(
+              reportedId: peerId,
+              reason: selectedReason,
+              comments: selectedReason == 'Other' ? commentsController.text : 'Selected reason: $selectedReason',
+              chatContext: contextList,
+              threadId: widget.thread.id,
+              subscriptionStatus: 'canceled',
+              parentAction: 'cancelled',
+            );
+
+            if (!mounted) return;
+            await showDialog<void>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Report Submitted'),
+                content: const Text(
+                  'Your report has been submitted and your subscription has been cancelled.',
+                ),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+                ],
+              ),
+            );
+          }
         } catch (e) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Failed to submit report: $e')),
           );
+        }
+
+      } else {
+        // Therapist report flow: simple confirm & submit
+        if (!mounted) return;
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Confirm Report'),
+            content: const Text('Are you sure you want to submit this report? Admin team will review the conversation logs.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Confirm')),
+            ],
+          ),
+        );
+
+        if (confirm == true) {
+          try {
+            await AppRepositories.support.submitReport(
+              reportedId: peerId,
+              reason: selectedReason,
+              comments: selectedReason == 'Other' ? commentsController.text : 'Selected reason: $selectedReason',
+              chatContext: contextList,
+              threadId: widget.thread.id,
+              subscriptionStatus: 'active',
+              parentAction: 'none',
+            );
+
+            if (!mounted) return;
+            showDialog<void>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Report Submitted'),
+                content: const Text('Thank you. We have received your report and will take action if any violations are found.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+                ],
+              ),
+            );
+          } catch (e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to submit report: $e')),
+            );
+          }
         }
       }
     }
@@ -4104,6 +4245,22 @@ class _BlockedInputAreaState extends State<_BlockedInputArea> {
   Widget build(BuildContext context) {
     final thread = widget.thread;
     final isBlocked = thread.isBlocked;
+
+    if (thread.status == 'reported') {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFEF2F2),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFFCA5A5), width: 1.5),
+        ),
+        child: const Text(
+          'This conversation has been temporarily locked because a report has been submitted. Messaging has been disabled until the report has been reviewed by our admin team.',
+          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500, color: Color(0xFF991B1B), height: 1.4),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
 
     // Non-block scenario: subscription cancelled — show renew
     if (!isBlocked) {

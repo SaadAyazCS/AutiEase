@@ -4,6 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/app_models.dart';
@@ -617,17 +620,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
         ],
       );
     } else if ((type == 'audio' || type == 'voice') && attachments.isNotEmpty) {
-      contentWidget = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.mic_rounded, size: 16, color: Colors.teal),
-          const SizedBox(width: 4),
-          Text(
-            type == 'voice' ? '[Voice Note]' : '[Audio File]',
-            style: const TextStyle(color: Colors.teal, fontSize: 12, fontWeight: FontWeight.w500),
-          ),
-        ],
-      );
+      contentWidget = _AdminVoicePlayer(payload: attachments.first.toString());
     } else {
       contentWidget = Text(body, style: const TextStyle(fontSize: 12, color: Color(0xFF334155)));
     }
@@ -682,6 +675,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 _detailRow('Reporter ID', report.reporterId),
                 _detailRow('Reporter Role', report.reporterRole),
                 _detailRow('Reported ID', report.reportedId),
+                if (report.reporterRole == 'parent') ...[
+                  _detailRow('Subscription Status', report.subscriptionStatus.toUpperCase()),
+                  _detailRow('Parent Action', report.parentAction == 'kept' ? 'KEPT ACTIVE' : (report.parentAction == 'cancelled' ? 'CANCELLED' : report.parentAction.toUpperCase())),
+                ],
                 const SizedBox(height: 10),
                 const Text(
                   'Reason & Details',
@@ -1931,7 +1928,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   void _showModerationDialog(String userId, String reportId) {
     final controller = TextEditingController();
     final messenger = ScaffoldMessenger.of(context);
-    String selectedAction = 'warn';
+    String selectedAction = 'no_action';
 
     showDialog(
       context: context,
@@ -1939,32 +1936,40 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Take Moderation Action'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    initialValue: selectedAction,
-                    items: const [
-                      DropdownMenuItem(value: 'warn', child: Text('Send Warning')),
-                      DropdownMenuItem(value: 'suspend', child: Text('Suspend Profile')),
-                      DropdownMenuItem(value: 'ban', child: Text('Permanently Ban')),
-                    ],
-                    onChanged: (val) {
-                      if (val != null) {
-                        setDialogState(() => selectedAction = val);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: controller,
-                    decoration: const InputDecoration(
-                      labelText: 'Reason for action',
+              title: const Text('Resolve Report & Take Action'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedAction,
+                      items: const [
+                        DropdownMenuItem(value: 'no_action', child: Text('No Action Required')),
+                        DropdownMenuItem(value: 'warn', child: Text('Send Warning')),
+                        DropdownMenuItem(value: 'suspend', child: Text('Suspend Account')),
+                        DropdownMenuItem(value: 'restrict', child: Text('Temporary Restriction')),
+                        DropdownMenuItem(value: 'ban', child: Text('Permanent Ban')),
+                        DropdownMenuItem(value: 'remove', child: Text('Remove Report')),
+                        DropdownMenuItem(value: 'close', child: Text('Close Report')),
+                        DropdownMenuItem(value: 'request_info', child: Text('Request Additional Info')),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) {
+                          setDialogState(() => selectedAction = val);
+                        }
+                      },
                     ),
-                    maxLines: 2,
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: controller,
+                      decoration: const InputDecoration(
+                        labelText: 'Admin Notes (Optional)',
+                        hintText: 'Enter reason/notes for this action...',
+                      ),
+                      maxLines: 3,
+                    ),
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -1973,22 +1978,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 ),
                 ElevatedButton(
                   onPressed: () async {
-                    final reason = controller.text.trim();
-                    if (reason.isEmpty) return;
+                    final notes = controller.text.trim();
                     try {
-                      await AppRepositories.admin.executeModerationAction(
-                        reportedUserId: userId,
+                      await AppRepositories.support.resolveReport(
+                        reportId: reportId,
                         action: selectedAction,
-                        reason: reason,
+                        notes: notes,
                       );
-                      await AppRepositories.admin.updateReportStatus(reportId, 'resolved');
                       await _loadStats();
                       if (ctx.mounted) Navigator.pop(ctx);
                       messenger.showSnackBar(
-                        SnackBar(content: Text('Action "$selectedAction" executed successfully.')),
+                        SnackBar(content: Text('Report resolved with action: "$selectedAction"')),
                       );
                       setState(() {});
-                    } catch (_) {}
+                    } catch (e) {
+                      messenger.showSnackBar(
+                        SnackBar(content: Text('Failed to resolve report: $e')),
+                      );
+                    }
                   },
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
                   child: const Text('Execute'),
@@ -5094,6 +5101,142 @@ class _AdminMessageSenderState extends State<_AdminMessageSender> {
           ],
         ),
       ],
+    );
+  }
+}
+
+class _AdminVoicePlayer extends StatefulWidget {
+  final String payload;
+  const _AdminVoicePlayer({required this.payload});
+
+  @override
+  State<_AdminVoicePlayer> createState() => _AdminVoicePlayerState();
+}
+
+class _AdminVoicePlayerState extends State<_AdminVoicePlayer> {
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _isPlaying = false;
+  double _progress = 0.0;
+  int _durationSec = 10;
+  StreamSubscription? _posSub;
+  StreamSubscription? _completeSub;
+  String? _tempPath;
+
+  @override
+  void initState() {
+    super.initState();
+    final parts = widget.payload.split(':');
+    if (parts.length >= 2) {
+      _durationSec = int.tryParse(parts[1]) ?? 10;
+    }
+  }
+
+  @override
+  void dispose() {
+    _posSub?.cancel();
+    _completeSub?.cancel();
+    _audioPlayer.dispose();
+    if (_tempPath != null) {
+      try {
+        File(_tempPath!).delete();
+      } catch (_) {}
+    }
+    super.dispose();
+  }
+
+  Future<void> _togglePlay() async {
+    if (_isPlaying) {
+      await _audioPlayer.stop();
+      setState(() {
+        _isPlaying = false;
+        _progress = 0.0;
+      });
+      return;
+    }
+
+    try {
+      final parts = widget.payload.split(':');
+      if (parts.length < 3) return;
+      final base64Data = parts[2];
+      final bytes = base64Decode(base64Data);
+
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/admin_playing_voice_${identityHashCode(this)}.m4a');
+      await file.writeAsBytes(bytes);
+      _tempPath = file.path;
+
+      setState(() {
+        _isPlaying = true;
+        _progress = 0.0;
+      });
+
+      await _audioPlayer.play(DeviceFileSource(file.path));
+
+      _posSub = _audioPlayer.onPositionChanged.listen((pos) {
+        if (mounted && _isPlaying) {
+          setState(() {
+            final totalMs = _durationSec * 1000;
+            _progress = totalMs > 0 ? (pos.inMilliseconds / totalMs).clamp(0.0, 1.0) : 0.0;
+          });
+        }
+      });
+
+      _completeSub = _audioPlayer.onPlayerComplete.listen((event) {
+        if (mounted) {
+          setState(() {
+            _isPlaying = false;
+            _progress = 0.0;
+          });
+        }
+      });
+    } catch (e) {
+      debugPrint('Error playing admin voice note: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.teal.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.teal.shade100),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled),
+            color: Colors.teal,
+            iconSize: 28,
+            onPressed: _togglePlay,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 120,
+                child: LinearProgressIndicator(
+                  value: _progress,
+                  color: Colors.teal,
+                  backgroundColor: Colors.teal.shade100,
+                  minHeight: 4,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${_durationSec}s Voice Note',
+                style: const TextStyle(fontSize: 10, color: Colors.teal, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

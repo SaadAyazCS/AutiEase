@@ -17,7 +17,7 @@ class NotificationInboxScreen extends StatefulWidget {
 
 class _NotificationInboxScreenState extends State<NotificationInboxScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final List<String> _tabs = ['All', 'Messages', 'Subscriptions', 'Activities', 'System'];
+  final List<String> _tabs = ['All', 'Messages', 'Subscriptions', 'Activities', 'System', 'Reports'];
 
   @override
   void initState() {
@@ -54,6 +54,8 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
         return Icons.emoji_events_rounded;
       case 'verification':
         return Icons.verified_user_rounded;
+      case 'reports':
+        return Icons.flag_rounded;
       case 'system':
       default:
         return Icons.notifications_active_rounded;
@@ -74,6 +76,8 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
         return const Color(0xFFD97706); // amber 600
       case 'verification':
         return const Color(0xFF06B6D4); // cyan 500
+      case 'reports':
+        return const Color(0xFFEF4444); // red 500
       case 'system':
       default:
         return const Color(0xFF64748B); // slate 500
@@ -93,6 +97,8 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
         return item.category == 'activities' || item.category == 'progress';
       } else if (category == 'system') {
         return item.category == 'system' || item.category == 'verification' || item.category == 'reviews';
+      } else if (category == 'reports') {
+        return item.category == 'reports';
       }
       return false;
     }).toList();
