@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'dart:ui';
 import '../models/app_models.dart';
 import '../navigation/child_mode_lock_controller.dart';
 import '../navigation/session_navigation.dart';
@@ -465,11 +466,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
           if (_isDeleting)
             Positioned.fill(
               child: AbsorbPointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.2),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    child: Center(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 32),
+                        padding: const EdgeInsets.all(28),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.2),
+                              blurRadius: 30,
+                              offset: const Offset(0, 15),
+                            ),
+                          ],
+                        ),
+                        child: const Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 50,
+                              height: 50,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 4,
+                                color: Color(0xFFFF3040),
+                              ),
+                            ),
+                            SizedBox(height: 24),
+                            Text(
+                              'Deleting Account',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1F2937),
+                                letterSpacing: -0.5,
+                                decoration: TextDecoration.none,
+                              ),
+                            ),
+                            SizedBox(height: 10),
+                            Text(
+                              'Please wait while we securely erase your profile data and sign-in credentials. This process cannot be undone.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: Color(0xFF64748B),
+                                height: 1.5,
+                                fontWeight: FontWeight.normal,
+                                decoration: TextDecoration.none,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                  child: const Center(child: CircularProgressIndicator()),
                 ),
               ),
             ),

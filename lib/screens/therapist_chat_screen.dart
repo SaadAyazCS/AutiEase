@@ -355,12 +355,13 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
   bool _canSendMessage(TherapistThread thread) {
     if (widget.readOnly) return false;
+    if (thread.status == 'locked') return false;
     if (!thread.isBlocked) {
       // No block: normal rules
       if (widget.senderRole == 'parent') {
         return thread.status == 'active' && thread.postCancelVisible;
       }
-      return true;
+      return thread.status == 'active';
     }
     // Block is active — nobody can send regular messages
     return false;
@@ -803,6 +804,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                     'senderRole': d.data()['senderRole'] ?? '',
                     'body': d.data()['body'] ?? '',
                     'sentAt': d.data()['sentAt']?.toString() ?? '',
+                    'messageType': d.data()['messageType'] ?? d.data()['type'] ?? 'text',
+                    'attachments': d.data()['attachments'] ?? const [],
                   })
               .toList();
 
@@ -2395,59 +2398,65 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                         _showClinicalNoteDialog();
                       }
                     },
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'profile',
-                        child: Row(
-                          children: [
-                            Icon(Icons.person_outline, size: 20, color: Colors.black87),
-                            SizedBox(width: 8),
-                            Text('View Profile'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'media',
-                        child: Row(
-                          children: [
-                            Icon(Icons.photo_library_outlined, size: 20, color: Colors.black87),
-                            SizedBox(width: 8),
-                            Text('Shared Media'),
-                          ],
-                        ),
-                      ),
-                      if (widget.senderRole == 'therapist')
+                    itemBuilder: (context) {
+                      final currentThread = _lastSeenThread ?? widget.thread;
+                      final isLocked = currentThread.status == 'locked';
+                      return [
                         const PopupMenuItem(
-                          value: 'clinical_note',
+                          value: 'profile',
                           child: Row(
                             children: [
-                              Icon(Icons.description_outlined, size: 20, color: Colors.black87),
+                              Icon(Icons.person_outline, size: 20, color: Colors.black87),
                               SizedBox(width: 8),
-                              Text('Add Clinical Note'),
+                              Text('View Profile'),
                             ],
                           ),
                         ),
-                      const PopupMenuItem(
-                        value: 'report',
-                        child: Row(
-                          children: [
-                            Icon(Icons.report_outlined, size: 20, color: AppColors.errorRed),
-                            SizedBox(width: 8),
-                            Text('Report User', style: TextStyle(color: AppColors.errorRed)),
-                          ],
+                        const PopupMenuItem(
+                          value: 'media',
+                          child: Row(
+                            children: [
+                              Icon(Icons.photo_library_outlined, size: 20, color: Colors.black87),
+                              SizedBox(width: 8),
+                              Text('Shared Media'),
+                            ],
+                          ),
                         ),
-                      ),
-                      PopupMenuItem(
-                        value: 'block',
-                        child: Row(
-                          children: [
-                            Icon(_blockInfo.iBlockedThem ? Icons.lock_open : Icons.block, size: 20, color: Colors.black87),
-                            SizedBox(width: 8),
-                            Text(_blockInfo.iBlockedThem ? 'Unblock User' : 'Block User'),
-                          ],
-                        ),
-                      ),
-                    ],
+                        if (widget.senderRole == 'therapist')
+                          const PopupMenuItem(
+                            value: 'clinical_note',
+                            child: Row(
+                              children: [
+                                Icon(Icons.description_outlined, size: 20, color: Colors.black87),
+                                SizedBox(width: 8),
+                                Text('Add Clinical Note'),
+                              ],
+                            ),
+                          ),
+                        if (!isLocked) ...[
+                          const PopupMenuItem(
+                            value: 'report',
+                            child: Row(
+                              children: [
+                                Icon(Icons.report_outlined, size: 20, color: AppColors.errorRed),
+                                SizedBox(width: 8),
+                                Text('Report User', style: TextStyle(color: AppColors.errorRed)),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'block',
+                            child: Row(
+                              children: [
+                                Icon(_blockInfo.iBlockedThem ? Icons.lock_open : Icons.block, size: 20, color: Colors.black87),
+                                SizedBox(width: 8),
+                                Text(_blockInfo.iBlockedThem ? 'Unblock User' : 'Block User'),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ];
+                    },
                   ),
 
           ],
@@ -4109,8 +4118,8 @@ class _BlockedInputAreaState extends State<_BlockedInputArea> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
-              'This chat is read-only because the subscription was cancelled.',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
+              'This subscription has ended. This conversation is now read-only. You can still view previous messages and shared media, but you cannot send new messages unless a new subscription is started.',
+              style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500, color: Color(0xFF92400E), height: 1.4),
               textAlign: TextAlign.center,
             ),
             if (widget.onRenewSubscription != null) ...[

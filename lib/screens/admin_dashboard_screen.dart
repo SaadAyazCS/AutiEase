@@ -575,6 +575,83 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     );
   }
 
+  Widget _buildContextMessage(Map<String, dynamic> msg) {
+    final senderRole = (msg['senderRole'] ?? 'user').toString().toUpperCase();
+    final body = msg['body']?.toString() ?? '';
+    final type = msg['messageType'] ?? msg['type'] ?? 'text';
+    final attachments = msg['attachments'] is List ? List.from(msg['attachments']) : [];
+
+    Widget contentWidget;
+    if (type == 'image' && attachments.isNotEmpty) {
+      try {
+        final bytes = base64Decode(attachments.first.toString().trim());
+        contentWidget = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.memory(bytes, height: 180, fit: BoxFit.contain),
+            ),
+            if (body.isNotEmpty && body != 'Sent an image')
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(body, style: const TextStyle(fontSize: 12, color: Color(0xFF334155))),
+              ),
+          ],
+        );
+      } catch (_) {
+        contentWidget = const Text('[Image Attachment - Unreadable]', style: TextStyle(color: Colors.red, fontSize: 12));
+      }
+    } else if (type == 'file' && attachments.isNotEmpty) {
+      contentWidget = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.insert_drive_file_rounded, size: 16, color: Colors.blue),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              body.isNotEmpty && body != 'Sent a file' ? body : '[File Attachment]',
+              style: const TextStyle(color: Colors.blue, fontSize: 12, decoration: TextDecoration.underline),
+            ),
+          ),
+        ],
+      );
+    } else if ((type == 'audio' || type == 'voice') && attachments.isNotEmpty) {
+      contentWidget = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.mic_rounded, size: 16, color: Colors.teal),
+          const SizedBox(width: 4),
+          Text(
+            type == 'voice' ? '[Voice Note]' : '[Audio File]',
+            style: const TextStyle(color: Colors.teal, fontSize: 12, fontWeight: FontWeight.w500),
+          ),
+        ],
+      );
+    } else {
+      contentWidget = Text(body, style: const TextStyle(fontSize: 12, color: Color(0xFF334155)));
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$senderRole:',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: senderRole == 'PARENT' ? Colors.blue.shade800 : Colors.green.shade800,
+            ),
+          ),
+          const SizedBox(height: 2),
+          contentWidget,
+        ],
+      ),
+    );
+  }
+
   void _showReportDetailsDialog(UserReport report) {
     showDialog(
       context: context,
@@ -625,7 +702,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 if (report.chatContext.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   const Text(
-                    'Chat Context Snippet',
+                    'Complete Conversation Context',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
                   ),
                   const Divider(),
@@ -639,15 +716,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: report.chatContext.take(5).map((msg) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 2),
-                          child: Text(
-                            '${msg['senderRole'] ?? 'user'}: ${msg['body'] ?? ''}',
-                            style: const TextStyle(fontSize: 11.5, fontFamily: 'monospace', color: Color(0xFF334155)),
-                          ),
-                        );
-                      }).toList(),
+                      children: report.chatContext.map((msg) => _buildContextMessage(msg)).toList(),
                     ),
                   ),
                 ],
@@ -1809,7 +1878,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   if (report.comments.isNotEmpty) Text('Comments: ${report.comments}', style: const TextStyle(fontSize: 13.5)),
                   if (report.chatContext.isNotEmpty) ...[
                     const SizedBox(height: 10),
-                    const Text('Chat Context Snippet:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    const Text('Complete Conversation Context:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                     Container(
                       padding: const EdgeInsets.all(8),
                       margin: const EdgeInsets.only(top: 4),
@@ -1819,15 +1888,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: report.chatContext.take(5).map((msg) {
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 2),
-                            child: Text(
-                              '${msg['senderRole'] ?? 'user'}: ${msg['body'] ?? ''}',
-                              style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                            ),
-                          );
-                        }).toList(),
+                        children: report.chatContext.map((msg) => _buildContextMessage(msg)).toList(),
                       ),
                     ),
                   ],

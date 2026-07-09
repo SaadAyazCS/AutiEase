@@ -1337,29 +1337,34 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
         .where((id) => !_hiddenTherapistIds.contains(id))
         .toSet();
 
-    if (subscribedVisibleIds.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 24),
-          child: Text(
-            'No subscribed therapist yet. Tap + to find and subscribe.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Color(0xFF6B7280)),
-          ),
-        ),
-      );
-    }
 
     return StreamBuilder<List<TherapistThread>>(
       stream: AppRepositories.support.watchThreadsForRole('parent'),
       builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
         final backendThreads = (snapshot.data ?? const <TherapistThread>[])
             .where(
               (thread) =>
-                  subscribedVisibleIds.contains(thread.therapistId) &&
+                  (subscribedVisibleIds.contains(thread.therapistId) || thread.status == 'locked') &&
                   !_hiddenTherapistIds.contains(thread.therapistId),
             )
             .toList();
+
+        if (backendThreads.isEmpty && subscribedVisibleIds.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                'No subscribed therapist yet. Tap + to find and subscribe.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFF6B7280)),
+              ),
+            ),
+          );
+        }
 
         final hasThreadForTherapist = <String>{
           for (final thread in backendThreads) thread.therapistId,

@@ -13,6 +13,7 @@ import '../services/auth_verification_policy.dart';
 import '../services/dashboard_metrics_calculator.dart';
 import '../services/payment_backend_client.dart';
 import '../services/payment_deep_link_service.dart';
+import '../services/notification_service.dart';
 
 class FirestoreCollections {
   static const users = 'users';
@@ -1613,6 +1614,14 @@ class FirebaseSupportRepository implements SupportRepository {
     if (senderId == null) {
       throw StateError('No logged in user');
     }
+    final threadDoc = await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .doc(threadId)
+        .get();
+    if (threadDoc.exists && threadDoc.data()?['status'] == 'locked') {
+      throw StateError('Cannot send message: This conversation is read-only because the subscription has ended.');
+    }
+
     await _firestore
         .collection(FirestoreCollections.therapistThreads)
         .doc(threadId)
@@ -2011,6 +2020,9 @@ class FirebaseSupportRepository implements SupportRepository {
         .doc(threadId)
         .get();
     final data = threadDoc.data() ?? {};
+    if (data['status'] == 'locked') {
+      throw StateError('Cannot send message: This conversation is read-only because the subscription has ended.');
+    }
     final alreadySent = senderRole == 'parent'
         ? data['finalMessageSentByParent'] == true
         : data['finalMessageSentByTherapist'] == true;
@@ -2061,6 +2073,9 @@ class FirebaseSupportRepository implements SupportRepository {
         .doc(threadId)
         .get();
     final data = threadDoc.data() ?? {};
+    if (data['status'] == 'locked') {
+      throw StateError('Cannot send message: This conversation is read-only because the subscription has ended.');
+    }
     final alreadyReplied = senderRole == 'parent'
         ? data['finalReplySentByParent'] == true
         : data['finalReplySentByTherapist'] == true;
@@ -2893,7 +2908,7 @@ class FirebaseBillingRepository implements BillingRepository {
       await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set({
         'status': 'canceled',
         'isActive': false,
-        'cancelAtPeriodEnd': true,
+        'cancelAtPeriodEnd': false,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } else {
@@ -2904,6 +2919,78 @@ class FirebaseBillingRepository implements BillingRepository {
         );
       }
       await _paymentBackend.cancelSubscription(docId);
+      // Ensure Firestore subscription doc reflects the cancelled status locally immediately
+      await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set({
+        'status': 'canceled',
+        'isActive': false,
+        'cancelAtPeriodEnd': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    // 2. Remove the therapist from the parent's active subscriptions field
+    try {
+      await _firestore.collection(FirestoreCollections.users).doc(userId).set({
+        'proSupportSubscribedTherapistIds': FieldValue.arrayRemove([normalizedTherapistId]),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Failed to remove therapist from parent proSupportSubscribedTherapistIds: $e');
+    }
+
+    // 3. Cancel all upcoming booked therapy sessions and pending bookings for this parent & therapist
+    try {
+      final bookedSlotsSnapshot = await _firestore
+          .collection(FirestoreCollections.appointmentSlots)
+          .where('therapistId', isEqualTo: normalizedTherapistId)
+          .where('bookedByParentId', isEqualTo: userId)
+          .get();
+
+      for (final slotDoc in bookedSlotsSnapshot.docs) {
+        final slotId = slotDoc.id;
+        await slotDoc.reference.update({
+          'status': 'available',
+          'bookedByParentId': FieldValue.delete(),
+          'bookedForChildId': FieldValue.delete(),
+          'bookedForChildName': FieldValue.delete(),
+          'notes': FieldValue.delete(),
+        });
+        // 4. Remove scheduled local notifications
+        try {
+          await NotificationService.instance.cancelSessionReminder(slotId.hashCode.abs());
+        } catch (e) {
+          debugPrint('Failed to cancel local session reminder: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to cancel booked appointment slots: $e');
+    }
+
+    // 5. Remove any in-app reminder notifications from Firestore for this therapist and parent
+    try {
+      final remindersSnapshot = await _firestore
+          .collection('notifications')
+          .where('category', isEqualTo: 'activities')
+          .where('title', isEqualTo: '⏰ Session Reminder')
+          .get();
+
+      final batch = _firestore.batch();
+      var count = 0;
+      for (final doc in remindersSnapshot.docs) {
+        final targetUser = doc.data()['userId']?.toString() ?? '';
+        if (targetUser == userId || targetUser == normalizedTherapistId) {
+          batch.delete(doc.reference);
+          count++;
+          if (count >= 400) {
+            await batch.commit();
+            count = 0;
+          }
+        }
+      }
+      if (count > 0) {
+        await batch.commit();
+      }
+    } catch (e) {
+      debugPrint('Failed to clean up session reminder notifications: $e');
     }
     
     // Handle chat history deletion vs lock
@@ -2952,7 +3039,7 @@ class FirebaseBillingRepository implements BillingRepository {
         final parentDisplayName = (parentDoc.data()?['displayName']?.toString() ?? '').split(' ').first;
         await _firestore.collection('notifications').add({
           'userId': userId,
-          'title': '\u274C Subscription Cancelled',
+          'title': '❌ Subscription Cancelled',
           'message': 'Your subscription to $therapistDisplayName has been cancelled.',
           'category': 'subscription',
           'timestamp': FieldValue.serverTimestamp(),
@@ -2961,7 +3048,7 @@ class FirebaseBillingRepository implements BillingRepository {
         });
         await _firestore.collection('notifications').add({
           'userId': normalizedTherapistId,
-          'title': '\u274C Subscription Cancelled',
+          'title': '❌ Subscription Cancelled',
           'message': '$parentDisplayName has cancelled their subscription.',
           'category': 'subscription',
           'timestamp': FieldValue.serverTimestamp(),
