@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../widgets/session_guard.dart';
@@ -1504,24 +1505,194 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     );
   }
 
-  Future<void> _approveVerification(String therapistId) async {
+  Future<void> _approveVerification(String therapistId, {VoidCallback? onSuccess}) async {
+    _showApproveVerificationDialog(therapistId, onSuccess: onSuccess);
+  }
+
+  void _showApproveVerificationDialog(String therapistId, {VoidCallback? onSuccess}) {
+    final sourceController = TextEditingController();
+    final urlController = TextEditingController();
+    String? imageBase64;
+    String? imageName;
+    bool isSaving = false;
     final messenger = ScaffoldMessenger.of(context);
-    try {
-      await AppRepositories.admin.verifyTherapist(
-        therapistId: therapistId,
-        status: 'approved',
-        adminFeedback: 'Approved by administrator.',
-      );
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Therapist approved successfully.')),
-      );
-      _loadStats();
-      setState(() {});
-    } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Verification error: $e')),
-      );
-    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('Approve Therapist & Upload Evidence'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Please provide official verification details and evidence to approve this therapist.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: sourceController,
+                      decoration: const InputDecoration(
+                        labelText: 'Verification Source / Website *',
+                        hintText: 'e.g. HCPC Register, Licensing Board',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: urlController,
+                      decoration: const InputDecoration(
+                        labelText: 'Verification URL (Optional)',
+                        hintText: 'e.g. https://website.com/verify/123',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Evidence Screenshot *',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    const SizedBox(height: 8),
+                    if (imageBase64 != null) ...[
+                      Container(
+                        height: 120,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.memory(
+                            base64Decode(imageBase64!),
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        imageName ?? 'Screenshot attached',
+                        style: const TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.w500),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ] else
+                      Container(
+                        width: double.infinity,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          border: Border.all(color: const Color(0xFFCBD5E1), style: BorderStyle.solid),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'No evidence screenshot uploaded',
+                            style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final picker = ImagePicker();
+                        final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+                        if (image == null) return;
+                        final bytes = await image.readAsBytes();
+                        setDialogState(() {
+                          imageBase64 = base64Encode(bytes);
+                          imageName = image.name;
+                        });
+                      },
+                      icon: const Icon(Icons.upload_file_rounded),
+                      label: const Text('Select Evidence Screenshot'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(40),
+                        side: const BorderSide(color: Color(0xFF10B981)),
+                        foregroundColor: const Color(0xFF10B981),
+                      ),
+                    ),
+                    if (isSaving) ...[
+                      const SizedBox(height: 16),
+                      const Center(
+                        child: CircularProgressIndicator(color: Color(0xFF10B981)),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving ? null : () => Navigator.pop(ctx),
+                  child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+                ),
+                ElevatedButton(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          final source = sourceController.text.trim();
+                          final url = urlController.text.trim();
+
+                          if (imageBase64 == null || imageBase64!.isEmpty || source.isEmpty) {
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                content: Text('Please upload verification evidence and specify the verification source before approving this therapist.'),
+                                backgroundColor: Color(0xFFFF4D4D),
+                                duration: Duration(seconds: 4),
+                              ),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() {
+                            isSaving = true;
+                          });
+
+                          try {
+                            await AppRepositories.admin.verifyTherapist(
+                              therapistId: therapistId,
+                              status: 'approved',
+                              adminFeedback: 'Approved by administrator. Verification source: $source.',
+                              verificationImageBase64: imageBase64,
+                              verificationSource: source,
+                              verificationUrl: url,
+                            );
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            messenger.showSnackBar(
+                              const SnackBar(content: Text('Therapist approved successfully.')),
+                            );
+                            if (onSuccess != null) onSuccess();
+                            _loadStats();
+                            setState(() {});
+                          } catch (e) {
+                            setDialogState(() {
+                              isSaving = false;
+                            });
+                            messenger.showSnackBar(
+                              SnackBar(content: Text('Verification error: $e'), backgroundColor: const Color(0xFFFF4D4D)),
+                            );
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Confirm Approval'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   void _showRejectVerificationDialog(String therapistId, {VoidCallback? onSuccess}) {
@@ -2896,6 +3067,74 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       ),
                     ),
                   ],
+                  FutureBuilder<DocumentSnapshot>(
+                    future: FirebaseFirestore.instance
+                        .collection('therapist_verification_evidence')
+                        .doc(therapist.id)
+                        .get(),
+                    builder: (context, evSnapshot) {
+                      if (evSnapshot.connectionState == ConnectionState.waiting) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12.0),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+                      if (evSnapshot.hasData && evSnapshot.data!.exists) {
+                        final data = evSnapshot.data!.data() as Map<String, dynamic>? ?? {};
+                        final source = data['source']?.toString() ?? 'N/A';
+                        final url = data['url']?.toString() ?? '';
+                        final adminEmail = data['adminEmail']?.toString() ?? 'N/A';
+                        final ts = data['timestamp'] as Timestamp?;
+                        final dateStr = ts != null
+                            ? '${ts.toDate().day.toString().padLeft(2, '0')}/${ts.toDate().month.toString().padLeft(2, '0')}/${ts.toDate().year} ${ts.toDate().hour.toString().padLeft(2, '0')}:${ts.toDate().minute.toString().padLeft(2, '0')}'
+                            : 'N/A';
+                        final imageBase64 = data['imageBase64']?.toString() ?? '';
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Verification Evidence',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                            ),
+                            const Divider(),
+                            _detailRow('Status', therapist.verificationStatus.toUpperCase()),
+                            _detailRow('Verification Date', dateStr),
+                            _detailRow('Approved By', adminEmail),
+                            _detailRow('Source/Website', source),
+                            if (url.isNotEmpty) _detailRow('Verification URL', url),
+                            if (imageBase64.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Verification Image/Screenshot:',
+                                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: Color(0xFF475569)),
+                              ),
+                              const SizedBox(height: 6),
+                              Container(
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.memory(
+                                    base64Decode(imageBase64),
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (context, err, stack) => const Padding(
+                                      padding: EdgeInsets.all(8.0),
+                                      child: Text('Error loading verification image'),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  ),
                 ],
               ),
             ),
@@ -2923,10 +3162,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             ),
             ElevatedButton(
               onPressed: () async {
-                await _approveVerification(therapist.id);
-                if (ctx.mounted) {
-                  Navigator.pop(ctx); // Close the details dialog
-                }
+                await _approveVerification(
+                  therapist.id,
+                  onSuccess: () {
+                    if (ctx.mounted) {
+                      Navigator.pop(ctx); // Close the details dialog
+                    }
+                  },
+                );
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green,

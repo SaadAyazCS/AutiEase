@@ -217,6 +217,9 @@ abstract class AdminRepository {
     required String status, // 'approved', 'rejected', 'pending', 'suspended'
     String adminFeedback = '',
     DateTime? licenseExpiryDate,
+    String? verificationImageBase64,
+    String? verificationSource,
+    String? verificationUrl,
   });
   Stream<List<UserReport>> watchReports();
   Future<void> updateReportStatus(String reportId, String status);
@@ -2879,12 +2882,32 @@ class FirebaseAdminRepository implements AdminRepository {
     required String status,
     String adminFeedback = '',
     DateTime? licenseExpiryDate,
+    String? verificationImageBase64,
+    String? verificationSource,
+    String? verificationUrl,
   }) async {
     final adminId = _auth.currentUser?.uid;
     if (adminId == null) throw StateError('No logged in admin');
 
     final batch = _firestore.batch();
     final profileRef = _firestore.collection(FirestoreCollections.therapistProfiles).doc(therapistId);
+
+    if (status == 'approved') {
+      if (verificationImageBase64 == null || verificationImageBase64.isEmpty ||
+          verificationSource == null || verificationSource.isEmpty) {
+        throw ArgumentError('Please upload verification evidence and specify the verification source before approving this therapist.');
+      }
+      final evRef = _firestore.collection('therapist_verification_evidence').doc(therapistId);
+      batch.set(evRef, {
+        'therapistId': therapistId,
+        'imageBase64': verificationImageBase64,
+        'source': verificationSource,
+        'url': verificationUrl ?? '',
+        'timestamp': FieldValue.serverTimestamp(),
+        'adminUid': adminId,
+        'adminEmail': _auth.currentUser?.email ?? '',
+      });
+    }
     
     final updateData = <String, dynamic>{
       'verificationStatus': status,
