@@ -57,6 +57,12 @@ service cloud.firestore {
          (packages.size() >= 5 ? isPackageValid(packages[4]) : true));
     }
 
+    function arePackagesLimitValid(requestData, resourceData) {
+      return !('servicePackages' in requestData) ||
+        (resourceData != null && 'servicePackages' in resourceData && requestData.servicePackages.size() <= resourceData.servicePackages.size()) ||
+        requestData.servicePackages.size() <= requestData.get('specializations', (resourceData != null && 'specializations' in resourceData) ? resourceData.specializations : []).size();
+    }
+
 
 
     match /users/{userId} {
@@ -102,17 +108,30 @@ service cloud.firestore {
         (!('verificationStatus' in request.resource.data) || request.resource.data.verificationStatus == 'pending') &&
         (!('verifiedBadge' in request.resource.data) || request.resource.data.verifiedBadge == false) &&
         (!('bio' in request.resource.data) || request.resource.data.bio.size() <= 1000) &&
-        (!('servicePackages' in request.resource.data) || arePackagesValid(request.resource.data.servicePackages)) &&
+        (!('servicePackages' in request.resource.data) || (arePackagesValid(request.resource.data.servicePackages) && arePackagesLimitValid(request.resource.data, null))) &&
         (!('isAcceptingClients' in request.resource.data) || request.resource.data.isAcceptingClients is bool)) || isAdmin();
       allow update: if (isTherapist() && request.auth.uid == therapistId &&
-        (!('verificationStatus' in request.resource.data) || request.resource.data.verificationStatus == resource.data.verificationStatus) &&
+        (!('verificationStatus' in request.resource.data) || 
+         request.resource.data.verificationStatus == resource.data.verificationStatus ||
+         (resource.data.verificationStatus == 'rejected' && request.resource.data.verificationStatus == 'pending')
+        ) &&
         (!('verifiedBadge' in request.resource.data) || request.resource.data.verifiedBadge == resource.data.verifiedBadge) &&
         (!('bio' in request.resource.data) || request.resource.data.bio.size() <= 1000) &&
-        (!('servicePackages' in request.resource.data) || arePackagesValid(request.resource.data.servicePackages)) &&
+        (!('servicePackages' in request.resource.data) || (arePackagesValid(request.resource.data.servicePackages) && arePackagesLimitValid(request.resource.data, resource.data))) &&
         (!('isAcceptingClients' in request.resource.data) || request.resource.data.isAcceptingClients is bool)) ||
         (isParent() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'totalReviews', 'ratingBreakdown', 'updatedAt'])) ||
         isAdmin();
       allow delete: if signedIn() && request.auth.uid == therapistId;
+    }
+
+    match /therapist_profile_updates/{updateId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.therapistId == request.auth.uid;
+      allow update: if signedIn() && (
+        (request.auth.uid == resource.data.therapistId && request.resource.data.therapistId == resource.data.therapistId && request.resource.data.status in ['pending_acknowledgment', 'pending_review']) ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
     }
 
     match /content_categories/{document=**} {

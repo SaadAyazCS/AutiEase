@@ -845,6 +845,8 @@ class TherapistProfile {
     this.servicePackages = const <TherapyPackage>[],
     this.isAcceptingClients = true,
     this.lastActiveAt,
+    this.hasUnacknowledgedChanges = false,
+    this.unacknowledgedChangesFields = const <String>[],
   });
 
   final String id;
@@ -876,6 +878,8 @@ class TherapistProfile {
   final List<TherapyPackage> servicePackages;
   final bool isAcceptingClients;
   final DateTime? lastActiveAt;
+  final bool hasUnacknowledgedChanges;
+  final List<String> unacknowledgedChangesFields;
 
   /// Convenience alias for yearsOfExperience.
   int get experienceYears => yearsOfExperience;
@@ -930,7 +934,43 @@ class TherapistProfile {
           : const <TherapyPackage>[],
       isAcceptingClients: data['isAcceptingClients'] != false,
       lastActiveAt: dateTimeFromFirestore(data['lastActiveAt']),
+      hasUnacknowledgedChanges: data['hasUnacknowledgedChanges'] == true,
+      unacknowledgedChangesFields: stringListFrom(data['unacknowledgedChangesFields']),
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'displayName': displayName,
+      'bio': bio,
+      'specializations': specializations,
+      'pricing': pricing,
+      'languages': languages,
+      'rating': rating,
+      'availability': availability,
+      'photoUrl': photoUrl,
+      'isActive': isActive,
+      'experience_years': yearsOfExperience,
+      'experience_months': experienceMonths,
+      'credentials': credentials,
+      'photoUrlBase64': photoUrlBase64,
+      'certificateBase64': certificateBase64,
+      'verificationStatus': verificationStatus,
+      'adminFeedback': adminFeedback,
+      'verifiedBadge': verifiedBadge,
+      'licenseNumber': licenseNumber,
+      'registrationNumber': registrationNumber,
+      'cnic': cnic,
+      'experienceDetails': experienceDetails,
+      'ratingBreakdown': ratingBreakdown,
+      'totalReviews': totalReviews,
+      'servicePackages': servicePackages.map((item) => item.toMap()).toList(),
+      'isAcceptingClients': isAcceptingClients,
+      'lastActiveAt': lastActiveAt,
+      'hasUnacknowledgedChanges': hasUnacknowledgedChanges,
+      'unacknowledgedChangesFields': unacknowledgedChangesFields,
+    };
   }
 }
 

@@ -554,6 +554,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
       experienceDetails: profile.experienceDetails,
       ratingBreakdown: profile.ratingBreakdown,
       totalReviews: profile.totalReviews,
+      hasUnacknowledgedChanges: profile.hasUnacknowledgedChanges,
+      unacknowledgedChangesFields: profile.unacknowledgedChangesFields,
     );
 
     await AppRepositories.users.upsertTherapistProfile(normalized);
@@ -884,7 +886,10 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
               this.context,
               MaterialPageRoute(
                 builder: (_) =>
-                    TherapistPackagesScreen(initialPackages: _packages),
+                    TherapistPackagesScreen(
+                      initialPackages: _packages,
+                      specializations: _profile?.specializations ?? const <String>[],
+                    ),
               ),
             );
             if (updated != null && _profile != null) {
@@ -1922,6 +1927,8 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
   bool _updatingVisibility = false;
   bool _updatingAccepting = false;
   late TherapistProfile _profile;
+  bool _submittingReappeal = false;
+  bool _submittingAcknowledgment = false;
 
   @override
   void initState() {
@@ -1958,6 +1965,102 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
       }
     } catch (e) {
       debugPrint('Error refreshing profile: $e');
+    }
+  }
+
+  Future<void> _handleReappeal() async {
+    if (_submittingReappeal) return;
+    setState(() {
+      _submittingReappeal = true;
+    });
+    try {
+      await FirebaseFirestore.instance
+          .collection(FirestoreCollections.therapistProfiles)
+          .doc(_profile.id)
+          .update({
+        'verificationStatus': 'pending',
+        'adminFeedback': '',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      await _refreshProfile();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Reappeal submitted successfully! Your profile is now pending review.'),
+          backgroundColor: Color(0xFF0B7D3B),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to submit reappeal: $e'),
+          backgroundColor: const Color(0xFFFF4D4D),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _submittingReappeal = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _handleAcknowledgeChanges() async {
+    if (_submittingAcknowledgment) return;
+    setState(() {
+      _submittingAcknowledgment = true;
+    });
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        await FirebaseFirestore.instance
+            .collection(FirestoreCollections.therapistProfiles)
+            .doc(uid)
+            .update({
+          'hasUnacknowledgedChanges': false,
+        });
+
+        final querySnap = await FirebaseFirestore.instance
+            .collection('therapist_profile_updates')
+            .where('therapistId', isEqualTo: uid)
+            .where('status', isEqualTo: 'pending_acknowledgment')
+            .get();
+
+        final batch = FirebaseFirestore.instance.batch();
+        for (var doc in querySnap.docs) {
+          batch.update(doc.reference, {
+            'status': 'pending_review',
+            'acknowledgedAt': FieldValue.serverTimestamp(),
+          });
+        }
+        await batch.commit();
+
+        await _refreshProfile();
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Acknowledgment recorded successfully.'),
+            backgroundColor: Color(0xFF0B7D3B),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to record acknowledgment: $e'),
+          backgroundColor: const Color(0xFFFF4D4D),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _submittingAcknowledgment = false;
+        });
+      }
     }
   }
 
@@ -2180,6 +2283,31 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                               'Rejection comments: ${profile.adminFeedback.isEmpty ? "Please double-check your uploaded documents and details." : profile.adminFeedback}',
                               style: const TextStyle(color: Color(0xFF991B1B), fontSize: 13),
                             ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: _submittingReappeal ? null : _handleReappeal,
+                                icon: _submittingReappeal
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(Icons.send_rounded, size: 16),
+                                label: const Text('Reappeal'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFFEF4444),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -2200,6 +2328,67 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                               child: Text(
                                 'Account Suspended: ${profile.adminFeedback.isEmpty ? "Please contact support." : profile.adminFeedback}',
                                 style: const TextStyle(color: Color(0xFF991B1B), fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    if (_profile.hasUnacknowledgedChanges) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFBFDBFE)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Important Profile Warning',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.blue.shade900,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'You recently updated your account information. Please ensure that all details are accurate and comply with our guidelines. Your account may be reviewed by the admin at any time. Providing false or misleading information may result in suspension or permanent removal.',
+                              style: TextStyle(color: Color(0xFF1E3A8A), fontSize: 13, height: 1.4),
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton(
+                                onPressed: _submittingAcknowledgment ? null : _handleAcknowledgeChanges,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.blue.shade700,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                child: _submittingAcknowledgment
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Text('I Acknowledge'),
                               ),
                             ),
                           ],
@@ -4396,12 +4585,20 @@ class _TherapistProfileSettingsScreenState
       return;
     }
 
+    final finalSpecs = _selected.map((s) {
+      if (s == 'Others') return _otherSpecialization.text.trim();
+      return s;
+    }).where((s) => s.isNotEmpty).toList();
+
     // First section is valid, proceed to pricing
     final updated = await Navigator.push<List<TherapyPackage>>(
       context,
       MaterialPageRoute(
         builder: (_) =>
-            TherapistPackagesScreen(initialPackages: widget.initialPackages),
+            TherapistPackagesScreen(
+              initialPackages: widget.initialPackages,
+              specializations: finalSpecs,
+            ),
       ),
     );
 
@@ -4537,6 +4734,51 @@ class _TherapistProfileSettingsScreenState
         _savedPasswordDisplay.clear();
       }
 
+      // Perform change tracking for approved profiles
+      final isApproved = widget.profile.verificationStatus == 'approved';
+      final changedFields = <String>[];
+      if (isApproved) {
+        final displayName = '${_first.text.trim()} ${_last.text.trim()}'.trim();
+        if (widget.profile.displayName != displayName) changedFields.add('Display Name');
+        if (widget.profile.bio != _about.text.trim()) changedFields.add('Bio');
+        if (widget.profile.credentials != _credentials.text.trim()) changedFields.add('Credentials');
+        if (widget.profile.yearsOfExperience != _selectedYears || widget.profile.experienceMonths != _selectedMonths) {
+          changedFields.add('Experience');
+        }
+        
+        final oldSpecs = List<String>.from(widget.profile.specializations)..sort();
+        final newSpecs = List<String>.from(finalSpecs)..sort();
+        if (oldSpecs.join(',') != newSpecs.join(',')) {
+          changedFields.add('Specializations');
+        }
+
+        if (_photoBase64 != null && _photoBase64 != widget.profile.photoUrlBase64) {
+          changedFields.add('Profile Photo');
+        }
+        if (_certificateTouched && _certificateBase64 != null && _certificateBase64 != widget.profile.certificateBase64) {
+          changedFields.add('Certificate');
+        }
+        
+        final oldPkgs = widget.profile.servicePackages;
+        if (oldPkgs.length != packages.length) {
+          changedFields.add('Packages');
+        } else {
+          for (int i = 0; i < oldPkgs.length; i++) {
+            final op = oldPkgs[i];
+            final np = packages[i];
+            if (op.title != np.title || op.price != np.price || op.durationMinutes != np.durationMinutes || op.sessionsPerWeek != np.sessionsPerWeek || op.description != np.description) {
+              changedFields.add('Packages');
+              break;
+            }
+          }
+        }
+      }
+
+      final updatedHasUnacknowledgedChanges = isApproved ? (changedFields.isNotEmpty || widget.profile.hasUnacknowledgedChanges) : false;
+      final updatedUnacknowledgedChangesFields = isApproved
+          ? ({...widget.profile.unacknowledgedChangesFields, ...changedFields}.toList())
+          : <String>[];
+
       final updated = TherapistProfile(
         id: widget.profile.id,
         displayName: '${_first.text.trim()} ${_last.text.trim()}'.trim(),
@@ -4556,6 +4798,18 @@ class _TherapistProfileSettingsScreenState
             ? (_certificateBase64 ?? '')
             : widget.profile.certificateBase64,
         isAcceptingClients: _isAcceptingClients,
+        verificationStatus: widget.profile.verificationStatus,
+        verifiedBadge: widget.profile.verifiedBadge,
+        adminFeedback: widget.profile.adminFeedback,
+        licenseNumber: widget.profile.licenseNumber,
+        registrationNumber: widget.profile.registrationNumber,
+        cnic: widget.profile.cnic,
+        experienceDetails: widget.profile.experienceDetails,
+        ratingBreakdown: widget.profile.ratingBreakdown,
+        totalReviews: widget.profile.totalReviews,
+        servicePackages: packages,
+        hasUnacknowledgedChanges: updatedHasUnacknowledgedChanges,
+        unacknowledgedChangesFields: updatedUnacknowledgedChangesFields,
       );
 
       await widget.onSave(
@@ -4570,6 +4824,31 @@ class _TherapistProfileSettingsScreenState
         photoBase64: _photoBase64,
         certificateBase64: _certificateTouched ? (_certificateBase64 ?? '') : null,
       );
+
+      if (isApproved && changedFields.isNotEmpty) {
+        final querySnap = await FirebaseFirestore.instance
+            .collection('therapist_profile_updates')
+            .where('therapistId', isEqualTo: widget.profile.id)
+            .where('status', isEqualTo: 'pending_acknowledgment')
+            .limit(1)
+            .get();
+
+        final updateData = {
+          'therapistId': widget.profile.id,
+          'displayName': updated.displayName,
+          'timestamp': FieldValue.serverTimestamp(),
+          'status': 'pending_acknowledgment',
+          'changedFields': updatedUnacknowledgedChangesFields,
+          'oldProfile': widget.profile.toMap(),
+          'newProfile': updated.toMap(),
+        };
+
+        if (querySnap.docs.isNotEmpty) {
+          await querySnap.docs.first.reference.set(updateData, SetOptions(merge: true));
+        } else {
+          await FirebaseFirestore.instance.collection('therapist_profile_updates').add(updateData);
+        }
+      }
 
       if (mounted) {
         Navigator.pop(context, true);
@@ -5865,9 +6144,10 @@ class _TherapistProfileSettingsScreenState
 }
 
 class TherapistPackagesScreen extends StatefulWidget {
-  const TherapistPackagesScreen({super.key, required this.initialPackages});
+  const TherapistPackagesScreen({super.key, required this.initialPackages, required this.specializations});
 
   final List<TherapyPackage> initialPackages;
+  final List<String> specializations;
 
   @override
   State<TherapistPackagesScreen> createState() =>
@@ -5876,14 +6156,76 @@ class TherapistPackagesScreen extends StatefulWidget {
 
 class _TherapistPackagesScreenState extends State<TherapistPackagesScreen> {
   late List<TherapyPackage> _packages;
+  final Set<int> _activePackageIndices = <int>{};
+  bool _loadingSubscriptions = true;
 
   @override
   void initState() {
     super.initState();
     _packages = widget.initialPackages.map((TherapyPackage item) => item.copy()).toList();
+    _loadActiveSubscriptions();
+  }
+
+  Future<void> _loadActiveSubscriptions() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final activeSubsSnapshot = await FirebaseFirestore.instance
+          .collection('subscriptions')
+          .where('therapistId', isEqualTo: uid)
+          .where('status', whereIn: ['active', 'trialing', 'grace_period'])
+          .get();
+
+      final activeIndices = <int>{};
+      for (final doc in activeSubsSnapshot.docs) {
+        final data = doc.data();
+        final prodId = data['productId']?.toString() ?? '';
+        if (prodId.startsWith('auto_${uid}_')) {
+          final parts = prodId.split('_');
+          if (parts.length >= 3) {
+            final pkgIndex = int.tryParse(parts.last);
+            if (pkgIndex != null) {
+              activeIndices.add(pkgIndex);
+            }
+          }
+        } else if (prodId == 'bypass-plan' || prodId == 'local-bypass' || prodId == 'cached-offline') {
+          activeIndices.add(0);
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _activePackageIndices.clear();
+          _activePackageIndices.addAll(activeIndices);
+          _loadingSubscriptions = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading active subscriptions: $e');
+      if (mounted) {
+        setState(() {
+          _loadingSubscriptions = false;
+        });
+      }
+    }
   }
 
   Future<void> _addOrEdit({int? index}) async {
+    if (index == null) {
+      final limit = widget.specializations.length;
+      if (_packages.length >= limit) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Your package limit is based on the number of specializations you have selected. "
+              "To add more packages, either select more specializations or edit your existing packages.",
+            ),
+            backgroundColor: Color(0xFFFF4D4D),
+            duration: Duration(seconds: 5),
+          ),
+        );
+        return;
+      }
+    }
     final initial = index == null ? null : _packages[index];
     final pkg = await showDialog<TherapyPackage>(
       context: context,
@@ -5972,7 +6314,36 @@ class _TherapistPackagesScreenState extends State<TherapistPackagesScreen> {
                 _PackageTile(
                   package: _packages[i],
                   onEdit: () => _addOrEdit(index: i),
-                  onDelete: () => setState(() => _packages.removeAt(i)),
+                  onDelete: () {
+                    if (_loadingSubscriptions) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Checking active subscriptions...')),
+                      );
+                      return;
+                    }
+                    if (_activePackageIndices.contains(i)) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Parents are currently subscribed to this package. You can edit it, but you cannot delete it.'),
+                          backgroundColor: Color(0xFFFF4D4D),
+                        ),
+                      );
+                      return;
+                    }
+                    setState(() {
+                      _packages.removeAt(i);
+                      final newActive = <int>{};
+                      for (final index in _activePackageIndices) {
+                        if (index < i) {
+                          newActive.add(index);
+                        } else if (index > i) {
+                          newActive.add(index - 1);
+                        }
+                      }
+                      _activePackageIndices.clear();
+                      _activePackageIndices.addAll(newActive);
+                    });
+                  },
                   onVisible: (value) => setState(
                     () => _packages[i] = _packages[i].copy(
                       visible: value,

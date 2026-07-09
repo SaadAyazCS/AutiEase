@@ -597,6 +597,100 @@ class FirebaseUserRepository implements UserRepository {
 
   @override
   Future<void> upsertTherapistProfile(TherapistProfile profile) async {
+    // 1. Specialization limit check
+    if (profile.servicePackages.length > profile.specializations.length) {
+      throw StateError(
+          "Your package limit is based on the number of specializations you have selected. "
+          "To add more packages, either select more specializations or edit your existing packages.");
+    }
+
+    // 2. Active subscriptions check for package deletion
+    final existingDoc = await _therapists.doc(profile.id).get();
+    if (existingDoc.exists) {
+      final existingData = existingDoc.data() ?? {};
+      final oldPackagesData = existingData['servicePackages'] as List? ?? [];
+      final oldPackages = oldPackagesData
+          .map((e) => TherapyPackage.fromMap(Map<String, dynamic>.from(e)))
+          .toList();
+
+      final newPackages = profile.servicePackages;
+      final deletedIndices = <int>[];
+
+      // Match newPackages to oldPackages. Any unmatched old package is considered deleted.
+      final matchedOldIndices = <int>{};
+      for (final newPkg in newPackages) {
+        var foundIndex = -1;
+        // 1. Try exact match
+        for (var i = 0; i < oldPackages.length; i++) {
+          if (matchedOldIndices.contains(i)) continue;
+          final oldPkg = oldPackages[i];
+          if (newPkg.title == oldPkg.title &&
+              newPkg.price == oldPkg.price &&
+              newPkg.durationMinutes == oldPkg.durationMinutes &&
+              newPkg.sessionsPerWeek == oldPkg.sessionsPerWeek &&
+              newPkg.description == oldPkg.description) {
+            foundIndex = i;
+            break;
+          }
+        }
+        // 2. Try match by title
+        if (foundIndex == -1) {
+          for (var i = 0; i < oldPackages.length; i++) {
+            if (matchedOldIndices.contains(i)) continue;
+            final oldPkg = oldPackages[i];
+            if (newPkg.title == oldPkg.title) {
+              foundIndex = i;
+              break;
+            }
+          }
+        }
+        // 3. Fallback to first unmatched index
+        if (foundIndex == -1) {
+          for (var i = 0; i < oldPackages.length; i++) {
+            if (matchedOldIndices.contains(i)) continue;
+            foundIndex = i;
+            break;
+          }
+        }
+        if (foundIndex != -1) {
+          matchedOldIndices.add(foundIndex);
+        }
+      }
+
+      for (var i = 0; i < oldPackages.length; i++) {
+        if (!matchedOldIndices.contains(i)) {
+          deletedIndices.add(i);
+        }
+      }
+
+      if (deletedIndices.isNotEmpty) {
+        // Query active subscriptions for this therapist
+        final activeSubsSnapshot = await _firestore
+            .collection(FirestoreCollections.subscriptions)
+            .where('therapistId', isEqualTo: profile.id)
+            .where('status', whereIn: ['active', 'trialing', 'grace_period'])
+            .get();
+
+        for (final doc in activeSubsSnapshot.docs) {
+          final subData = doc.data();
+          final prodId = subData['productId']?.toString() ?? '';
+          if (prodId.startsWith('auto_${profile.id}_')) {
+            final parts = prodId.split('_');
+            if (parts.length >= 3) {
+              final pkgIndex = int.tryParse(parts.last);
+              if (pkgIndex != null && deletedIndices.contains(pkgIndex)) {
+                throw StateError('This package cannot be deleted because one or more parents are currently subscribed to it.');
+              }
+            }
+          } else if (prodId == 'bypass-plan' || prodId == 'local-bypass' || prodId == 'cached-offline') {
+            if (deletedIndices.contains(0)) {
+              throw StateError('This package cannot be deleted because one or more parents are currently subscribed to it.');
+            }
+          }
+        }
+      }
+    }
+
     await _therapists.doc(profile.id).set({
       'displayName': profile.displayName,
       'bio': profile.bio,
@@ -613,6 +707,9 @@ class FirebaseUserRepository implements UserRepository {
       'isAcceptingClients': profile.isAcceptingClients,
       'updatedAt': FieldValue.serverTimestamp(),
       'createdAt': FieldValue.serverTimestamp(),
+      'hasUnacknowledgedChanges': profile.hasUnacknowledgedChanges,
+      'unacknowledgedChangesFields': profile.unacknowledgedChangesFields,
+      'servicePackages': profile.servicePackages.map((item) => item.toMap()).toList(),
     }, SetOptions(merge: true));
   }
 }
