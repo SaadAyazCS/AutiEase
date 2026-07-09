@@ -3971,7 +3971,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         _infoTile(Icons.event_busy_rounded, 'Period End', expiryStr),
                         _infoTile(Icons.shopping_bag_outlined, 'Package/Plan', sub.productId),
                         _infoTile(Icons.payments_outlined, 'Amount', amountStr),
-                        _infoTile(Icons.toggle_off_outlined, 'Auto-Renew Cancelled', sub.cancelAtPeriodEnd ? 'YES' : 'NO'),
                       ]),
 
                       const SizedBox(height: 16),

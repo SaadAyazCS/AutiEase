@@ -2673,22 +2673,30 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                     },
                                                     child: AlertDialog(
                                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                                      contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                                                      title: const Text(
+                                                        'Opening Secure Checkout',
+                                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                                                        textAlign: TextAlign.center,
+                                                      ),
+                                                      contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
                                                       content: const Column(
                                                         mainAxisSize: MainAxisSize.min,
                                                         children: [
                                                           CircularProgressIndicator(color: Color(0xFF00C853)),
                                                           SizedBox(height: 16),
                                                           Text(
-                                                            'Checkout opened in browser',
-                                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                                            'Your secure checkout page will open in a few seconds. Please wait while we redirect you to your browser.',
+                                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                                                             textAlign: TextAlign.center,
                                                           ),
-                                                          SizedBox(height: 6),
+                                                          SizedBox(height: 12),
                                                           Text(
-                                                            'Complete your payment in the browser. This screen will update automatically when payment is confirmed.',
-                                                            style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-                                                            textAlign: TextAlign.center,
+                                                            'Instructions:\n'
+                                                            '• After a successful payment, you will be automatically redirected back to the app and your subscription will be activated.\n'
+                                                            '• If you cancel the payment or return without completing the transaction, you will be redirected back to the app\'s home screen and no subscription will be created.\n'
+                                                            '• If you do not wish to continue, you can tap Cancel below to stop the process before the checkout page opens.',
+                                                            style: TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.4),
+                                                            textAlign: TextAlign.left,
                                                           ),
                                                         ],
                                                       ),
@@ -2704,7 +2712,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                             }
                                                           },
                                                           style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
-                                                          child: const Text('Cancel Payment'),
+                                                          child: const Text('Cancel'),
                                                         ),
                                                       ],
                                                     ),
