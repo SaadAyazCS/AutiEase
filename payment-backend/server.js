@@ -1780,7 +1780,22 @@ app.get('/api/v1/payment/return/success/:basket_id?', async (req, res) => {
   if (basketId) {
     try {
       const transactionId = normalizeValue(payload.tracker || payload.transaction_id || payload.order_ref || '');
-      await activateSubscription(basketId, transactionId, 'success_redirect', payload);
+      let verificationPayload = payload;
+      
+      if (transactionId) {
+        try {
+          const gatewayVerification = await verifyTransactionWithGateway(transactionId);
+          if (gatewayVerification.verified && gatewayVerification.payload) {
+            verificationPayload = gatewayVerification.payload;
+          } else {
+            console.warn(`Success redirect: gateway verification returned not paid for tracker ${transactionId}: ${gatewayVerification.reason}`);
+          }
+        } catch (gateErr) {
+          console.warn(`Success redirect: gateway API verification check failed: ${gateErr.message}`);
+        }
+      }
+      
+      await activateSubscription(basketId, transactionId, 'success_redirect', verificationPayload);
     } catch (error) {
       console.warn('Success redirect processing failed:', error?.message || error);
     }
