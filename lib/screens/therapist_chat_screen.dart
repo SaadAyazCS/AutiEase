@@ -2652,16 +2652,20 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                               ],
                             ),
                           ),
-                          PopupMenuItem(
-                            value: 'block',
-                            child: Row(
-                              children: [
-                                Icon(_blockInfo.iBlockedThem ? Icons.lock_open : Icons.block, size: 20, color: Colors.black87),
-                                SizedBox(width: 8),
-                                Text(_blockInfo.iBlockedThem ? 'Unblock User' : 'Block User'),
-                              ],
+                          // Hide "Block User" if the other party already blocked us —
+                          // blocked person cannot counter-block the blocker.
+                          // Still show "Unblock User" if we are the one who initiated the block.
+                          if (!_blockInfo.theyBlockedMe || _blockInfo.iBlockedThem)
+                            PopupMenuItem(
+                              value: 'block',
+                              child: Row(
+                                children: [
+                                  Icon(_blockInfo.iBlockedThem ? Icons.lock_open : Icons.block, size: 20, color: Colors.black87),
+                                  const SizedBox(width: 8),
+                                  Text(_blockInfo.iBlockedThem ? 'Unblock User' : 'Block User'),
+                                ],
+                              ),
                             ),
-                          ),
                         ],
                       ];
                     },
