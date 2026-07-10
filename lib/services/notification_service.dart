@@ -126,21 +126,21 @@ class NotificationService {
     _initialized = true;
   }
 
-  /// Schedule a local notification 1 hour before [sessionTime].
+  /// Schedule a local notification 30 minutes before [sessionTime].
   /// [notificationId] should be unique per session (e.g. hash of session doc ID).
   Future<void> scheduleSessionReminder({
     required int notificationId,
     required DateTime sessionTime,
     required String therapistName,
   }) async {
-    final fireAt = sessionTime.subtract(const Duration(hours: 1));
+    final fireAt = sessionTime.subtract(const Duration(minutes: 30));
     if (fireAt.isBefore(DateTime.now())) return; // Already past
 
     const details = NotificationDetails(
       android: AndroidNotificationDetails(
         'autiease_session_channel',
         'Session Reminders',
-        channelDescription: 'Reminders sent 1 hour before a booked therapy session.',
+        channelDescription: 'Reminders sent 30 minutes before a booked therapy session.',
         importance: Importance.high,
         priority: Priority.high,
         icon: '@mipmap/ic_launcher',
@@ -154,7 +154,7 @@ class NotificationService {
 
     await _localNotifications.zonedSchedule(
       notificationId,
-      'Session in 1 hour',
+      'Session in 30 minutes',
       'Your session with $therapistName starts at ${_fmt(sessionTime)}. Get ready!',
       tz.TZDateTime.from(fireAt, tz.local),
       details,

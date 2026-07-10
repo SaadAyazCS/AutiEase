@@ -2663,34 +2663,52 @@ class FirebaseSupportRepository implements SupportRepository {
       'bookedForChildName': FieldValue.delete(),
       'notes': FieldValue.delete(),
     });
-    // Notify therapist that session was cancelled
-    if (therapistId != null && therapistId.isNotEmpty) {
-      try {
-        final displayName = (parentName ?? '').isNotEmpty ? parentName! : 'A parent';
-        await _firestore.collection('notifications').add({
-          'userId': therapistId,
-          'title': '\u274C Session Cancelled',
-          'message': '$displayName has cancelled the scheduled session.',
-          'category': 'activities',
-          'timestamp': FieldValue.serverTimestamp(),
-          'isRead': false,
-          'navigationTarget': {'route': 'TherapistScheduler'},
-        });
-      } catch (_) {}
-    }
-    // Notify parent that session was cancelled (when cancelled by therapist)
-    if (parentId != null && parentId.isNotEmpty) {
-      try {
-        await _firestore.collection('notifications').add({
-          'userId': parentId,
-          'title': '\u274C Session Cancelled',
-          'message': 'Your scheduled session has been cancelled.',
-          'category': 'activities',
-          'timestamp': FieldValue.serverTimestamp(),
-          'isRead': false,
-          'navigationTarget': {'route': 'ProfessionalSupport'},
-        });
-      } catch (_) {}
+    final currentUid = _auth.currentUser?.uid;
+    final isCancelledByTherapist = currentUid == therapistId;
+
+    if (isCancelledByTherapist) {
+      // Notify parent: therapist cancelled
+      if (parentId != null && parentId.isNotEmpty) {
+        try {
+          String therapistName = 'Your therapist';
+          if (therapistId != null && therapistId.isNotEmpty) {
+            final therapistDoc = await _firestore
+                .collection(FirestoreCollections.therapistProfiles)
+                .doc(therapistId)
+                .get();
+            therapistName = therapistDoc.data()?['displayName']?.toString() ?? 'Your therapist';
+          }
+          await _firestore.collection('notifications').add({
+            'userId': parentId,
+            'title': '\u274C Session Cancelled',
+            'message': '$therapistName has cancelled the scheduled session.',
+            'category': 'activities',
+            'timestamp': FieldValue.serverTimestamp(),
+            'isRead': false,
+            'navigationTarget': {'route': 'ProfessionalSupport'},
+          });
+        } catch (_) {}
+      }
+    } else {
+      // Notify therapist: parent cancelled
+      if (therapistId != null && therapistId.isNotEmpty) {
+        try {
+          String resolvedParentName = parentName ?? 'A parent';
+          if (resolvedParentName.isEmpty && parentId != null && parentId.isNotEmpty) {
+            final parentDoc = await _firestore.collection(FirestoreCollections.users).doc(parentId).get();
+            resolvedParentName = _resolveParentDisplayName(parentDoc.data());
+          }
+          await _firestore.collection('notifications').add({
+            'userId': therapistId,
+            'title': '\u274C Session Cancelled',
+            'message': '$resolvedParentName has cancelled the scheduled session.',
+            'category': 'activities',
+            'timestamp': FieldValue.serverTimestamp(),
+            'isRead': false,
+            'navigationTarget': {'route': 'TherapistScheduler'},
+          });
+        } catch (_) {}
+      }
     }
   }
 

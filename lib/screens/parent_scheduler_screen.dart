@@ -31,6 +31,12 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
   bool _submitting = false;
 
   @override
+  void dispose() {
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -49,7 +55,210 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
             return Center(child: Text('Error: ${snapshot.error}'));
           }
 
-          final slots = (snapshot.data ?? [])
+          final allSlots = snapshot.data ?? [];
+          
+          // Check if parent already has a booked session with this therapist
+          AppointmentSlot? parentBookedSlot;
+          for (final s in allSlots) {
+            if (s.status == 'booked' && s.bookedByParentId == widget.parentId) {
+              parentBookedSlot = s;
+              break;
+            }
+          }
+
+          // Render booked slot UI if exists
+          if (parentBookedSlot != null) {
+            final dt = parentBookedSlot.dateTime;
+            final dateStr = '${dt.day}/${dt.month}/${dt.year}';
+            final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+            
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECFDF5),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFA7F3D0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.check_circle_rounded, color: Color(0xFF059669), size: 24),
+                            SizedBox(width: 10),
+                            Text(
+                              'Your Booked Session',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF065F46),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          'Date & Time: $dateStr at $timeStr',
+                          style: const TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF065F46),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Duration: ${parentBookedSlot.durationMinutes} minutes',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF047857),
+                          ),
+                        ),
+                        if (parentBookedSlot.notes != null && parentBookedSlot.notes!.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Your Session Notes:',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF065F46),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFFD1FAE5)),
+                            ),
+                            child: Text(
+                              parentBookedSlot.notes!,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF065F46),
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: _submitting
+                                ? null
+                                : () async {
+                                    final confirm = await showDialog<bool>(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        title: const Text('Cancel Session?'),
+                                        content: const Text(
+                                          'Are you sure you want to cancel your scheduled session? This will notify your therapist.',
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx, false),
+                                            child: const Text('No'),
+                                          ),
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx, true),
+                                            child: const Text('Yes, Cancel'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (confirm == true) {
+                                      setState(() => _submitting = true);
+                                      try {
+                                        await AppRepositories.support.cancelAppointmentSlot(
+                                          parentBookedSlot!.id,
+                                          therapistId: widget.therapistId,
+                                          parentId: widget.parentId,
+                                          parentName: FirebaseAuth.instance.currentUser?.displayName ?? '',
+                                        );
+                                        try {
+                                          await NotificationService.instance.cancelSessionReminder(
+                                            parentBookedSlot.id.hashCode.abs(),
+                                          );
+                                        } catch (_) {}
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Session cancelled successfully.'),
+                                              backgroundColor: Color(0xFF10B981),
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('Failed to cancel session: $e'),
+                                              backgroundColor: const Color(0xFFEF4444),
+                                            ),
+                                          );
+                                        }
+                                      } finally {
+                                        if (mounted) {
+                                          setState(() => _submitting = false);
+                                        }
+                                      }
+                                    }
+                                  },
+                            icon: const Icon(Icons.cancel_outlined, size: 18),
+                            label: const Text('Cancel Scheduled Session'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFEF4444),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFFBEB),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFFDE68A)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline_rounded, color: Color(0xFFD97706), size: 20),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'You cannot book another slot while you already have an active session booked with this therapist. To change your slot, please cancel your existing session first.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF92400E),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          final slots = allSlots
               .where((slot) => slot.status == 'available' && slot.dateTime.isAfter(DateTime.now()))
               .toList();
 
@@ -202,7 +411,7 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
                                   therapistId: widget.therapistId,
                                   parentName: FirebaseAuth.instance.currentUser?.displayName ?? '',
                                 );
-                                // Schedule a 1-hour-before reminder notification
+                                // Schedule a 30-minutes-before reminder notification
                                 await NotificationService.instance.scheduleSessionReminder(
                                   notificationId: _selectedSlot!.id.hashCode.abs(),
                                   sessionTime: _selectedSlot!.dateTime,
@@ -211,7 +420,7 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
-                                      content: Text("Session booked! You'll get a reminder 1 hour before."),
+                                      content: Text("Session booked! You'll get a reminder 30 minutes before."),
                                       backgroundColor: Color(0xFF059669),
                                     ),
                                   );
