@@ -4211,6 +4211,101 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
     );
   }
 
+  Future<void> _confirmDeleteChat(TherapistThread thread) async {
+    // Step 1: Option menu
+    final selectOption = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Chat Options', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_forever_rounded, color: Colors.red),
+              title: const Text('Delete Chat', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (selectOption != 'delete') return;
+
+    // Step 2: Confirmation box
+    if (!mounted) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Are you sure?', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text(
+          'This will completely delete the chat history with this parent. This action cannot be undone.',
+          style: TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    // Step 3: Deletion execution
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final messagesSnap = await FirebaseFirestore.instance
+          .collection(FirestoreCollections.therapistThreads)
+          .doc(thread.id)
+          .collection('messages')
+          .get();
+      final batch = FirebaseFirestore.instance.batch();
+      for (final doc in messagesSnap.docs) {
+        batch.delete(doc.reference);
+      }
+      batch.delete(FirebaseFirestore.instance
+          .collection(FirestoreCollections.therapistThreads)
+          .doc(thread.id));
+      await batch.commit();
+
+      if (mounted) {
+        Navigator.pop(context); // Pop loading indicator
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Chat successfully deleted.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Pop loading indicator
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete chat: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SessionGuard(
@@ -4367,7 +4462,8 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
                                    ],
                                  ],
                                ),
-                              onTap: () {
+                               onLongPress: () => _confirmDeleteChat(thread),
+                               onTap: () {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(

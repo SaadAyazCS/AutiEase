@@ -334,7 +334,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   void _startEmergencyAlertLoop(String parentName) {
     if (_emergencyAlertActive) return; // already running
     _emergencyAlertActive = true;
-    const notifDetails = NotificationDetails(
+    final bodyText = '$parentName needs immediate help. Open the chat now.';
+    final notifDetails = NotificationDetails(
       android: AndroidNotificationDetails(
         'autiease_high_channel',
         'High Importance Notifications',
@@ -344,8 +345,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         icon: '@mipmap/ic_launcher',
         playSound: true,
         enableVibration: true,
+        styleInformation: BigTextStyleInformation(bodyText),
       ),
-      iOS: DarwinNotificationDetails(
+      iOS: const DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
@@ -355,7 +357,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     _localNotif.show(
       _emergencyNotifId,
       '🚨 Emergency Support Requested!',
-      '$parentName needs immediate help. Open the chat now.',
+      bodyText,
       notifDetails,
     );
     _emergencyAlertTimer = Timer.periodic(const Duration(seconds: 10), (_) {
@@ -363,7 +365,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
       _localNotif.show(
         _emergencyNotifId,
         '🚨 Emergency Support Requested!',
-        '$parentName needs immediate help. Open the chat now.',
+        bodyText,
         notifDetails,
       );
     });
