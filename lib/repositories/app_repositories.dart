@@ -1574,32 +1574,17 @@ class FirebaseSupportRepository implements SupportRepository {
         final enabled = prefs['bookings'] != false;
 
         if (enabled) {
-          final existing = await _firestore
-              .collection('notifications')
-              .where('userId', isEqualTo: therapistId)
-              .where('category', isEqualTo: 'subscription')
-              .get();
-          bool duplicate = false;
-          for (final d in existing.docs) {
-            final msg = d.data()['message']?.toString() ?? '';
-            if (msg.contains('subscribed to one of your packages')) {
-              duplicate = true;
-              break;
-            }
-          }
-          if (!duplicate) {
-            await _firestore.collection('notifications').add({
-              'userId': therapistId,
-              'title': '\u{1F4B3} New Subscription!',
-              'message': '$parentDisplayName has subscribed to one of your packages.',
-              'category': 'subscription',
-              'timestamp': FieldValue.serverTimestamp(),
-              'isRead': false,
-              'navigationTarget': {
-                'route': 'TherapistDashboard',
-              },
-            });
-          }
+          await _firestore.collection('notifications').add({
+            'userId': therapistId,
+            'title': '💳 New Subscription!',
+            'message': '$parentDisplayName has subscribed to one of your packages.',
+            'category': 'subscription',
+            'timestamp': FieldValue.serverTimestamp(),
+            'isRead': false,
+            'navigationTarget': {
+              'route': 'TherapistDashboard',
+            },
+          });
         }
       }
       // Notify parent: subscription activated
@@ -1942,6 +1927,26 @@ class FirebaseSupportRepository implements SupportRepository {
     final reporterDoc = await _firestore.collection(FirestoreCollections.users).doc(reporterId).get();
     final reporterRole = (reporterDoc.data()?['role'] ?? 'parent').toString();
 
+    // --- Resolve display names for notifications ---
+    String reporterName = 'A user';
+    String reportedName = 'A user';
+    try {
+      if (reporterRole == 'parent') {
+        reporterName = _resolveParentDisplayName(reporterDoc.data() ?? {});
+        final tDoc = await _firestore.collection(FirestoreCollections.therapistProfiles).doc(reportedId).get();
+        reportedName = (tDoc.data()?['displayName'] ?? 'Therapist').toString();
+        if (reportedName.isEmpty) reportedName = 'Therapist';
+      } else {
+        final tDoc = await _firestore.collection(FirestoreCollections.therapistProfiles).doc(reporterId).get();
+        reporterName = (tDoc.data()?['displayName'] ?? 'Therapist').toString();
+        if (reporterName.isEmpty) reporterName = 'Therapist';
+        final pDoc = await _firestore.collection(FirestoreCollections.users).doc(reportedId).get();
+        reportedName = _resolveParentDisplayName(pDoc.data() ?? {});
+      }
+    } catch (e) {
+      debugPrint('submitReport: failed to resolve display names: $e');
+    }
+
     final reportRef = _firestore.collection('reports').doc();
     final report = UserReport(
       id: reportRef.id,
@@ -1964,15 +1969,54 @@ class FirebaseSupportRepository implements SupportRepository {
     });
 
     if (threadId != null && threadId.trim().isNotEmpty) {
+      final tid = threadId.trim();
+      // Mark the thread as reported and record which side filed the report
+      final reporterFlag = reporterRole == 'parent' ? 'reportedByParent' : 'reportedByTherapist';
       await _firestore
           .collection(FirestoreCollections.therapistThreads)
-          .doc(threadId.trim())
+          .doc(tid)
           .set({
             'status': 'reported',
+            reporterFlag: true,
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
     }
+
+    // --- Notify the reported person with reporter's real name and reason ---
+    try {
+      await _firestore.collection('notifications').add({
+        'userId': reportedId,
+        'title': '⚠️ Report Filed Against You',
+        'message': '$reporterName has reported you for "$reason". '
+            'The AutiEase admin team will review this and inform both parties of the action taken.',
+        'category': 'reports',
+        'isRead': false,
+        'timestamp': FieldValue.serverTimestamp(),
+        if (threadId != null)
+          'navigationTarget': {'route': 'Chat', 'threadId': threadId},
+      });
+    } catch (e) {
+      debugPrint('submitReport: failed to notify reported user: $e');
+    }
+
+    // --- Send a confirmation notification to the reporter ---
+    try {
+      await _firestore.collection('notifications').add({
+        'userId': reporterId,
+        'title': '✅ Report Submitted',
+        'message': 'Your report against $reportedName for "$reason" has been submitted. '
+            'Admin will review it and inform both parties accordingly.',
+        'category': 'reports',
+        'isRead': false,
+        'timestamp': FieldValue.serverTimestamp(),
+        if (threadId != null)
+          'navigationTarget': {'route': 'Chat', 'threadId': threadId},
+      });
+    } catch (e) {
+      debugPrint('submitReport: failed to notify reporter: $e');
+    }
   }
+
 
   @override
   Future<void> resolveReport({
@@ -2053,7 +2097,7 @@ class FirebaseSupportRepository implements SupportRepository {
           'updatedAt': FieldValue.serverTimestamp(),
         });
       } else {
-        // Warning or No Action: unlock if subscription remains active
+        // Warning or No Action: unlock if subscription remains active, and clear reporter flags
         final parentId = reporterRole == 'parent' ? reporterId : reportedId;
         final therapistId = reporterRole == 'parent' ? reportedId : reporterId;
         final subDocId = 'sub_${parentId}_$therapistId';
@@ -2061,8 +2105,11 @@ class FirebaseSupportRepository implements SupportRepository {
         
         final hasActiveSub = subDoc.exists && subDoc.data()?['isActive'] == true && subDoc.data()?['status'] != 'canceled';
         
+        // Clear the reporter flags so both sides can report again if needed
         await _firestore.collection(FirestoreCollections.therapistThreads).doc(tid).update({
           'status': hasActiveSub ? 'active' : 'locked',
+          'reportedByParent': false,
+          'reportedByTherapist': false,
           'updatedAt': FieldValue.serverTimestamp(),
         });
       }
@@ -2084,70 +2131,86 @@ class FirebaseSupportRepository implements SupportRepository {
       'timestamp': FieldValue.serverTimestamp(),
     });
 
-    // 6. Send Notifications
+    // 6. Resolve real display names for notifications
+    String reporterName = 'the reporter';
+    String reportedName = 'the reported user';
+    try {
+      if (reporterRole == 'parent') {
+        // Reporter is parent
+        final pDoc = await _firestore.collection(FirestoreCollections.users).doc(reporterId).get();
+        reporterName = _resolveParentDisplayName(pDoc.data() ?? {});
+        // Reported is therapist
+        final tDoc = await _firestore.collection(FirestoreCollections.therapistProfiles).doc(reportedId).get();
+        reportedName = (tDoc.data()?['displayName'] ?? '').toString();
+        if (reportedName.isEmpty) reportedName = 'the therapist';
+      } else {
+        // Reporter is therapist
+        final tDoc = await _firestore.collection(FirestoreCollections.therapistProfiles).doc(reporterId).get();
+        reporterName = (tDoc.data()?['displayName'] ?? '').toString();
+        if (reporterName.isEmpty) reporterName = 'the therapist';
+        // Reported is parent
+        final pDoc = await _firestore.collection(FirestoreCollections.users).doc(reportedId).get();
+        reportedName = _resolveParentDisplayName(pDoc.data() ?? {});
+      }
+    } catch (e) {
+      debugPrint('resolveReport: failed to resolve display names: $e');
+    }
+
+    // 7. Send Notifications with real names
     final isNoAction = action == 'no_action' || action == 'remove' || action == 'close' || action == 'request_info';
     final actionLabel = action == 'warn'
         ? 'Warning'
         : action == 'suspend'
             ? 'Suspension'
             : action == 'restrict'
-                ? 'Restriction'
+                ? 'Temporary Restriction'
                 : action == 'ban'
                     ? 'Permanent Ban'
-                    : action;
+                    : 'No Action';
+    final reasonText = notes.trim().isNotEmpty ? ' Reason: $notes.' : '';
 
     // A. Notification for Reported User
-    String reportedMessage = '';
+    String reportedMessage;
     if (isNoAction) {
-      reportedMessage = 'A report regarding your account has been reviewed. No action has been taken after investigation.';
+      reportedMessage = 'A report filed by $reporterName against your account has been reviewed. '
+          'After investigation, no policy violation was found and no action has been taken.$reasonText';
     } else {
-      if (reporterRole == 'parent') {
-        // Reported is Therapist
-        reportedMessage = 'An action has been taken regarding the report submitted against your account. Action: $actionLabel. Please review our community guidelines and avoid future violations.';
-      } else {
-        // Reported is Parent
-        reportedMessage = 'An action has been taken regarding the report submitted against your account. Action: $actionLabel. Please review our community guidelines to avoid future violations.';
-      }
+      reportedMessage = '$reporterName submitted a report against your account. '
+          'After review, the admin has issued the following action: $actionLabel.$reasonText '
+          'Please adhere to our community guidelines to avoid future violations.';
     }
 
     await _firestore.collection('notifications').add({
       'userId': reportedId,
-      'title': isNoAction ? 'Report Investigation' : 'Account Warning / Action',
+      'title': isNoAction ? '✅ Report Dismissed' : '⚠️ Admin Action Taken',
       'message': reportedMessage,
       'category': 'reports',
       'isRead': false,
       'timestamp': FieldValue.serverTimestamp(),
       if (threadId != null)
-        'navigationTarget': {
-          'route': 'Chat',
-          'threadId': threadId,
-        },
+        'navigationTarget': {'route': 'Chat', 'threadId': threadId},
     });
 
     // B. Notification for Reporter
-    String reporterMessage = '';
+    String reporterMessage;
     if (isNoAction) {
-      reporterMessage = 'Your report has been reviewed. After investigation, no policy violation was found. No action has been taken at this time.';
+      reporterMessage = 'Your report against $reportedName has been reviewed. '
+          'After investigation, no policy violation was found. No action has been taken at this time.$reasonText';
     } else {
-      if (reporterRole == 'parent') {
-        reporterMessage = 'Your report has been reviewed. Action Taken: $actionLabel issued to the therapist. Thank you for helping us maintain a safe platform.';
-      } else {
-        reporterMessage = 'Your report has been reviewed. Action Taken: $actionLabel issued to the parent. Thank you for reporting the issue.';
-      }
+      reporterMessage = 'Your report against $reportedName has been reviewed by the admin. '
+          'Action taken: $actionLabel.$reasonText '
+          'Thank you for helping us maintain a safe and supportive platform.';
     }
 
     await _firestore.collection('notifications').add({
       'userId': reporterId,
-      'title': 'Report Status Update',
+      'title': '📋 Report Status Update',
       'message': reporterMessage,
       'category': 'reports',
       'isRead': false,
       'timestamp': FieldValue.serverTimestamp(),
       if (threadId != null)
-        'navigationTarget': {
-          'route': 'Chat',
-          'threadId': threadId,
-        },
+        'navigationTarget': {'route': 'Chat', 'threadId': threadId},
     });
   }
 
@@ -3410,7 +3473,12 @@ class FirebaseBillingRepository implements BillingRepository {
             .get();
         final therapistDisplayName = therapistProfile.data()?['displayName']?.toString() ?? 'Therapist';
         final parentDoc = await _firestore.collection(FirestoreCollections.users).doc(userId).get();
-        final parentDisplayName = (parentDoc.data()?['displayName']?.toString() ?? '').split(' ').first;
+        final parentData = parentDoc.data() ?? {};
+        final pFirst = (parentData['firstName'] ?? '').toString().trim();
+        final pLast = (parentData['lastName'] ?? '').toString().trim();
+        final parentDisplayName = '$pFirst $pLast'.trim().isNotEmpty
+            ? '$pFirst $pLast'.trim()
+            : (parentData['fullName'] ?? parentData['displayName'] ?? 'A parent').toString().trim();
         await _firestore.collection('notifications').add({
           'userId': userId,
           'title': '❌ Subscription Cancelled',
@@ -3489,7 +3557,12 @@ class FirebaseBillingRepository implements BillingRepository {
             .get();
         final therapistDisplayName = therapistProfile.data()?['displayName']?.toString() ?? 'Therapist';
         final parentDoc = await _firestore.collection(FirestoreCollections.users).doc(userId).get();
-        final parentDisplayName = (parentDoc.data()?['displayName']?.toString() ?? '').split(' ').first;
+        final parentData = parentDoc.data() ?? {};
+        final pFirstR = (parentData['firstName'] ?? '').toString().trim();
+        final pLastR = (parentData['lastName'] ?? '').toString().trim();
+        final parentDisplayName = '$pFirstR $pLastR'.trim().isNotEmpty
+            ? '$pFirstR $pLastR'.trim()
+            : (parentData['fullName'] ?? parentData['displayName'] ?? 'A parent').toString().trim();
         await _firestore.collection('notifications').add({
           'userId': userId,
           'title': '\u{1F504} Subscription Reactivated',
@@ -3972,11 +4045,76 @@ class FirebaseAdminRepository implements AdminRepository {
     String? adminNotes,
     String? receiptBase64,
   }) async {
-    await AppRepositories.paymentBackend.resolveWithdrawalRequest(
-      requestId: requestId,
-      status: status,
-      adminNotes: adminNotes,
-      receiptBase64: receiptBase64,
-    );
+    final adminId = _auth.currentUser?.uid;
+    if (adminId == null) throw StateError('No logged in admin');
+
+    // 1. Fetch the withdrawal request document
+    final reqDoc = await _firestore.collection('withdrawal_requests').doc(requestId).get();
+    if (!reqDoc.exists) throw StateError('Withdrawal request not found');
+    final reqData = reqDoc.data() ?? {};
+    final therapistId = reqData['therapistId']?.toString() ?? '';
+    final amount = (reqData['amount'] as num?)?.toDouble() ?? 0.0;
+
+    // 2. Update the withdrawal request in Firestore
+    await _firestore.collection('withdrawal_requests').doc(requestId).update({
+      'status': status,
+      if (adminNotes != null && adminNotes.isNotEmpty) 'adminNotes': adminNotes,
+      if (receiptBase64 != null && receiptBase64.isNotEmpty) 'receiptBase64': receiptBase64,
+      'resolvedAt': FieldValue.serverTimestamp(),
+      'resolvedBy': adminId,
+    });
+
+    // 3. If paid: deduct from therapist wallet balance
+    if (status == 'paid' && therapistId.isNotEmpty) {
+      await _firestore.collection(FirestoreCollections.therapistProfiles).doc(therapistId).update({
+        'walletBalance': FieldValue.increment(-amount),
+        'totalPaidOut': FieldValue.increment(amount),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    // 4. Write audit log
+    final logRef = _firestore.collection('admin_audit_logs').doc();
+    await logRef.set({
+      'id': logRef.id,
+      'adminUid': adminId,
+      'adminEmail': _auth.currentUser?.email ?? '',
+      'targetUid': therapistId,
+      'actionType': status == 'paid' ? 'withdrawal_paid' : 'withdrawal_rejected',
+      'details': 'Request: $requestId, Amount: Rs.$amount, Notes: ${adminNotes ?? ''}',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    // 5. Notify the therapist
+    if (therapistId.isNotEmpty) {
+      try {
+        if (status == 'paid') {
+          await _firestore.collection('notifications').add({
+            'userId': therapistId,
+            'title': '✅ Withdrawal Paid',
+            'message': 'Your withdrawal request of Rs.${amount.toStringAsFixed(0)} has been processed and paid. '
+                '${adminNotes != null && adminNotes.isNotEmpty ? 'Reference: $adminNotes.' : ''}',
+            'category': 'wallet',
+            'isRead': false,
+            'timestamp': FieldValue.serverTimestamp(),
+            'navigationTarget': {'route': 'TherapistWallet'},
+          });
+        } else {
+          await _firestore.collection('notifications').add({
+            'userId': therapistId,
+            'title': '❌ Withdrawal Rejected',
+            'message': 'Your withdrawal request of Rs.${amount.toStringAsFixed(0)} has been rejected. '
+                '${adminNotes != null && adminNotes.isNotEmpty ? 'Reason: $adminNotes.' : 'Please contact support for details.'}',
+            'category': 'wallet',
+            'isRead': false,
+            'timestamp': FieldValue.serverTimestamp(),
+            'navigationTarget': {'route': 'TherapistWallet'},
+          });
+        }
+      } catch (e) {
+        debugPrint('resolveWithdrawalRequest: failed to notify therapist: $e');
+      }
+    }
   }
 }
+

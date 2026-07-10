@@ -1306,6 +1306,9 @@ class TherapistThread {
     this.finalMessageSentByTherapist = false,
     this.finalReplySentByParent = false,
     this.finalReplySentByTherapist = false,
+    // Report tracking — true after the respective side has filed an open report
+    this.reportedByParent = false,
+    this.reportedByTherapist = false,
   });
 
   final String id;
@@ -1333,6 +1336,10 @@ class TherapistThread {
   final bool finalMessageSentByTherapist;
   final bool finalReplySentByParent;
   final bool finalReplySentByTherapist;
+  /// True after the parent has filed an open report on this thread.
+  final bool reportedByParent;
+  /// True after the therapist has filed an open report on this thread.
+  final bool reportedByTherapist;
 
   bool get hasOpenEmergency => emergencyStatus == 'requested';
   bool get emergencyResponded => emergencyStatus == 'responded';
@@ -1365,6 +1372,8 @@ class TherapistThread {
       finalMessageSentByTherapist: data['finalMessageSentByTherapist'] == true,
       finalReplySentByParent: data['finalReplySentByParent'] == true,
       finalReplySentByTherapist: data['finalReplySentByTherapist'] == true,
+      reportedByParent: data['reportedByParent'] == true,
+      reportedByTherapist: data['reportedByTherapist'] == true,
     );
   }
 
@@ -1390,6 +1399,8 @@ class TherapistThread {
     bool? finalMessageSentByTherapist,
     bool? finalReplySentByParent,
     bool? finalReplySentByTherapist,
+    bool? reportedByParent,
+    bool? reportedByTherapist,
   }) {
     return TherapistThread(
       id: id,
@@ -1417,6 +1428,8 @@ class TherapistThread {
       finalMessageSentByTherapist: finalMessageSentByTherapist ?? this.finalMessageSentByTherapist,
       finalReplySentByParent: finalReplySentByParent ?? this.finalReplySentByParent,
       finalReplySentByTherapist: finalReplySentByTherapist ?? this.finalReplySentByTherapist,
+      reportedByParent: reportedByParent ?? this.reportedByParent,
+      reportedByTherapist: reportedByTherapist ?? this.reportedByTherapist,
     );
   }
 
@@ -1442,6 +1455,8 @@ class TherapistThread {
       'finalMessageSentByTherapist': finalMessageSentByTherapist,
       'finalReplySentByParent': finalReplySentByParent,
       'finalReplySentByTherapist': finalReplySentByTherapist,
+      'reportedByParent': reportedByParent,
+      'reportedByTherapist': reportedByTherapist,
     };
   }
 }

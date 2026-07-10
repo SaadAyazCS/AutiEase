@@ -959,13 +959,21 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
               ),
             );
           } else if (choice == 'cancel') {
-            // Cancel subscription in store
-            await AppRepositories.billing.cancelSubscriptionInStore(
-              widget.thread.therapistId,
-              keepAndLockChats: true,
-              reason: 'Reported therapist: $selectedReason',
+            // First ask about chat history (keep locked / delete)
+            if (!mounted) return;
+            final historyChoice = await showDialog<String>(
+              context: context,
+              barrierDismissible: false,
+              builder: (ctx) => ChatHistoryChoicesDialog(
+                therapistId: widget.thread.therapistId,
+                cancellationReason: 'Reported therapist: $selectedReason',
+                onComplete: (_) {},
+              ),
             );
 
+            if (!mounted) return;
+
+            // Submit report regardless of chat history choice
             await AppRepositories.support.submitReport(
               reportedId: peerId,
               reason: selectedReason,
@@ -977,18 +985,28 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
             );
 
             if (!mounted) return;
-            await showDialog<void>(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: const Text('Report Submitted'),
-                content: const Text(
-                  'Your report has been submitted and your subscription has been cancelled.',
+            final messenger = ScaffoldMessenger.of(context);
+            if (historyChoice == 'delete') {
+              Navigator.pop(context);
+              messenger.showSnackBar(
+                const SnackBar(
+                  content: Text('Report submitted and subscription cancelled. Chat history deleted.'),
+                  backgroundColor: Color(0xFFEF4444),
                 ),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
-                ],
-              ),
-            );
+              );
+            } else if (historyChoice == 'keep') {
+              messenger.showSnackBar(
+                const SnackBar(
+                  content: Text('Report submitted and subscription cancelled. Chat locked to read-only.'),
+                  backgroundColor: Color(0xFF3B82F6),
+                ),
+              );
+              // Trigger review dialog after cancellation
+              final therapist = await _resolveTherapistProfile();
+              if (therapist != null && mounted) {
+                _showReviewDialog(context, therapist);
+              }
+            }
           }
         } catch (e) {
           if (!mounted) return;
@@ -998,7 +1016,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         }
 
       } else {
-        // Therapist report flow: simple confirm & submit
+        // Therapist report flow: confirm, submit, then show chat history choice
         if (!mounted) return;
         final confirm = await showDialog<bool>(
           context: context,
@@ -1025,16 +1043,72 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
             );
 
             if (!mounted) return;
-            showDialog<void>(
+
+            // Show chat history choice for therapist (keep locked / delete)
+            final historyChoice = await showDialog<String>(
               context: context,
-              builder: (context) => AlertDialog(
-                title: const Text('Report Submitted'),
-                content: const Text('Thank you. We have received your report and will take action if any violations are found.'),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
-                ],
+              barrierDismissible: false,
+              builder: (ctx) => _TherapistReportHistoryDialog(
+                threadId: widget.thread.id,
+                parentName: widget.thread.parentDisplayName.isNotEmpty
+                    ? widget.thread.parentDisplayName
+                    : 'the parent',
               ),
             );
+
+            if (!mounted) return;
+
+            if (historyChoice == 'delete') {
+              // Delete all messages from the thread then navigate away
+              try {
+                final msgSnap = await FirebaseFirestore.instance
+                    .collection(FirestoreCollections.therapistThreads)
+                    .doc(widget.thread.id)
+                    .collection('messages')
+                    .get();
+                final batch = FirebaseFirestore.instance.batch();
+                for (final doc in msgSnap.docs) {
+                  batch.delete(doc.reference);
+                }
+                // Also delete the thread document itself
+                batch.delete(FirebaseFirestore.instance
+                    .collection(FirestoreCollections.therapistThreads)
+                    .doc(widget.thread.id));
+                await batch.commit();
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Report submitted. Chat history deleted.'),
+                      backgroundColor: Color(0xFFEF4444),
+                    ),
+                  );
+                }
+              } catch (e) {
+                debugPrint('Failed to delete thread after therapist report: $e');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Report submitted. Chat history kept (could not delete).')),
+                  );
+                }
+              }
+            } else {
+              // Keep locked — thread status is already 'reported', just confirm to user
+              if (mounted) {
+                showDialog<void>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Report Submitted'),
+                    content: const Text(
+                      'Thank you. We have received your report and will take action if any violations are found. The chat is now locked pending review.',
+                    ),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+                    ],
+                  ),
+                );
+              }
+            }
           } catch (e) {
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
@@ -1045,6 +1119,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
       }
     }
   }
+
 
   Future<void> _showClinicalNoteDialog() async {
     showDialog<void>(
@@ -2609,6 +2684,14 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                     itemBuilder: (context) {
                       final currentThread = _lastSeenThread ?? widget.thread;
                       final isLocked = currentThread.status == 'locked';
+                      final isReported = currentThread.status == 'reported';
+                      // Thread is in view-only mode if locked or reported
+                      final isViewOnly = isLocked || isReported;
+                      // Has the current user already filed a pending report on this thread?
+                      final hasAlreadyReported = widget.senderRole == 'parent'
+                          ? currentThread.reportedByParent
+                          : currentThread.reportedByTherapist;
+
                       return [
                         const PopupMenuItem(
                           value: 'profile',
@@ -2630,7 +2713,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                             ],
                           ),
                         ),
-                        if (widget.senderRole == 'therapist')
+                        // Clinical note, report, and block are all hidden in view-only mode
+                        if (!isViewOnly && widget.senderRole == 'therapist')
                           const PopupMenuItem(
                             value: 'clinical_note',
                             child: Row(
@@ -2641,17 +2725,19 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                               ],
                             ),
                           ),
-                        if (!isLocked) ...[
-                          const PopupMenuItem(
-                            value: 'report',
-                            child: Row(
-                              children: [
-                                Icon(Icons.report_outlined, size: 20, color: AppColors.errorRed),
-                                SizedBox(width: 8),
-                                Text('Report User', style: TextStyle(color: AppColors.errorRed)),
-                              ],
+                        if (!isViewOnly) ...[ 
+                          // Only show Report User if this side hasn't already filed one
+                          if (!hasAlreadyReported)
+                            const PopupMenuItem(
+                              value: 'report',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.report_outlined, size: 20, color: AppColors.errorRed),
+                                  SizedBox(width: 8),
+                                  Text('Report User', style: TextStyle(color: AppColors.errorRed)),
+                                ],
+                              ),
                             ),
-                          ),
                           // Hide "Block User" if the other party already blocked us —
                           // blocked person cannot counter-block the blocker.
                           // Still show "Unblock User" if we are the one who initiated the block.
@@ -2669,6 +2755,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                         ],
                       ];
                     },
+
                   ),
 
           ],
@@ -3751,7 +3838,121 @@ class _CancelSubscriptionDialogState extends State<CancelSubscriptionDialog> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Therapist Report History Dialog
+// Shown to therapists after submitting a report so they can choose to keep
+// the locked chat history or delete it entirely.
+// ---------------------------------------------------------------------------
+class _TherapistReportHistoryDialog extends StatelessWidget {
+  const _TherapistReportHistoryDialog({
+    required this.threadId,
+    required this.parentName,
+  });
+
+  final String threadId;
+  final String parentName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF7C3AED), Color(0xFF4F46E5)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+            child: const Text(
+              'What about the chat history?',
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Your report has been submitted. Choose what to do with your conversation with $parentName:',
+                  style: const TextStyle(color: Color(0xFF475569), fontSize: 13.5, height: 1.4),
+                ),
+                const SizedBox(height: 20),
+                InkWell(
+                  onTap: () => Navigator.pop(context, 'keep'),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF93C5FD)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.lock_outline_rounded, color: Color(0xFF2563EB), size: 22),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Keep Chat Locked', style: TextStyle(color: Color(0xFF1D4ED8), fontWeight: FontWeight.bold, fontSize: 14)),
+                              SizedBox(height: 3),
+                              Text('Preserve the conversation for admin review.', style: TextStyle(color: Color(0xFF3B82F6), fontSize: 12.5)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () => Navigator.pop(context, 'delete'),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFFCA5A5)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 22),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Delete Chat History', style: TextStyle(color: Color(0xFF991B1B), fontWeight: FontWeight.bold, fontSize: 14)),
+                              SizedBox(height: 3),
+                              Text('Permanently delete all messages. Cannot be undone.', style: TextStyle(color: Color(0xFFEF4444), fontSize: 12.5)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class ChatHistoryChoicesDialog extends StatefulWidget {
+
   const ChatHistoryChoicesDialog({
     super.key,
     this.threadId,

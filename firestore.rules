@@ -187,14 +187,20 @@ service cloud.firestore {
         ownsChild(request.resource.data.childId);
       // Participants may update thread-level metadata (typing status, lastRead
       // timestamps) but must not change the immutable identity fields.
-      allow update: if isThreadParticipant(resource.data) &&
+      // Admins may update any thread (e.g., to lock/unlock after resolving a report).
+      allow update: if isAdmin() || (
+        isThreadParticipant(resource.data) &&
         request.resource.data.parentId == resource.data.parentId &&
         request.resource.data.therapistId == resource.data.therapistId &&
         request.resource.data.childId == resource.data.childId &&
         request.resource.data.subscriptionId == resource.data.subscriptionId &&
         // Prevent altering the original creation timestamp
-        (!('createdAt' in request.resource.data) || request.resource.data.createdAt == resource.data.createdAt);
-      allow delete: if isParent() && resource.data.parentId == request.auth.uid;
+        (!('createdAt' in request.resource.data) || request.resource.data.createdAt == resource.data.createdAt)
+      );
+      // Parent or therapist may delete their own thread (e.g., after report / subscription cancellation)
+      allow delete: if isAdmin() ||
+        (isParent() && resource.data.parentId == request.auth.uid) ||
+        (isTherapist() && resource.data.therapistId == request.auth.uid);
 
       match /messages/{messageId} {
         allow read: if isThreadParticipant(
@@ -222,8 +228,10 @@ service cloud.firestore {
           request.resource.data.isDeleted == true &&
           // Prevent un-deleting a message
           resource.data.isDeleted != true;
-        allow delete: if isParent() &&
-          get(/databases/$(database)/documents/therapist_threads/$(threadId)).data.parentId == request.auth.uid;
+        // Parent, therapist (for chat deletion after report), or admin may hard-delete messages
+        allow delete: if isAdmin() ||
+          (isParent() && get(/databases/$(database)/documents/therapist_threads/$(threadId)).data.parentId == request.auth.uid) ||
+          (isTherapist() && get(/databases/$(database)/documents/therapist_threads/$(threadId)).data.therapistId == request.auth.uid);
       }
     }
 

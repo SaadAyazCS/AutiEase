@@ -749,13 +749,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           ),
           actions: [
             if (pending) ...[
-              TextButton(
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  await _updateReport(report.id, 'dismissed');
-                },
-                child: const Text('Dismiss'),
-              ),
               ElevatedButton(
                 onPressed: () {
                   Navigator.pop(ctx);
@@ -1918,23 +1911,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   ],
                   if (pending) ...[
                     const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => _updateReport(report.id, 'dismissed'),
-                            child: const Text('Dismiss'),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () => _showModerationDialog(report.reportedId, report.id),
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                            child: const Text('Moderate'),
-                          ),
-                        ),
-                      ],
+                    ElevatedButton(
+                      onPressed: () => _showModerationDialog(report.reportedId, report.id),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                      child: const Text('Moderate / Resolve'),
                     ),
                   ],
                 ],
@@ -1946,13 +1926,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     );
   }
 
-  Future<void> _updateReport(String reportId, String status) async {
-    await AppRepositories.admin.updateReportStatus(reportId, status);
-    await _loadStats();
-    setState(() {});
-  }
-
   void _showModerationDialog(String userId, String reportId) {
+
     final controller = TextEditingController();
     final messenger = ScaffoldMessenger.of(context);
     String selectedAction = 'no_action';
@@ -3884,8 +3859,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           bool matchesStatus = true;
           if (_subFilterStatus == 'Active') {
             matchesStatus = sub.isActive || status == 'active' || status == 'trialing' || status == 'grace_period';
-          } else if (_subFilterStatus == 'Pending') {
-            matchesStatus = status == 'pending' || status == 'payment_failed' || status.contains('pending');
           } else if (_subFilterStatus == 'Canceled') {
             matchesStatus = status == 'canceled' || status == 'cancelled' || status == 'cancels soon' || status == 'cancels_soon' || status.contains('cancel');
           } else if (_subFilterStatus == 'Expired') {
@@ -3956,7 +3929,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
-                      children: ['All', 'Active', 'Pending', 'Canceled', 'Expired'].map((status) {
+                      children: ['All', 'Active', 'Canceled', 'Expired'].map((status) {
                         final isSelected = _subFilterStatus == status;
                         return Padding(
                           padding: const EdgeInsets.only(right: 8),
@@ -4705,7 +4678,117 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   Future<void> _resolveWithdrawal(String requestId, String status) async {
     String? adminNotes;
     String? receiptBase64;
-    if (status == 'paid') {
+
+    if (status == 'rejected') {
+      // Mandatory rejection reason dialog
+      final reason = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          final ctrl = TextEditingController();
+          final formKey = GlobalKey<FormState>();
+          return AlertDialog(
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEE2E2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.cancel_rounded, color: Color(0xFFDC2626), size: 24),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Reject Withdrawal',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                  ),
+                ),
+              ],
+            ),
+            content: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'You must provide a reason for rejection. This reason will be sent to the therapist in their notification.',
+                    style: TextStyle(color: Color(0xFF64748B), fontSize: 13, height: 1.4),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: ctrl,
+                    autofocus: true,
+                    maxLines: 3,
+                    maxLength: 300,
+                    style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B)),
+                    decoration: InputDecoration(
+                      labelText: 'Rejection Reason *',
+                      labelStyle: const TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.bold, fontSize: 13),
+                      hintText: 'e.g. Incorrect account details, duplicate request...',
+                      hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12.5),
+                      filled: true,
+                      fillColor: const Color(0xFFFEF2F2),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFDC2626), width: 2),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFFCA5A5)),
+                      ),
+                      errorBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFEF4444)),
+                      ),
+                      focusedErrorBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFEF4444), width: 2),
+                      ),
+                    ),
+                    validator: (val) {
+                      if (val == null || val.trim().isEmpty) return 'Rejection reason is required';
+                      if (val.trim().length < 5) return 'Please enter a more descriptive reason';
+                      return null;
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFDC2626),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                ),
+                onPressed: () {
+                  if (formKey.currentState?.validate() == true) {
+                    Navigator.pop(ctx, ctrl.text.trim());
+                  }
+                },
+                child: const Text('Confirm Rejection', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              ),
+            ],
+          );
+        },
+      );
+      if (reason == null) return; // admin cancelled
+      adminNotes = reason;
+    } else if (status == 'paid') {
       final resMap = await showDialog<Map<String, String?>>(
         context: context,
         builder: (ctx) {
