@@ -555,6 +555,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
       experienceDetails: profile.experienceDetails,
       ratingBreakdown: profile.ratingBreakdown,
       totalReviews: profile.totalReviews,
+      servicePackages: packages,
       hasUnacknowledgedChanges: profile.hasUnacknowledgedChanges,
       unacknowledgedChangesFields: profile.unacknowledgedChangesFields,
     );
@@ -718,6 +719,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
       experienceDetails: profile.experienceDetails,
       ratingBreakdown: profile.ratingBreakdown,
       totalReviews: profile.totalReviews,
+      servicePackages: profile.servicePackages,
     );
     await AppRepositories.users.upsertTherapistProfile(updated);
     await FirebaseFirestore.instance
