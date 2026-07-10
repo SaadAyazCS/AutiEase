@@ -84,6 +84,8 @@ class _TherapistNotificationInboxScreenState
         return Icons.verified_user_rounded;
       case 'reports':
         return Icons.flag_rounded;
+      case 'emergency':
+        return Icons.warning_amber_rounded;
       case 'system':
       default:
         return Icons.notifications_active_rounded;
@@ -106,6 +108,8 @@ class _TherapistNotificationInboxScreenState
         return const Color(0xFF06B6D4); // cyan 500
       case 'reports':
         return const Color(0xFFEF4444); // red 500
+      case 'emergency':
+        return const Color(0xFFDC2626); // red 600 — deep alert red
       case 'system':
       default:
         return const Color(0xFF64748B); // slate 500

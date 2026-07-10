@@ -1760,6 +1760,12 @@ class FirebaseSupportRepository implements SupportRepository {
         .collection(FirestoreCollections.therapistThreads)
         .doc(threadId);
 
+    // Fetch thread data so we can address the notification correctly
+    final threadSnap = await threadRef.get();
+    final threadData = threadSnap.data() ?? <String, dynamic>{};
+    final therapistId = (threadData['therapistId'] ?? '').toString();
+    final parentName = (threadData['parentDisplayName'] ?? 'A parent').toString();
+
     await threadRef.collection('messages').add({
       'senderId': senderId,
       'senderRole': requestedByRole,
@@ -1777,6 +1783,26 @@ class FirebaseSupportRepository implements SupportRepository {
       'lastMessageAt': FieldValue.serverTimestamp(),
       'lastMessagePreview': 'Emergency support requested.',
     }, SetOptions(merge: true));
+
+    // Notify the therapist in their notification inbox
+    if (therapistId.isNotEmpty) {
+      try {
+        await _firestore.collection('notifications').add({
+          'userId': therapistId,
+          'title': '🚨 Emergency Support Requested',
+          'message': '$parentName has requested immediate emergency support. Please respond as soon as possible.',
+          'category': 'emergency',
+          'isRead': false,
+          'timestamp': FieldValue.serverTimestamp(),
+          'navigationTarget': {
+            'route': 'chat',
+            'threadId': threadId,
+          },
+        });
+      } catch (_) {
+        // Prevent notification errors from blocking emergency save
+      }
+    }
   }
 
   @override

@@ -13,6 +13,7 @@ import 'package:printing/printing.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
@@ -167,6 +168,12 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   Timer? _activeStatusTimer;
   Timer? _peerActiveTimer;
 
+  // Emergency alert loop — fires local notifications every 10 sec for therapist
+  Timer? _emergencyAlertTimer;
+  bool _emergencyAlertActive = false;
+  static const int _emergencyNotifId = 99901;
+  final FlutterLocalNotificationsPlugin _localNotif = FlutterLocalNotificationsPlugin();
+
   final AudioRecorder _audioRecorder = AudioRecorder();
   final AudioPlayer _audioPlayer = AudioPlayer();
   StreamSubscription? _audioPosSubscription;
@@ -221,6 +228,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     _audioPlayer.dispose();
     _audioPosSubscription?.cancel();
     _audioCompleteSubscription?.cancel();
+    // Stop emergency alert loop if still running
+    _stopEmergencyAlertLoop();
     super.dispose();
   }
 
@@ -316,6 +325,57 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         }
       }
     } catch (_) {}
+  }
+
+  // ─── Emergency Alert Loop ───────────────────────────────────────────────
+
+  /// Start firing a local notification every 10 seconds to the therapist.
+  /// Only runs when senderRole == 'therapist' and emergency is open.
+  void _startEmergencyAlertLoop(String parentName) {
+    if (_emergencyAlertActive) return; // already running
+    _emergencyAlertActive = true;
+    const notifDetails = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'autiease_high_channel',
+        'High Importance Notifications',
+        channelDescription: 'Used for important messages and emergencies.',
+        importance: Importance.max,
+        priority: Priority.high,
+        icon: '@mipmap/ic_launcher',
+        playSound: true,
+        enableVibration: true,
+      ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      ),
+    );
+    // Fire immediately, then every 10 seconds
+    _localNotif.show(
+      _emergencyNotifId,
+      '🚨 Emergency Support Requested!',
+      '$parentName needs immediate help. Open the chat now.',
+      notifDetails,
+    );
+    _emergencyAlertTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!_emergencyAlertActive) return;
+      _localNotif.show(
+        _emergencyNotifId,
+        '🚨 Emergency Support Requested!',
+        '$parentName needs immediate help. Open the chat now.',
+        notifDetails,
+      );
+    });
+  }
+
+  /// Stop the emergency alert loop and dismiss all emergency notifications.
+  void _stopEmergencyAlertLoop() {
+    if (!_emergencyAlertActive) return;
+    _emergencyAlertActive = false;
+    _emergencyAlertTimer?.cancel();
+    _emergencyAlertTimer = null;
+    _localNotif.cancel(_emergencyNotifId);
   }
 
   void _syncResolvedBanner(TherapistThread thread) {
@@ -2615,6 +2675,19 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
             final thread = threadSnapshot.data ?? widget.thread;
             _lastSeenThread = thread;
             _syncResolvedBanner(thread);
+            // Sync emergency alert loop for therapists
+            if (widget.senderRole == 'therapist') {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                if (thread.hasOpenEmergency && !_emergencyAlertActive) {
+                  _startEmergencyAlertLoop(thread.parentDisplayName.isNotEmpty
+                      ? thread.parentDisplayName
+                      : 'A parent');
+                } else if (!thread.hasOpenEmergency && _emergencyAlertActive) {
+                  _stopEmergencyAlertLoop();
+                }
+              });
+            }
             WidgetsBinding.instance.addPostFrameCallback((_) => _refreshBlockInfoFromThread(thread));
             final canSendMessage = _canSendMessage(thread);
             final canSendFinal = _canSendFinalMessage(thread);

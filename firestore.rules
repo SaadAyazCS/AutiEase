@@ -336,7 +336,8 @@ service cloud.firestore {
           request.resource.data.category == 'appointments' ||
           request.resource.data.category == 'subscription' ||
           request.resource.data.category == 'activities' ||
-          request.resource.data.category == 'reports'
+          request.resource.data.category == 'reports' ||
+          request.resource.data.category == 'emergency'
         ))
       );
       allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
