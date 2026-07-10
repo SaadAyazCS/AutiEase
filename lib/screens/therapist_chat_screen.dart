@@ -178,10 +178,14 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   bool _searchMode = false;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  late Stream<TherapistThread?> _threadStream;
+  late Stream<List<TherapistMessage>> _messagesStream;
 
   @override
   void initState() {
     super.initState();
+    _threadStream = AppRepositories.support.watchThread(widget.thread.id);
+    _messagesStream = AppRepositories.support.watchMessages(widget.thread.id);
     WidgetsBinding.instance.addObserver(this);
     _peerTherapistProfile = widget.therapistProfile;
     _loadPeerProfile();
@@ -2461,7 +2465,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                 ),
                 titleSpacing: 0,
                 title: StreamBuilder<TherapistThread?>(
-                  stream: AppRepositories.support.watchThread(widget.thread.id),
+                  stream: _threadStream,
                   builder: (ctx, snap) {
                     final t = snap.data ?? widget.thread;
                     final peerTyping = widget.senderRole == 'parent' ? t.therapistTyping : t.parentTyping;
@@ -2606,7 +2610,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
           ],
         ),
         body: StreamBuilder<TherapistThread?>(
-          stream: AppRepositories.support.watchThread(widget.thread.id),
+          stream: _threadStream,
           builder: (context, threadSnapshot) {
             final thread = threadSnapshot.data ?? widget.thread;
             _lastSeenThread = thread;
@@ -2650,9 +2654,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
                     Expanded(
                       child: StreamBuilder<List<TherapistMessage>>(
-                        stream: AppRepositories.support.watchMessages(
-                          widget.thread.id,
-                        ),
+                        stream: _messagesStream,
                         builder: (context, snapshot) {
                           final messages = snapshot.data ?? const [];
                           if (snapshot.connectionState ==

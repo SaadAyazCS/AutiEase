@@ -1371,7 +1371,7 @@ class FirebaseSupportRepository implements SupportRepository {
 
   String _resolveParentDisplayName(Map<String, dynamic>? data) {
     if (data == null) {
-      return '';
+      return 'A parent';
     }
     final firstName = (data['firstName'] ?? '').toString().trim();
     final lastName = (data['lastName'] ?? '').toString().trim();
@@ -1379,7 +1379,11 @@ class FirebaseSupportRepository implements SupportRepository {
     if (fullName.isNotEmpty) {
       return fullName;
     }
-    return (data['fullName'] ?? data['email'] ?? '').toString();
+    final rawFullName = (data['fullName'] ?? '').toString().trim();
+    if (rawFullName.isNotEmpty) {
+      return rawFullName;
+    }
+    return 'A parent';
   }
 
   @override
@@ -1570,17 +1574,32 @@ class FirebaseSupportRepository implements SupportRepository {
         final enabled = prefs['bookings'] != false;
 
         if (enabled) {
-          await _firestore.collection('notifications').add({
-            'userId': therapistId,
-            'title': '\u{1F4B3} New Subscription!',
-            'message': '$parentDisplayName has subscribed to one of your packages.',
-            'category': 'subscription',
-            'timestamp': FieldValue.serverTimestamp(),
-            'isRead': false,
-            'navigationTarget': {
-              'route': 'TherapistDashboard',
-            },
-          });
+          final existing = await _firestore
+              .collection('notifications')
+              .where('userId', isEqualTo: therapistId)
+              .where('category', isEqualTo: 'subscription')
+              .get();
+          bool duplicate = false;
+          for (final d in existing.docs) {
+            final msg = d.data()['message']?.toString() ?? '';
+            if (msg.contains('subscribed to one of your packages')) {
+              duplicate = true;
+              break;
+            }
+          }
+          if (!duplicate) {
+            await _firestore.collection('notifications').add({
+              'userId': therapistId,
+              'title': '\u{1F4B3} New Subscription!',
+              'message': '$parentDisplayName has subscribed to one of your packages.',
+              'category': 'subscription',
+              'timestamp': FieldValue.serverTimestamp(),
+              'isRead': false,
+              'navigationTarget': {
+                'route': 'TherapistDashboard',
+              },
+            });
+          }
         }
       }
       // Notify parent: subscription activated
@@ -1589,17 +1608,33 @@ class FirebaseSupportRepository implements SupportRepository {
           .doc(therapistId)
           .get();
       final therapistDisplayName = therapistProfileDoc.data()?['displayName']?.toString() ?? 'Therapist';
-      await _firestore.collection('notifications').add({
-        'userId': parentId,
-        'title': '\u2705 Subscription Activated!',
-        'message': 'Your subscription to $therapistDisplayName has been activated successfully.',
-        'category': 'subscription',
-        'timestamp': FieldValue.serverTimestamp(),
-        'isRead': false,
-        'navigationTarget': {
-          'route': 'ProfessionalSupport',
-        },
-      });
+
+      final existingParent = await _firestore
+          .collection('notifications')
+          .where('userId', isEqualTo: parentId)
+          .where('category', isEqualTo: 'subscription')
+          .get();
+      bool parentDuplicate = false;
+      for (final d in existingParent.docs) {
+        final msg = d.data()['message']?.toString() ?? '';
+        if (msg.contains('Your subscription to') && msg.contains('activated successfully')) {
+          parentDuplicate = true;
+          break;
+        }
+      }
+      if (!parentDuplicate) {
+        await _firestore.collection('notifications').add({
+          'userId': parentId,
+          'title': '\u2705 Subscription Activated!',
+          'message': 'Your subscription to $therapistDisplayName has been activated successfully.',
+          'category': 'subscription',
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false,
+          'navigationTarget': {
+            'route': 'ProfessionalSupport',
+          },
+        });
+      }
     } catch (_) {
       // Prevent notifications from failing the connection creation
     }

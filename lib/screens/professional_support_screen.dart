@@ -1950,15 +1950,21 @@ class SupportTherapistDetailsScreenState
 
   Future<void> _loadTherapistMeta() async {
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection(FirestoreCollections.therapistProfiles)
-          .doc(widget.therapist.id)
-          .get();
+      final results = await Future.wait([
+        FirebaseFirestore.instance
+            .collection(FirestoreCollections.therapistProfiles)
+            .doc(widget.therapist.id)
+            .get(),
+        AppRepositories.billing.getSubscriptionForTherapist(widget.therapist.id),
+      ]);
+
+      final doc = results[0] as DocumentSnapshot<Map<String, dynamic>>;
+      final subscription = results[1] as UserSubscription?;
+
       final data = doc.data() ?? <String, dynamic>{};
       final parsed = _parsePackages(data['servicePackages']);
 
       int? subscribedPkgIdx;
-      final subscription = await AppRepositories.billing.getSubscriptionForTherapist(widget.therapist.id);
       if (subscription != null && subscription.isActive) {
         final prodId = subscription.productId;
         if (prodId.startsWith('auto_${widget.therapist.id}_')) {
