@@ -586,14 +586,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
 
     Widget contentWidget;
     if (type == 'image' && attachments.isNotEmpty) {
-      try {
-        final bytes = base64Decode(attachments.first.toString().trim());
+      final attachStr = attachments.first.toString().trim();
+      if (attachStr.startsWith('http://') || attachStr.startsWith('https://')) {
         contentWidget = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
-              child: Image.memory(bytes, height: 180, fit: BoxFit.contain),
+              child: Image.network(
+                attachStr,
+                height: 180,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 40, color: Colors.grey),
+              ),
             ),
             if (body.isNotEmpty && body != 'Sent an image')
               Padding(
@@ -602,8 +607,30 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               ),
           ],
         );
-      } catch (_) {
-        contentWidget = const Text('[Image Attachment - Unreadable]', style: TextStyle(color: Colors.red, fontSize: 12));
+      } else {
+        try {
+          var cleanBase64 = attachStr;
+          if (cleanBase64.contains('base64,')) {
+            cleanBase64 = cleanBase64.substring(cleanBase64.indexOf('base64,') + 7);
+          }
+          final bytes = base64Decode(cleanBase64);
+          contentWidget = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Image.memory(bytes, height: 180, fit: BoxFit.contain),
+              ),
+              if (body.isNotEmpty && body != 'Sent an image')
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(body, style: const TextStyle(fontSize: 12, color: Color(0xFF334155))),
+                ),
+            ],
+          );
+        } catch (_) {
+          contentWidget = const Text('[Image Attachment - Unreadable]', style: TextStyle(color: Colors.red, fontSize: 12));
+        }
       }
     } else if (type == 'file' && attachments.isNotEmpty) {
       contentWidget = Row(
@@ -5126,9 +5153,14 @@ class _AdminVoicePlayerState extends State<_AdminVoicePlayer> {
   @override
   void initState() {
     super.initState();
-    final parts = widget.payload.split(':');
-    if (parts.length >= 2) {
-      _durationSec = int.tryParse(parts[1]) ?? 10;
+    final payloadStr = widget.payload.trim();
+    if (payloadStr.startsWith('http://') || payloadStr.startsWith('https://')) {
+      _durationSec = 10;
+    } else {
+      final parts = payloadStr.split(':');
+      if (parts.length >= 2) {
+        _durationSec = int.tryParse(parts[1]) ?? 10;
+      }
     }
   }
 
@@ -5156,10 +5188,43 @@ class _AdminVoicePlayerState extends State<_AdminVoicePlayer> {
     }
 
     try {
-      final parts = widget.payload.split(':');
+      final payloadStr = widget.payload.trim();
+      if (payloadStr.startsWith('http://') || payloadStr.startsWith('https://')) {
+        setState(() {
+          _isPlaying = true;
+          _progress = 0.0;
+        });
+
+        await _audioPlayer.play(UrlSource(payloadStr));
+
+        _posSub = _audioPlayer.onPositionChanged.listen((pos) {
+          if (mounted && _isPlaying) {
+            setState(() {
+              final totalMs = _durationSec * 1000;
+              _progress = totalMs > 0 ? (pos.inMilliseconds / totalMs).clamp(0.0, 1.0) : 0.0;
+            });
+          }
+        });
+
+        _completeSub = _audioPlayer.onPlayerComplete.listen((event) {
+          if (mounted) {
+            setState(() {
+              _isPlaying = false;
+              _progress = 0.0;
+            });
+          }
+        });
+        return;
+      }
+
+      final parts = payloadStr.split(':');
       if (parts.length < 3) return;
       final base64Data = parts[2];
-      final bytes = base64Decode(base64Data);
+      var cleanBase64 = base64Data;
+      if (cleanBase64.contains('base64,')) {
+        cleanBase64 = cleanBase64.substring(cleanBase64.indexOf('base64,') + 7);
+      }
+      final bytes = base64Decode(cleanBase64);
 
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/admin_playing_voice_${identityHashCode(this)}.m4a');

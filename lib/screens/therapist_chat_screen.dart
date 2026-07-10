@@ -796,6 +796,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                 'messageType': d.data()['messageType'] ?? d.data()['type'] ?? 'text',
                 'attachments': d.data()['attachments'] ?? const [],
               })
+          .toList()
+          .reversed
           .toList();
 
       if (widget.senderRole == 'parent') {
