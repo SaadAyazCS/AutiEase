@@ -2620,34 +2620,64 @@ class FirebaseSupportRepository implements SupportRepository {
       'notes': notes,
     });
 
-    // Notify therapist
-    if (therapistId != null && therapistId.isNotEmpty) {
-      try {
-        final slotDoc = await _firestore.collection(FirestoreCollections.appointmentSlots).doc(slotId).get();
-        final slotData = slotDoc.data();
-        final sessionDt = slotData?['dateTime'] != null
-            ? (slotData!['dateTime'] as dynamic).toDate() as DateTime
-            : DateTime.now();
-        final day = sessionDt.day.toString().padLeft(2, '0');
-        final month = sessionDt.month.toString().padLeft(2, '0');
-        final dateStr = '$day/$month/${sessionDt.year}';
-        final hour = sessionDt.hour;
-        final hourStr = (hour % 12 == 0 ? 12 : hour % 12).toString();
-        final minStr = sessionDt.minute.toString().padLeft(2, '0');
-        final ampm = hour >= 12 ? 'PM' : 'AM';
-        final timeStr = '$hourStr:$minStr $ampm';
-        final displayName = (parentName ?? '').isNotEmpty ? parentName! : 'A parent';
+    // Notify therapist & parent
+    try {
+      final slotDoc = await _firestore.collection(FirestoreCollections.appointmentSlots).doc(slotId).get();
+      final slotData = slotDoc.data();
+      final sessionDt = slotData?['dateTime'] != null
+          ? (slotData!['dateTime'] as dynamic).toDate() as DateTime
+          : DateTime.now();
+      final day = sessionDt.day.toString().padLeft(2, '0');
+      final month = sessionDt.month.toString().padLeft(2, '0');
+      final dateStr = '$day/$month/${sessionDt.year}';
+      final hour = sessionDt.hour;
+      final hourStr = (hour % 12 == 0 ? 12 : hour % 12).toString();
+      final minStr = sessionDt.minute.toString().padLeft(2, '0');
+      final ampm = hour >= 12 ? 'PM' : 'AM';
+      final timeStr = '$hourStr:$minStr $ampm';
+
+      String resolvedParentName = parentName ?? '';
+      if (resolvedParentName.isEmpty) {
+        final parentDoc = await _firestore.collection(FirestoreCollections.users).doc(parentId).get();
+        resolvedParentName = _resolveParentDisplayName(parentDoc.data());
+      }
+      if (resolvedParentName.isEmpty) {
+        resolvedParentName = 'A parent';
+      }
+
+      String therapistName = 'Therapist';
+      if (therapistId != null && therapistId.isNotEmpty) {
+        final therapistDoc = await _firestore
+            .collection(FirestoreCollections.therapistProfiles)
+            .doc(therapistId)
+            .get();
+        therapistName = therapistDoc.data()?['displayName']?.toString() ?? 'Therapist';
+      }
+
+      // 1. Notify therapist
+      if (therapistId != null && therapistId.isNotEmpty) {
         await _firestore.collection('notifications').add({
           'userId': therapistId,
           'title': '\u{1F4C5} Session Booked!',
-          'message': '$displayName has booked a session with you on $dateStr at $timeStr.',
+          'message': '$resolvedParentName has booked a session with you on $dateStr at $timeStr.',
           'category': 'activities',
           'timestamp': FieldValue.serverTimestamp(),
           'isRead': false,
           'navigationTarget': {'route': 'TherapistScheduler'},
         });
-      } catch (_) {}
-    }
+      }
+
+      // 2. Notify parent
+      await _firestore.collection('notifications').add({
+        'userId': parentId,
+        'title': '\u{1F4C5} Session Booked!',
+        'message': 'Your session with $therapistName has been booked successfully on $dateStr at $timeStr.',
+        'category': 'activities',
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+        'navigationTarget': {'route': 'ProfessionalSupport'},
+      });
+    } catch (_) {}
   }
 
   @override
@@ -2666,49 +2696,64 @@ class FirebaseSupportRepository implements SupportRepository {
     final currentUid = _auth.currentUser?.uid;
     final isCancelledByTherapist = currentUid == therapistId;
 
-    if (isCancelledByTherapist) {
-      // Notify parent: therapist cancelled
-      if (parentId != null && parentId.isNotEmpty) {
-        try {
-          String therapistName = 'Your therapist';
-          if (therapistId != null && therapistId.isNotEmpty) {
-            final therapistDoc = await _firestore
-                .collection(FirestoreCollections.therapistProfiles)
-                .doc(therapistId)
-                .get();
-            therapistName = therapistDoc.data()?['displayName']?.toString() ?? 'Your therapist';
-          }
-          await _firestore.collection('notifications').add({
-            'userId': parentId,
-            'title': '\u274C Session Cancelled',
-            'message': '$therapistName has cancelled the scheduled session.',
-            'category': 'activities',
-            'timestamp': FieldValue.serverTimestamp(),
-            'isRead': false,
-            'navigationTarget': {'route': 'ProfessionalSupport'},
-          });
-        } catch (_) {}
-      }
-    } else {
-      // Notify therapist: parent cancelled
-      if (therapistId != null && therapistId.isNotEmpty) {
-        try {
-          String resolvedParentName = parentName ?? 'A parent';
-          if (resolvedParentName.isEmpty && parentId != null && parentId.isNotEmpty) {
-            final parentDoc = await _firestore.collection(FirestoreCollections.users).doc(parentId).get();
-            resolvedParentName = _resolveParentDisplayName(parentDoc.data());
-          }
-          await _firestore.collection('notifications').add({
-            'userId': therapistId,
-            'title': '\u274C Session Cancelled',
-            'message': '$resolvedParentName has cancelled the scheduled session.',
-            'category': 'activities',
-            'timestamp': FieldValue.serverTimestamp(),
-            'isRead': false,
-            'navigationTarget': {'route': 'TherapistScheduler'},
-          });
-        } catch (_) {}
-      }
+    // Fetch names
+    String therapistName = 'Therapist';
+    if (therapistId != null && therapistId.isNotEmpty) {
+      try {
+        final therapistDoc = await _firestore
+            .collection(FirestoreCollections.therapistProfiles)
+            .doc(therapistId)
+            .get();
+        therapistName = therapistDoc.data()?['displayName']?.toString() ?? 'Therapist';
+      } catch (_) {}
+    }
+
+    String resolvedParentName = parentName ?? 'A parent';
+    if (resolvedParentName.isEmpty && parentId != null && parentId.isNotEmpty) {
+      try {
+        final parentDoc = await _firestore.collection(FirestoreCollections.users).doc(parentId).get();
+        resolvedParentName = _resolveParentDisplayName(parentDoc.data());
+      } catch (_) {}
+    }
+    if (resolvedParentName.isEmpty) {
+      resolvedParentName = 'A parent';
+    }
+
+    // Send notifications to BOTH therapist and parent
+    // 1. Therapist notification
+    if (therapistId != null && therapistId.isNotEmpty) {
+      try {
+        final msg = isCancelledByTherapist
+            ? 'You have cancelled your scheduled session with $resolvedParentName.'
+            : '$resolvedParentName has cancelled the scheduled session.';
+        await _firestore.collection('notifications').add({
+          'userId': therapistId,
+          'title': '\u274C Session Cancelled',
+          'message': msg,
+          'category': 'activities',
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false,
+          'navigationTarget': {'route': 'TherapistScheduler'},
+        });
+      } catch (_) {}
+    }
+
+    // 2. Parent notification
+    if (parentId != null && parentId.isNotEmpty) {
+      try {
+        final msg = isCancelledByTherapist
+            ? '$therapistName has cancelled the scheduled session.'
+            : 'You have cancelled your scheduled session with $therapistName.';
+        await _firestore.collection('notifications').add({
+          'userId': parentId,
+          'title': '\u274C Session Cancelled',
+          'message': msg,
+          'category': 'activities',
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false,
+          'navigationTarget': {'route': 'ProfessionalSupport'},
+        });
+      } catch (_) {}
     }
   }
 
