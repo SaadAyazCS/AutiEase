@@ -261,7 +261,11 @@ service cloud.firestore {
 
     match /withdrawal_requests/{requestId} {
       allow read: if signedIn() && (resource.data.therapistId == request.auth.uid || isAdmin());
-      allow create, update, delete: if false;
+      // Therapists create their own withdrawal requests via the backend
+      allow create: if false;
+      // Admin can update (mark paid / reject) and delete withdrawal requests
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
 
     match /wallet_ledger/{ledgerId} {
@@ -345,7 +349,8 @@ service cloud.firestore {
           request.resource.data.category == 'subscription' ||
           request.resource.data.category == 'activities' ||
           request.resource.data.category == 'reports' ||
-          request.resource.data.category == 'emergency'
+          request.resource.data.category == 'emergency' ||
+          request.resource.data.category == 'wallet'
         ))
       );
       allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
