@@ -1942,16 +1942,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: selectedAction,
                       items: const [
-                        DropdownMenuItem(value: 'no_action', child: Text('No Action Required')),
-                        DropdownMenuItem(value: 'warn', child: Text('Send Warning')),
-                        DropdownMenuItem(value: 'suspend', child: Text('Suspend Account')),
-                        DropdownMenuItem(value: 'restrict', child: Text('Temporary Restriction')),
-                        DropdownMenuItem(value: 'ban', child: Text('Permanent Ban')),
-                        DropdownMenuItem(value: 'remove', child: Text('Remove Report')),
-                        DropdownMenuItem(value: 'close', child: Text('Close Report')),
-                        DropdownMenuItem(value: 'request_info', child: Text('Request Additional Info')),
+                        DropdownMenuItem(value: 'no_action', child: Text('No Action Required', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'warn', child: Text('Send Warning', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'suspend', child: Text('Suspend Account', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'restrict', child: Text('Temporary Restriction', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'ban', child: Text('Permanent Ban', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'remove', child: Text('Remove Report', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'close', child: Text('Close Report', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'request_info', child: Text('Request Additional Info', overflow: TextOverflow.ellipsis)),
                       ],
                       onChanged: (val) {
                         if (val != null) {

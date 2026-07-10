@@ -3325,6 +3325,7 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                   const SizedBox(height: 16),
 
                                   DropdownButtonFormField<String>(
+                                    isExpanded: true,
                                     value: selectedMethod, // ignore: deprecated_member_use
                                     decoration: const InputDecoration(
                                       labelText: 'Payment Method',
@@ -3332,10 +3333,10 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                       prefixIcon: Icon(Icons.payment),
                                     ),
                                     items: const [
-                                      DropdownMenuItem(value: 'EasyPaisa', child: Text('EasyPaisa')),
-                                      DropdownMenuItem(value: 'JazzCash', child: Text('JazzCash')),
-                                      DropdownMenuItem(value: 'Raast', child: Text('Raast (Instant Transfer)')),
-                                      DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
+                                      DropdownMenuItem(value: 'EasyPaisa', child: Text('EasyPaisa', overflow: TextOverflow.ellipsis)),
+                                      DropdownMenuItem(value: 'JazzCash', child: Text('JazzCash', overflow: TextOverflow.ellipsis)),
+                                      DropdownMenuItem(value: 'Raast', child: Text('Raast (Instant Transfer)', overflow: TextOverflow.ellipsis)),
+                                      DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer', overflow: TextOverflow.ellipsis)),
                                     ],
                                     onChanged: submitting
                                         ? null

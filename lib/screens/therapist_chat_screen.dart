@@ -706,8 +706,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                 const Text('Help us understand what happened. Select a reason below:', style: TextStyle(fontSize: 14)),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: selectedReason,
-                  items: reasons.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+                  items: reasons.map((r) => DropdownMenuItem(value: r, child: Text(r, overflow: TextOverflow.ellipsis))).toList(),
                   onChanged: (value) {
                     if (value != null) {
                       setDialogState(() {
@@ -3531,6 +3532,7 @@ class _CancelSubscriptionDialogState extends State<CancelSubscriptionDialog> {
                   
                   // Dropdown of churn reasons
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _selectedReason,
                     decoration: const InputDecoration(
                       labelText: 'Reason for Cancellation',
@@ -3540,7 +3542,7 @@ class _CancelSubscriptionDialogState extends State<CancelSubscriptionDialog> {
                     items: _cancellationReasons.map((reason) {
                       return DropdownMenuItem<String>(
                         value: reason,
-                        child: Text(reason, style: const TextStyle(fontSize: 13.5)),
+                        child: Text(reason, style: const TextStyle(fontSize: 13.5), overflow: TextOverflow.ellipsis),
                       );
                     }).toList(),
                     onChanged: (val) {
