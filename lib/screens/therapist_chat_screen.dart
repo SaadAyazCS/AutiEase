@@ -2714,7 +2714,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                           ),
                         ),
                         // Clinical note, report, and block are all hidden in view-only mode
-                        if (!isViewOnly && widget.senderRole == 'therapist')
+                        // Also hide 'Add Clinical Note' if the parent blocked the therapist
+                        if (!isViewOnly && widget.senderRole == 'therapist' && !_blockInfo.theyBlockedMe)
                           const PopupMenuItem(
                             value: 'clinical_note',
                             child: Row(
