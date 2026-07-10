@@ -2686,6 +2686,25 @@ class FirebaseSupportRepository implements SupportRepository {
     String? therapistId,
     String? parentName,
   }) async {
+    // 1. Fetch slot data BEFORE updating/deleting fields
+    String? dbParentId = parentId;
+    String? dbTherapistId = therapistId;
+    try {
+      final slotDoc = await _firestore.collection(FirestoreCollections.appointmentSlots).doc(slotId).get();
+      if (slotDoc.exists) {
+        final data = slotDoc.data();
+        if (data != null) {
+          if (dbParentId == null || dbParentId.isEmpty) {
+            dbParentId = data['bookedByParentId']?.toString();
+          }
+          if (dbTherapistId == null || dbTherapistId.isEmpty) {
+            dbTherapistId = data['therapistId']?.toString();
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 2. Perform database update
     await _firestore.collection(FirestoreCollections.appointmentSlots).doc(slotId).update({
       'status': 'available',
       'bookedByParentId': FieldValue.delete(),
@@ -2693,25 +2712,29 @@ class FirebaseSupportRepository implements SupportRepository {
       'bookedForChildName': FieldValue.delete(),
       'notes': FieldValue.delete(),
     });
+
     final currentUid = _auth.currentUser?.uid;
-    final isCancelledByTherapist = currentUid == therapistId;
+    final isCancelledByTherapist = currentUid == dbTherapistId;
 
     // Fetch names
     String therapistName = 'Therapist';
-    if (therapistId != null && therapistId.isNotEmpty) {
+    if (dbTherapistId != null && dbTherapistId.isNotEmpty) {
       try {
         final therapistDoc = await _firestore
             .collection(FirestoreCollections.therapistProfiles)
-            .doc(therapistId)
+            .doc(dbTherapistId)
             .get();
         therapistName = therapistDoc.data()?['displayName']?.toString() ?? 'Therapist';
       } catch (_) {}
     }
 
-    String resolvedParentName = parentName ?? 'A parent';
-    if (resolvedParentName.isEmpty && parentId != null && parentId.isNotEmpty) {
+    String resolvedParentName = '';
+    if (parentName != null && parentName.isNotEmpty) {
+      resolvedParentName = parentName;
+    }
+    if (resolvedParentName.isEmpty && dbParentId != null && dbParentId.isNotEmpty) {
       try {
-        final parentDoc = await _firestore.collection(FirestoreCollections.users).doc(parentId).get();
+        final parentDoc = await _firestore.collection(FirestoreCollections.users).doc(dbParentId).get();
         resolvedParentName = _resolveParentDisplayName(parentDoc.data());
       } catch (_) {}
     }
@@ -2721,13 +2744,13 @@ class FirebaseSupportRepository implements SupportRepository {
 
     // Send notifications to BOTH therapist and parent
     // 1. Therapist notification
-    if (therapistId != null && therapistId.isNotEmpty) {
+    if (dbTherapistId != null && dbTherapistId.isNotEmpty) {
       try {
         final msg = isCancelledByTherapist
             ? 'You have cancelled your scheduled session with $resolvedParentName.'
             : '$resolvedParentName has cancelled the scheduled session.';
         await _firestore.collection('notifications').add({
-          'userId': therapistId,
+          'userId': dbTherapistId,
           'title': '\u274C Session Cancelled',
           'message': msg,
           'category': 'activities',
@@ -2739,13 +2762,13 @@ class FirebaseSupportRepository implements SupportRepository {
     }
 
     // 2. Parent notification
-    if (parentId != null && parentId.isNotEmpty) {
+    if (dbParentId != null && dbParentId.isNotEmpty) {
       try {
         final msg = isCancelledByTherapist
             ? '$therapistName has cancelled the scheduled session.'
             : 'You have cancelled your scheduled session with $therapistName.';
         await _firestore.collection('notifications').add({
-          'userId': parentId,
+          'userId': dbParentId,
           'title': '\u274C Session Cancelled',
           'message': msg,
           'category': 'activities',
