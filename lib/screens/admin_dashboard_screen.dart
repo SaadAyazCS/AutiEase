@@ -3883,13 +3883,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           final status = sub.status.toLowerCase().trim();
           bool matchesStatus = true;
           if (_subFilterStatus == 'Active') {
-            matchesStatus = sub.isActive || status == 'active' || status == 'trialing';
+            matchesStatus = sub.isActive || status == 'active' || status == 'trialing' || status == 'grace_period';
           } else if (_subFilterStatus == 'Pending') {
-            matchesStatus = status == 'pending';
+            matchesStatus = status == 'pending' || status == 'payment_failed' || status.contains('pending');
           } else if (_subFilterStatus == 'Canceled') {
-            matchesStatus = status == 'canceled' || status == 'cancels soon' || status == 'cancels_soon';
+            matchesStatus = status == 'canceled' || status == 'cancelled' || status == 'cancels soon' || status == 'cancels_soon' || status.contains('cancel');
           } else if (_subFilterStatus == 'Expired') {
-            matchesStatus = status == 'expired';
+            matchesStatus = status == 'expired' || status == 'inactive';
           }
 
           if (!matchesStatus) return false;
@@ -4029,7 +4029,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         Color badgeBg = const Color(0xFFF1F5F9);
                         Color badgeText = const Color(0xFF475569);
 
-                        if (sub.isActive || statusStr == 'active' || statusStr == 'trialing') {
+                        if (sub.isActive || statusStr == 'active' || statusStr == 'trialing' || statusStr == 'grace_period') {
                           sideColor = const Color(0xFF10B981);
                           badgeBg = const Color(0xFFECFDF5);
                           badgeText = const Color(0xFF047857);
@@ -4037,7 +4037,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                           sideColor = const Color(0xFFF59E0B);
                           badgeBg = const Color(0xFFFFFBEB);
                           badgeText = const Color(0xFFB45309);
-                        } else if (statusStr == 'canceled' || statusStr == 'cancels soon' || statusStr == 'cancels_soon') {
+                        } else if (statusStr == 'canceled' || statusStr == 'cancelled' || statusStr == 'cancels soon' || statusStr == 'cancels_soon') {
                           sideColor = const Color(0xFFF97316);
                           badgeBg = const Color(0xFFFFF7ED);
                           badgeText = const Color(0xFFC2410C);
