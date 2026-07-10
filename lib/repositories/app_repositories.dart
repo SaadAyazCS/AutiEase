@@ -3123,12 +3123,16 @@ class FirebaseBillingRepository implements BillingRepository {
 
     if (AppRuntimeConfig.bypassProSupportPaywall) {
       // In bypass mode, update Firestore directly to cancel
-      await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set({
-        'status': 'canceled',
-        'isActive': false,
-        'cancelAtPeriodEnd': false,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      try {
+        await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set({
+          'status': 'canceled',
+          'isActive': false,
+          'cancelAtPeriodEnd': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (e) {
+        debugPrint('Direct client-side subscription update failed: $e');
+      }
     } else {
       if (!_paymentBackend.isConfigured) {
         throw StateError(
@@ -3138,12 +3142,16 @@ class FirebaseBillingRepository implements BillingRepository {
       }
       await _paymentBackend.cancelSubscription(docId);
       // Ensure Firestore subscription doc reflects the cancelled status locally immediately
-      await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set({
-        'status': 'canceled',
-        'isActive': false,
-        'cancelAtPeriodEnd': false,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      try {
+        await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set({
+          'status': 'canceled',
+          'isActive': false,
+          'cancelAtPeriodEnd': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (e) {
+        debugPrint('Direct client-side subscription update failed: $e');
+      }
     }
 
     // 2. Remove the therapist from the parent's active subscriptions field
@@ -3187,6 +3195,7 @@ class FirebaseBillingRepository implements BillingRepository {
     try {
       final remindersSnapshot = await _firestore
           .collection('notifications')
+          .where('userId', isEqualTo: userId)
           .where('category', isEqualTo: 'activities')
           .where('title', isEqualTo: '⏰ Session Reminder')
           .get();
@@ -3288,12 +3297,16 @@ class FirebaseBillingRepository implements BillingRepository {
 
     if (AppRuntimeConfig.bypassProSupportPaywall) {
       // In bypass mode, update Firestore directly to active
-      await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set({
-        'status': 'active',
-        'isActive': true,
-        'cancelAtPeriodEnd': false,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      try {
+        await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set({
+          'status': 'active',
+          'isActive': true,
+          'cancelAtPeriodEnd': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (e) {
+        debugPrint('Direct client-side subscription update failed: $e');
+      }
     } else {
       if (!_paymentBackend.isConfigured) {
         throw StateError(
