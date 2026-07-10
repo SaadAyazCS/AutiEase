@@ -270,7 +270,9 @@ service cloud.firestore {
 
     match /wallet_ledger/{ledgerId} {
       allow read: if signedIn() && (resource.data.therapistId == request.auth.uid || isAdmin());
-      allow create, update, delete: if false;
+      // Admin can create ledger entries (e.g., reversal records on rejection)
+      allow create: if isAdmin();
+      allow update, delete: if false;
     }
 
     match /legal_documents/{document=**} {

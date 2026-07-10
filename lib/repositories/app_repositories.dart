@@ -4064,13 +4064,37 @@ class FirebaseAdminRepository implements AdminRepository {
       'resolvedBy': adminId,
     });
 
-    // 3. If paid: deduct from therapist wallet balance
-    if (status == 'paid' && therapistId.isNotEmpty) {
-      await _firestore.collection(FirestoreCollections.therapistProfiles).doc(therapistId).update({
-        'walletBalance': FieldValue.increment(-amount),
-        'totalPaidOut': FieldValue.increment(amount),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+    // 3. Update therapist wallet balance based on resolution
+    if (therapistId.isNotEmpty) {
+      if (status == 'paid') {
+        // Mark paid: wallet was already deducted on request creation — just track the payout
+        await _firestore.collection(FirestoreCollections.therapistProfiles).doc(therapistId).update({
+          'totalPaidOut': FieldValue.increment(amount),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else if (status == 'rejected') {
+        // Rejection: reverse the wallet deduction — money goes back to therapist
+        await _firestore.collection(FirestoreCollections.therapistProfiles).doc(therapistId).update({
+          'walletBalance': FieldValue.increment(amount), // restore the amount
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        // Write a wallet_ledger reversal entry so the therapist sees the credit in their history
+        try {
+          final ledgerRef = _firestore.collection('wallet_ledger').doc();
+          await ledgerRef.set({
+            'id': ledgerRef.id,
+            'therapistId': therapistId,
+            'type': 'withdrawal_reversal',
+            'amount': amount,
+            'description': 'Withdrawal request rejected — Rs.${amount.toStringAsFixed(0)} returned to wallet. '
+                '${adminNotes != null && adminNotes.isNotEmpty ? 'Reason: $adminNotes' : ''}',
+            'relatedRequestId': requestId,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+        } catch (e) {
+          debugPrint('resolveWithdrawalRequest: failed to write ledger reversal: $e');
+        }
+      }
     }
 
     // 4. Write audit log
