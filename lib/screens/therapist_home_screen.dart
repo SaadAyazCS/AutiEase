@@ -3439,9 +3439,9 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
                                     enabled: !submitting,
                                     decoration: InputDecoration(
                                       labelText: selectedMethod == 'Bank Transfer'
-                                          ? 'IBAN / Account Number'
+                                          ? 'IBAN'
                                           : (selectedMethod == 'Raast'
-                                              ? 'Raast Mobile Number'
+                                              ? 'Raast Mobile Number / IBAN'
                                               : 'Mobile Number'),
                                       hintText: selectedMethod == 'Bank Transfer'
                                           ? 'e.g. PK36SCBL0000001123456702'
