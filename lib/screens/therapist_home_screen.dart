@@ -556,6 +556,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
       ratingBreakdown: profile.ratingBreakdown,
       totalReviews: profile.totalReviews,
       servicePackages: packages,
+      isAcceptingClients: profile.isAcceptingClients,
       hasUnacknowledgedChanges: profile.hasUnacknowledgedChanges,
       unacknowledgedChangesFields: profile.unacknowledgedChangesFields,
     );
@@ -1966,6 +1967,7 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
         setState(() {
           _profile = updatedProfile;
           _isActive = updatedProfile.isActive;
+          _isAcceptingClients = updatedProfile.isAcceptingClients;
         });
       }
     } catch (e) {
