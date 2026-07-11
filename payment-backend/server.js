@@ -1281,7 +1281,11 @@ async function reconcileExpiredSubscriptions() {
       }
       const userSnap = await db.collection('users').doc(userId).get();
       if (userSnap.exists) {
-        parentDisplayName = (userSnap.data().displayName || userSnap.data().email || 'Parent').split(' ')[0];
+        const u = userSnap.data() || {};
+        const first = (u.firstName || '').trim();
+        const last = (u.lastName || '').trim();
+        const fullName = (first + ' ' + last).trim();
+        parentDisplayName = fullName || u.fullName || u.displayName || u.email || 'Parent';
       }
       await createSubscriptionNotification({
         userId,
@@ -2092,10 +2096,14 @@ app.post('/api/v1/subscription/cancel', requireAuth, async (req, res) => {
       const therapistIdForNotif = normalizeValue(subscription.therapistId);
       let parentDisplayName = 'Parent';
       let therapistDisplayName = 'Therapist';
-      const userSnap = await db.collection('users').doc(uid).get();
-      if (userSnap.exists) {
-        parentDisplayName = (userSnap.data().displayName || userSnap.data().email || 'Parent').split(' ')[0];
-      }
+       const userSnap = await db.collection('users').doc(uid).get();
+       if (userSnap.exists) {
+         const u = userSnap.data() || {};
+         const first = (u.firstName || '').trim();
+         const last = (u.lastName || '').trim();
+         const fullName = (first + ' ' + last).trim();
+         parentDisplayName = fullName || u.fullName || u.displayName || u.email || 'Parent';
+       }
       if (therapistIdForNotif) {
         const therapistSnap = await db.collection('therapist_profiles').doc(therapistIdForNotif).get();
         if (therapistSnap.exists) {
@@ -2166,10 +2174,14 @@ app.post('/api/v1/subscription/reactivate', requireAuth, async (req, res) => {
       const therapistIdForNotif = normalizeValue(subscription.therapistId);
       let parentDisplayName = 'Parent';
       let therapistDisplayName = 'Therapist';
-      const userSnap = await db.collection('users').doc(uid).get();
-      if (userSnap.exists) {
-        parentDisplayName = (userSnap.data().displayName || userSnap.data().email || 'Parent').split(' ')[0];
-      }
+       const userSnap = await db.collection('users').doc(uid).get();
+       if (userSnap.exists) {
+         const u = userSnap.data() || {};
+         const first = (u.firstName || '').trim();
+         const last = (u.lastName || '').trim();
+         const fullName = (first + ' ' + last).trim();
+         parentDisplayName = fullName || u.fullName || u.displayName || u.email || 'Parent';
+       }
       if (therapistIdForNotif) {
         const therapistSnap = await db.collection('therapist_profiles').doc(therapistIdForNotif).get();
         if (therapistSnap.exists) {
