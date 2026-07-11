@@ -83,11 +83,16 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
       }
 
       if (profile.status == 'banned' || profile.status == 'suspended') {
+        final reason = profile.status == 'suspended'
+            ? 'Your account has been suspended. Please contact support.'
+            : 'Your account has been permanently banned due to policy violations.';
         await FirebaseAuth.instance.signOut();
         if (mounted) {
           Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
+            MaterialPageRoute(
+              builder: (_) => LoginScreen(message: reason),
+            ),
             (route) => false,
           );
         }

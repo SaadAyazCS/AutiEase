@@ -249,11 +249,16 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
       final userProfile = await AppRepositories.users.getCurrentUserProfile();
 
       if (userProfile?.status == 'banned' || userProfile?.status == 'suspended') {
+        final reason = userProfile?.status == 'suspended'
+            ? 'Your account has been suspended. Please contact support.'
+            : 'Your account has been permanently banned due to policy violations.';
         await FirebaseAuth.instance.signOut();
         if (mounted) {
           Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
+            MaterialPageRoute(
+              builder: (_) => LoginScreen(message: reason),
+            ),
             (route) => false,
           );
         }

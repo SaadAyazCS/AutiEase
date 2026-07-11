@@ -18,7 +18,9 @@ import '../utils/app_colors.dart';
 import '../utils/responsive.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.message});
+
+  final String? message;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -64,6 +66,18 @@ class _LoginScreenState extends State<LoginScreen>
         _animationController.forward();
       }
     });
+
+    if (widget.message != null && widget.message!.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(widget.message!),
+            backgroundColor: AppColors.errorRed,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      });
+    }
   }
 
   @override
