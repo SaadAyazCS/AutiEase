@@ -143,7 +143,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   bool _isCheckoutCancelled = false;
   bool _isPaymentFailed = false;
   bool _isCheckoutUrlLaunched = false;
-  bool _isProgrammaticPop = false;
 
   // ─── Part 2: Typing indicator ───────────────────────────────────────────
   Timer? _typingDebounce;
@@ -3172,12 +3171,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                     _isCheckoutCancelled = false;
                                     _isPaymentFailed = false;
                                     _isCheckoutUrlLaunched = false;
-                                    _isProgrammaticPop = false;
-                                    bool isDialogOpen = false;
                                     BuildContext? dialogContext;
 
                                     if (mounted) {
-                                      isDialogOpen = true;
                                       showDialog<void>(
                                         context: context,
                                         barrierDismissible: false,
@@ -3186,9 +3182,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                           return PopScope(
                                             canPop: false,
                                             onPopInvokedWithResult: (didPop, _) {
-                                              if (didPop && !_isProgrammaticPop) {
-                                                isDialogOpen = false;
-                                              }
+                                              // Handled programmatically or via Cancel button
                                             },
                                             child: AlertDialog(
                                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -3222,7 +3216,6 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                               actions: [
                                                 TextButton(
                                                   onPressed: () {
-                                                    isDialogOpen = false;
                                                     setState(() {
                                                       _isCheckoutCancelled = true;
                                                     });
@@ -3252,12 +3245,13 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                               }
                                             },
                                           );
-                                      if (isDialogOpen && dialogContext != null && dialogContext!.mounted) {
-                                          isDialogOpen = false;
-                                          setState(() {
-                                            _isProgrammaticPop = true;
+                                      if (dialogContext != null && dialogContext!.mounted) {
+                                          final ctxToPop = dialogContext!;
+                                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                                            if (ctxToPop.mounted) {
+                                              Navigator.of(ctxToPop).pop();
+                                            }
                                           });
-                                          Navigator.pop(dialogContext!);
                                         }
                                       if (_isCheckoutCancelled) {
                                         AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
@@ -3304,11 +3298,14 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                     } catch (e) {
                                       setState(() {
                                         _isCheckoutCancelled = true;
-                                        _isProgrammaticPop = true;
                                       });
-                                      if (isDialogOpen && dialogContext != null && dialogContext!.mounted) {
-                                         isDialogOpen = false;
-                                         Navigator.pop(dialogContext!);
+                                      if (dialogContext != null && dialogContext!.mounted) {
+                                         final ctxToPop = dialogContext!;
+                                         WidgetsBinding.instance.addPostFrameCallback((_) {
+                                           if (ctxToPop.mounted) {
+                                             Navigator.of(ctxToPop).pop();
+                                           }
+                                         });
                                        }
                                       AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
                                       if (mounted) {

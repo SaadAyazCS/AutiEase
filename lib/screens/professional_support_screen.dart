@@ -629,10 +629,8 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
     _isCheckoutCancelled = false;
 
     // Show a dismissible checkout dialog with a Cancel button
-    bool isDialogOpen = false;
     BuildContext? dialogContext;
     if (mounted) {
-      isDialogOpen = true;
       showDialog<void>(
         context: context,
         barrierDismissible: false, // Cannot dismiss while checkout is in progress
@@ -641,12 +639,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
           return PopScope(
             canPop: false, // Prevent accidental dismiss — only Cancel button or payment result should close
             onPopInvokedWithResult: (didPop, _) {
-              // Do NOT cancel checkout on barrier dismiss or back button —
-              // SafePay may have redirected back to the app naturally.
-              // Only the explicit 'Cancel Payment' button sets _isCheckoutCancelled.
-              if (didPop) {
-                isDialogOpen = false;
-              }
+              // Handled programmatically or via Cancel button
             },
             child: AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -680,7 +673,6 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
               actions: [
                 TextButton(
                   onPressed: () {
-                    isDialogOpen = false;
                     setState(() {
                       _isCheckoutCancelled = true;
                     });
@@ -706,9 +698,15 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
       );
 
       // Close the dialog if still open
-      if (isDialogOpen && dialogContext != null && dialogContext!.mounted) {
-        isDialogOpen = false;
-        Navigator.pop(dialogContext!);
+      debugPrint('Checkout finished. dialogContext=$dialogContext, mounted=${dialogContext?.mounted}');
+      if (dialogContext != null && dialogContext!.mounted) {
+        final ctxToPop = dialogContext!;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (ctxToPop.mounted) {
+            Navigator.of(ctxToPop).pop();
+            debugPrint('Navigator.pop executed on dialogContext post-frame');
+          }
+        });
       }
 
       if (_isCheckoutCancelled) {
@@ -779,9 +777,13 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
       setState(() {
         _isCheckoutCancelled = true;
       });
-      if (isDialogOpen && dialogContext != null && dialogContext!.mounted) {
-        isDialogOpen = false;
-        Navigator.pop(dialogContext!);
+      if (dialogContext != null && dialogContext!.mounted) {
+        final ctxToPop = dialogContext!;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (ctxToPop.mounted) {
+            Navigator.of(ctxToPop).pop();
+          }
+        });
       }
       // Clean up any pending subscription created before the error
       AppRepositories.billing.deletePendingSubscription(therapist.id);
