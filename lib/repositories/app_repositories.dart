@@ -2007,6 +2007,7 @@ class FirebaseSupportRepository implements SupportRepository {
       await _firestore.collection(FirestoreCollections.therapistProfiles).doc(reportedId).set({
         'verificationStatus': 'suspended',
         'isActive': false,
+        'adminFeedback': notes,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } else if (action == 'ban') {
@@ -2017,6 +2018,7 @@ class FirebaseSupportRepository implements SupportRepository {
       await _firestore.collection(FirestoreCollections.therapistProfiles).doc(reportedId).set({
         'verificationStatus': 'suspended',
         'isActive': false,
+        'adminFeedback': notes,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } else if (action == 'restrict') {
@@ -2027,6 +2029,9 @@ class FirebaseSupportRepository implements SupportRepository {
       await _firestore.collection(FirestoreCollections.therapistProfiles).doc(reportedId).set({
         'verificationStatus': 'restricted',
         'isActive': false,
+        'isAcceptingClients': false,
+        'adminFeedback': notes,
+        'restrictionUntil': Timestamp.fromDate(DateTime.now().add(const Duration(days: 4))),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }

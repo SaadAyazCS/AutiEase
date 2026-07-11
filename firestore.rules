@@ -76,9 +76,10 @@ service cloud.firestore {
           request.resource.data.get('role', '') != 'admin';
       allow update: if signedIn() && request.auth.uid == userId &&
           request.resource.data.get('role', '') != 'admin';
-      // Allow admin email to set/update any user document including admin role
-      allow create, update: if signedIn() &&
-          request.auth.token.email == 'admin@autiease.com';
+      // Allow admin to set/update any user document
+      allow create, update: if signedIn() && (
+        request.auth.token.email == 'admin@autiease.com' || isAdmin()
+      );
       allow delete: if signedIn() && request.auth.uid == userId;
     }
 
@@ -113,7 +114,8 @@ service cloud.firestore {
       allow update: if (isTherapist() && request.auth.uid == therapistId &&
         (!('verificationStatus' in request.resource.data) || 
          request.resource.data.verificationStatus == resource.data.verificationStatus ||
-         (resource.data.verificationStatus == 'rejected' && request.resource.data.verificationStatus == 'pending')
+         (resource.data.verificationStatus == 'rejected' && request.resource.data.verificationStatus == 'pending') ||
+         (resource.data.verificationStatus == 'restricted' && request.resource.data.verificationStatus == 'approved' && request.time > resource.data.restrictionUntil)
         ) &&
         (!('verifiedBadge' in request.resource.data) || request.resource.data.verifiedBadge == resource.data.verifiedBadge) &&
         (!('bio' in request.resource.data) || request.resource.data.bio.size() <= 1000) &&

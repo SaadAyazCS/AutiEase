@@ -246,12 +246,62 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
 
     try {
       final profile = await AppRepositories.support.getTherapistById(uid);
+      final userProfile = await AppRepositories.users.getCurrentUserProfile();
+
+      if (userProfile?.status == 'banned' || userProfile?.status == 'suspended') {
+        await FirebaseAuth.instance.signOut();
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const LoginScreen()),
+            (route) => false,
+          );
+        }
+        return;
+      }
+
       final doc = await FirebaseFirestore.instance
           .collection(FirestoreCollections.therapistProfiles)
           .doc(uid)
           .get();
-      final userProfile = await AppRepositories.users.getCurrentUserProfile();
       final data = doc.data() ?? <String, dynamic>{};
+
+      var activeProfile = profile;
+      DateTime? restUntil = activeProfile?.restrictionUntil;
+
+      if (restUntil != null) {
+        if (DateTime.now().isBefore(restUntil)) {
+          // Restriction is active! Force in-memory acceptsClients to false
+          if (activeProfile != null && activeProfile.isAcceptingClients) {
+            activeProfile = activeProfile.copyWith(isAcceptingClients: false);
+            await FirebaseFirestore.instance
+                .collection(FirestoreCollections.therapistProfiles)
+                .doc(uid)
+                .update({'isAcceptingClients': false});
+          }
+        } else {
+          // Restriction has expired! Automatically lift it!
+          restUntil = null;
+          await FirebaseFirestore.instance
+              .collection(FirestoreCollections.therapistProfiles)
+              .doc(uid)
+              .update({
+            'verificationStatus': 'approved',
+            'restrictionUntil': FieldValue.delete(),
+          });
+          await FirebaseFirestore.instance
+              .collection(FirestoreCollections.users)
+              .doc(uid)
+              .update({
+            'status': 'verified',
+          });
+          final refreshedProfile = await AppRepositories.support.getTherapistById(uid);
+          if (refreshedProfile != null) {
+            activeProfile = refreshedProfile;
+          }
+        }
+      }
+
       final parsedPackages = _parsePackages(data['servicePackages']);
       final userFullName = userProfile?.fullName.trim() ?? '';
       final canonicalDisplayName = userFullName.isNotEmpty
@@ -284,7 +334,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
       }
       setState(() {
         _profile =
-            profile ??
+            activeProfile ??
             TherapistProfile(
               id: uid,
               displayName: canonicalDisplayName,
@@ -2241,6 +2291,17 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
 
   Future<void> _handleToggleAccepting() async {
     if (_updatingAccepting) return;
+    final restUntil = _profile.restrictionUntil;
+    final isRestricted = restUntil != null && DateTime.now().isBefore(restUntil);
+    if (isRestricted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Your account is temporarily restricted. You cannot accept new clients at this time.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
     final next = !_isAcceptingClients;
     setState(() {
       _updatingAccepting = true;
@@ -2462,6 +2523,28 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
                               child: Text(
                                 'Account Suspended: ${profile.adminFeedback.isEmpty ? "Please contact support." : profile.adminFeedback}',
                                 style: const TextStyle(color: Color(0xFF991B1B), fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ] else if (profile.verificationStatus == 'restricted') ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF3C7),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFCD34D)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.gavel, color: Colors.amber),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Account Restricted: Your account has been temporarily restricted. You cannot accept new clients or be listed on Professional Support at this time. Admin notes: ${profile.adminFeedback.isEmpty ? "No notes provided." : profile.adminFeedback}',
+                                style: const TextStyle(color: Color(0xFF92400E), fontSize: 13),
                               ),
                             ),
                           ],

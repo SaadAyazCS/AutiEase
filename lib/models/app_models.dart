@@ -847,6 +847,7 @@ class TherapistProfile {
     this.lastActiveAt,
     this.hasUnacknowledgedChanges = false,
     this.unacknowledgedChangesFields = const <String>[],
+    this.restrictionUntil,
   });
 
   final String id;
@@ -880,6 +881,7 @@ class TherapistProfile {
   final DateTime? lastActiveAt;
   final bool hasUnacknowledgedChanges;
   final List<String> unacknowledgedChangesFields;
+  final DateTime? restrictionUntil;
 
   /// Convenience alias for yearsOfExperience.
   int get experienceYears => yearsOfExperience;
@@ -913,6 +915,7 @@ class TherapistProfile {
     DateTime? lastActiveAt,
     bool? hasUnacknowledgedChanges,
     List<String>? unacknowledgedChangesFields,
+    DateTime? restrictionUntil,
   }) {
     return TherapistProfile(
       id: id,
@@ -944,6 +947,7 @@ class TherapistProfile {
       lastActiveAt: lastActiveAt ?? this.lastActiveAt,
       hasUnacknowledgedChanges: hasUnacknowledgedChanges ?? this.hasUnacknowledgedChanges,
       unacknowledgedChangesFields: unacknowledgedChangesFields ?? this.unacknowledgedChangesFields,
+      restrictionUntil: restrictionUntil ?? this.restrictionUntil,
     );
   }
 
@@ -999,6 +1003,7 @@ class TherapistProfile {
       lastActiveAt: dateTimeFromFirestore(data['lastActiveAt']),
       hasUnacknowledgedChanges: data['hasUnacknowledgedChanges'] == true,
       unacknowledgedChangesFields: stringListFrom(data['unacknowledgedChangesFields']),
+      restrictionUntil: dateTimeFromFirestore(data['restrictionUntil']),
     );
   }
 
@@ -1033,6 +1038,7 @@ class TherapistProfile {
       'lastActiveAt': lastActiveAt,
       'hasUnacknowledgedChanges': hasUnacknowledgedChanges,
       'unacknowledgedChangesFields': unacknowledgedChangesFields,
+      'restrictionUntil': restrictionUntil,
     };
   }
 }

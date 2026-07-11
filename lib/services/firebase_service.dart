@@ -772,6 +772,16 @@ class FirebaseService {
       final userDoc = await _users.doc(user.uid).get();
       final data = userDoc.data() ?? <String, dynamic>{};
 
+      final status = (data['status'] ?? '').toString();
+      if (status == 'suspended') {
+        await _auth.signOut();
+        return {'success': false, 'message': 'Account suspended: please contact support.'};
+      }
+      if (status == 'banned') {
+        await _auth.signOut();
+        return {'success': false, 'message': 'Account permanently banned due to policy violations.'};
+      }
+
       if (!isAdminEmail) {
         final isVerified = await _isCurrentUserEmailVerified();
         final isGoogleUser = user.providerData.any(

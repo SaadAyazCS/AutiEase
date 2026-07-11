@@ -15,6 +15,7 @@ import 'parent_home_info_flow_screen.dart';
 import 'professional_support_screen.dart';
 import 'settings_screen.dart';
 import 'notification_inbox_screen.dart';
+import 'login_screen.dart';
 
 class ParentHomeScreen extends StatefulWidget {
   const ParentHomeScreen({super.key});
@@ -77,7 +78,23 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
 
     try {
       final profile = await AppRepositories.users.getCurrentUserProfile();
-      if (profile == null || profile.role != 'parent') {
+      if (profile == null) {
+        return;
+      }
+
+      if (profile.status == 'banned' || profile.status == 'suspended') {
+        await FirebaseAuth.instance.signOut();
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const LoginScreen()),
+            (route) => false,
+          );
+        }
+        return;
+      }
+
+      if (profile.role != 'parent') {
         return;
       }
 
