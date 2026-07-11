@@ -39,7 +39,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   StreamSubscription<List<UserReport>>? _reportsSubscription;
   StreamSubscription<QuerySnapshot>? _usersSubscription;
   StreamSubscription<QuerySnapshot>? _subscriptionsSubscription;
+  StreamSubscription<QuerySnapshot>? _withdrawalsSubscription;
   int _pendingReportsCount = 0;
+  int _pendingWithdrawalsCount = 0;
 
   // Subscriptions search/filter state
   final TextEditingController _subSearchController = TextEditingController();
@@ -64,6 +66,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       if (mounted && pendingCount != _pendingReportsCount) {
         setState(() {
           _pendingReportsCount = pendingCount;
+        });
+      }
+    });
+
+    // Subscribe to withdrawals stream to dynamically update badge count in real-time
+    _withdrawalsSubscription = FirebaseFirestore.instance
+        .collection('withdrawal_requests')
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .listen((snapshot) {
+      if (mounted) {
+        setState(() {
+          _pendingWithdrawalsCount = snapshot.docs.length;
         });
       }
     });
@@ -99,6 +114,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     _reportsSubscription?.cancel();
     _usersSubscription?.cancel();
     _subscriptionsSubscription?.cancel();
+    _withdrawalsSubscription?.cancel();
     super.dispose();
   }
 
@@ -453,6 +469,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     } else if (name == 'Reports') {
       count = _pendingReportsCount;
       badgeColor = const Color(0xFFEF4444); // Red
+    } else if (name == 'Withdrawals') {
+      count = _pendingWithdrawalsCount;
+      badgeColor = const Color(0xFF3B82F6); // Blue
     }
 
     if (count == 0) {

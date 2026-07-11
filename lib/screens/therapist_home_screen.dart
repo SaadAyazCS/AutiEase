@@ -128,12 +128,48 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
         }
       }
 
-      if (hasActiveEmergency) {
+      final emergencyEnabled = _notificationPrefs['emergency'] ?? true;
+      if (hasActiveEmergency && emergencyEnabled) {
         _startGlobalEmergencyAlert(parentName);
       } else {
         _stopGlobalEmergencyAlert();
       }
     });
+  }
+
+  void _reevaluateEmergencyAlert() {
+    final emergencyEnabled = _notificationPrefs['emergency'] ?? true;
+    if (!emergencyEnabled) {
+      _stopGlobalEmergencyAlert();
+    } else {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      FirebaseFirestore.instance
+          .collection(FirestoreCollections.therapistThreads)
+          .where('therapistId', isEqualTo: uid)
+          .get()
+          .then((snapshot) {
+        if (!mounted) return;
+        final threads = snapshot.docs
+            .map((doc) => TherapistThread.fromMap(doc.id, doc.data()))
+            .toList();
+        bool hasActiveEmergency = false;
+        String parentName = '';
+        for (final t in threads) {
+          if (t.hasOpenEmergency) {
+            hasActiveEmergency = true;
+            parentName = t.parentDisplayName.isNotEmpty ? t.parentDisplayName : 'A parent';
+            break;
+          }
+        }
+        final emergencyEnabled = _notificationPrefs['emergency'] ?? true;
+        if (hasActiveEmergency && emergencyEnabled) {
+          _startGlobalEmergencyAlert(parentName);
+        } else {
+          _stopGlobalEmergencyAlert();
+        }
+      }).catchError((_) {});
+    }
   }
 
   void _startGlobalEmergencyAlert(String parentName) {
@@ -1582,6 +1618,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
                           setState(() {
                             _notificationPrefs = updated;
                           });
+                          _reevaluateEmergencyAlert();
                         }
                       },
                     ),
@@ -7454,9 +7491,9 @@ const BoxDecoration _cardDeco = BoxDecoration(
 );
 
 const Map<String, bool> _defaultTherapistNotificationPrefs = <String, bool>{
-  'newMessages': false,
-  'bookings': false,
-  'payments': false,
+  'newMessages': true,
+  'bookings': true,
+  'payments': true,
   'emergency': true,
 };
 

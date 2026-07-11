@@ -858,6 +858,26 @@ async function updateTherapistThreadAccess(userId, therapistId, active) {
 async function createSubscriptionNotification({ userId, title, message, navigationTarget }) {
   if (!userId) return;
   try {
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (userDoc.exists) {
+      const data = userDoc.data() || {};
+      const role = data.role || '';
+      const isTherapist = role === 'therapist' || data.therapistNotificationPreferences !== undefined;
+      const prefs = data.notificationPreferences || data.therapistNotificationPreferences || {};
+      
+      let enabled = true;
+      if (isTherapist) {
+        enabled = prefs.payments !== false;
+      } else {
+        enabled = prefs.subscription !== false;
+      }
+      
+      if (!enabled) {
+        console.log(`createSubscriptionNotification: skipped for ${userId} because subscription notifications are disabled`);
+        return;
+      }
+    }
+
     await db.collection('notifications').add({
       userId,
       title,
@@ -2377,6 +2397,16 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, requireAdmin, async (req
         previousBalance = therapistSnap.exists ? (parseFloat(therapistSnap.data().walletBalance) || 0) : 0;
       }
 
+      // Read user notification preferences to ensure we respect them in transaction writes
+      const userRef = db.collection('users').doc(therapistId);
+      const userSnap = await txn.get(userRef);
+      let paymentsEnabled = true;
+      if (userSnap.exists) {
+        const userData = userSnap.data() || {};
+        const prefs = userData.notificationPreferences || userData.therapistNotificationPreferences || {};
+        paymentsEnabled = prefs.payments !== false;
+      }
+
       // 2. Perform all writes
       // Update withdrawal request
       txn.set(requestRef, {
@@ -2417,22 +2447,24 @@ app.post('/api/v1/admin/withdraw/resolve', requireAuth, requireAdmin, async (req
         });
       }
 
-      // Create system notification for therapist
-      const notificationId = `notif_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
-      const notificationRef = db.collection('notifications').doc(notificationId);
-      txn.set(notificationRef, {
-        userId: therapistId,
-        title: status === 'paid' ? 'Withdrawal Successful' : 'Withdrawal Rejected',
-        message: status === 'paid'
-          ? `Your withdrawal request for Rs. ${amount.toFixed(0)} has been processed and paid.${adminNotes ? ' Note: ' + adminNotes : ''}`
-          : `Your withdrawal request for Rs. ${amount.toFixed(0)} was rejected.${adminNotes ? ' Reason: ' + adminNotes : ''}`,
-        category: 'subscription',
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        isRead: false,
-        navigationTarget: {
-          route: 'WalletHistory',
-        },
-      });
+      // Create system notification for therapist if payments notifications are enabled
+      if (paymentsEnabled) {
+        const notificationId = `notif_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+        const notificationRef = db.collection('notifications').doc(notificationId);
+        txn.set(notificationRef, {
+          userId: therapistId,
+          title: status === 'paid' ? 'Withdrawal Successful' : 'Withdrawal Rejected',
+          message: status === 'paid'
+            ? `Your withdrawal request for Rs. ${amount.toFixed(0)} has been processed and paid.${adminNotes ? ' Note: ' + adminNotes : ''}`
+            : `Your withdrawal request for Rs. ${amount.toFixed(0)} was rejected.${adminNotes ? ' Reason: ' + adminNotes : ''}`,
+          category: 'subscription',
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          isRead: false,
+          navigationTarget: {
+            route: 'WalletHistory',
+          },
+        });
+      }
 
       // Write admin audit log
       txn.set(db.collection('admin_audit_logs').doc(), {

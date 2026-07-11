@@ -38,9 +38,9 @@ class _TherapistNotificationInboxScreenState
 
 
   static const Map<String, bool> _defaultTherapistNotificationPrefs = <String, bool>{
-    'newMessages': false,
-    'bookings': false,
-    'payments': false,
+    'newMessages': true,
+    'bookings': true,
+    'payments': true,
     'emergency': true,
   };
 

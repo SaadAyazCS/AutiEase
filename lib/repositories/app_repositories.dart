@@ -4068,31 +4068,41 @@ class FirebaseAdminRepository implements AdminRepository {
       'timestamp': FieldValue.serverTimestamp(),
     });
 
-    // 5. Notify the therapist
+    // 5. Notify the therapist if they have payments notifications enabled
     if (therapistId.isNotEmpty) {
       try {
-        if (status == 'paid') {
-          await _firestore.collection('notifications').add({
-            'userId': therapistId,
-            'title': '✅ Withdrawal Paid',
-            'message': 'Your withdrawal request of Rs.${amount.toStringAsFixed(0)} has been processed and paid. '
-                '${adminNotes != null && adminNotes.isNotEmpty ? 'Reference: $adminNotes.' : ''}',
-            'category': 'wallet',
-            'isRead': false,
-            'timestamp': FieldValue.serverTimestamp(),
-            'navigationTarget': {'route': 'TherapistWallet'},
-          });
-        } else {
-          await _firestore.collection('notifications').add({
-            'userId': therapistId,
-            'title': '❌ Withdrawal Rejected',
-            'message': 'Your withdrawal request of Rs.${amount.toStringAsFixed(0)} has been rejected. '
-                '${adminNotes != null && adminNotes.isNotEmpty ? 'Reason: $adminNotes.' : 'Please contact support for details.'}',
-            'category': 'wallet',
-            'isRead': false,
-            'timestamp': FieldValue.serverTimestamp(),
-            'navigationTarget': {'route': 'TherapistWallet'},
-          });
+        final therapistDoc = await _firestore.collection(FirestoreCollections.users).doc(therapistId).get();
+        final therapistData = therapistDoc.data();
+        bool paymentsEnabled = true;
+        if (therapistData != null) {
+          final prefs = boolMapFrom(therapistData['notificationPreferences'] ?? therapistData['therapistNotificationPreferences']);
+          paymentsEnabled = prefs['payments'] ?? true;
+        }
+
+        if (paymentsEnabled) {
+          if (status == 'paid') {
+            await _firestore.collection('notifications').add({
+              'userId': therapistId,
+              'title': '✅ Withdrawal Paid',
+              'message': 'Your withdrawal request of Rs.${amount.toStringAsFixed(0)} has been processed and paid. '
+                  '${adminNotes != null && adminNotes.isNotEmpty ? 'Reference: $adminNotes.' : ''}',
+              'category': 'wallet',
+              'isRead': false,
+              'timestamp': FieldValue.serverTimestamp(),
+              'navigationTarget': {'route': 'TherapistWallet'},
+            });
+          } else {
+            await _firestore.collection('notifications').add({
+              'userId': therapistId,
+              'title': '❌ Withdrawal Rejected',
+              'message': 'Your withdrawal request of Rs.${amount.toStringAsFixed(0)} has been rejected. '
+                  '${adminNotes != null && adminNotes.isNotEmpty ? 'Reason: $adminNotes.' : 'Please contact support for details.'}',
+              'category': 'wallet',
+              'isRead': false,
+              'timestamp': FieldValue.serverTimestamp(),
+              'navigationTarget': {'route': 'TherapistWallet'},
+            });
+          }
         }
       } catch (e) {
         debugPrint('resolveWithdrawalRequest: failed to notify therapist: $e');
