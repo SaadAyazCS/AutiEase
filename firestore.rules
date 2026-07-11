@@ -256,8 +256,10 @@ service cloud.firestore {
 
     match /therapist_earnings/{earningId} {
       allow read: if signedIn() && (resource.data.userId == request.auth.uid || resource.data.therapistId == request.auth.uid || isAdmin());
-      allow create, update, delete: if false;
+      allow create: if false;
+      allow update, delete: if isAdmin();
     }
+
 
     match /withdrawal_requests/{requestId} {
       allow read: if signedIn() && (resource.data.therapistId == request.auth.uid || isAdmin());

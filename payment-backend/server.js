@@ -1079,7 +1079,11 @@ async function activateSubscription(basketId, transactionId, source, additionalP
     if (subscriptionUserId) {
       const userSnap = await db.collection('users').doc(subscriptionUserId).get();
       if (userSnap.exists) {
-        parentDisplayName = (userSnap.data().displayName || userSnap.data().email || 'Parent').split(' ')[0];
+        const u = userSnap.data() || {};
+        const first = (u.firstName || '').trim();
+        const last = (u.lastName || '').trim();
+        const fullName = (first + ' ' + last).trim();
+        parentDisplayName = fullName || u.fullName || u.displayName || u.email || 'Parent';
       }
     }
     if (therapistId) {

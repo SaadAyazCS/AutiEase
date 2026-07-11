@@ -1566,63 +1566,7 @@ class FirebaseSupportRepository implements SupportRepository {
 
     await batch.commit();
 
-    try {
-      // Notify therapist: new subscription
-      final therapistUserDoc = await _firestore.collection(FirestoreCollections.users).doc(therapistId).get();
-      if (therapistUserDoc.exists && therapistUserDoc.data() != null) {
-        final prefs = boolMapFrom(therapistUserDoc.data()?['therapistNotificationPreferences']);
-        final enabled = prefs['bookings'] != false;
-
-        if (enabled) {
-          await _firestore.collection('notifications').add({
-            'userId': therapistId,
-            'title': '💳 New Subscription!',
-            'message': '$parentDisplayName has subscribed to one of your packages.',
-            'category': 'subscription',
-            'timestamp': FieldValue.serverTimestamp(),
-            'isRead': false,
-            'navigationTarget': {
-              'route': 'TherapistDashboard',
-            },
-          });
-        }
-      }
-      // Notify parent: subscription activated
-      final therapistProfileDoc = await _firestore
-          .collection(FirestoreCollections.therapistProfiles)
-          .doc(therapistId)
-          .get();
-      final therapistDisplayName = therapistProfileDoc.data()?['displayName']?.toString() ?? 'Therapist';
-
-      final existingParent = await _firestore
-          .collection('notifications')
-          .where('userId', isEqualTo: parentId)
-          .where('category', isEqualTo: 'subscription')
-          .get();
-      bool parentDuplicate = false;
-      for (final d in existingParent.docs) {
-        final msg = d.data()['message']?.toString() ?? '';
-        if (msg.contains('Your subscription to') && msg.contains('activated successfully')) {
-          parentDuplicate = true;
-          break;
-        }
-      }
-      if (!parentDuplicate) {
-        await _firestore.collection('notifications').add({
-          'userId': parentId,
-          'title': '\u2705 Subscription Activated!',
-          'message': 'Your subscription to $therapistDisplayName has been activated successfully.',
-          'category': 'subscription',
-          'timestamp': FieldValue.serverTimestamp(),
-          'isRead': false,
-          'navigationTarget': {
-            'route': 'ProfessionalSupport',
-          },
-        });
-      }
-    } catch (_) {
-      // Prevent notifications from failing the connection creation
-    }
+    // Notifications are handled entirely by the payment-backend webhook.
 
     return thread;
   }
@@ -4063,6 +4007,21 @@ class FirebaseAdminRepository implements AdminRepository {
       'resolvedAt': FieldValue.serverTimestamp(),
       'resolvedBy': adminId,
     });
+
+    // Update matching record in therapist_earnings to sync UI status & remove cooldown lock
+    try {
+      final earningsDoc = await _firestore.collection('therapist_earnings').doc(requestId).get();
+      if (earningsDoc.exists) {
+        await _firestore.collection('therapist_earnings').doc(requestId).update({
+          'status': status,
+          if (adminNotes != null && adminNotes.isNotEmpty) 'adminNotes': adminNotes,
+          if (receiptBase64 != null && receiptBase64.isNotEmpty) 'receiptBase64': receiptBase64,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to update therapist_earnings status: $e');
+    }
 
     // 3. Update therapist wallet balance based on resolution
     if (therapistId.isNotEmpty) {

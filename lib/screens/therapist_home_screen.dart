@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/services.dart';
@@ -66,6 +67,13 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
   bool _shouldCheckProfileCompletion = true;
   bool _hasCompletedInitialProfile = false;
 
+  // Emergency monitoring state
+  StreamSubscription<List<TherapistThread>>? _emergencySubscription;
+  Timer? _emergencyAlertTimer;
+  bool _emergencyAlertActive = false;
+  final FlutterLocalNotificationsPlugin _localNotif = FlutterLocalNotificationsPlugin();
+  final int _emergencyNotifId = 8888;
+
   @override
   void initState() {
     super.initState();
@@ -93,13 +101,91 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
     ]).animate(CurvedAnimation(parent: _bellController, curve: Curves.linear));
 
     _loadState();
+    _startEmergencyMonitoring();
   }
 
   @override
   void dispose() {
     _pulseController.dispose();
     _bellController.dispose();
+    _emergencySubscription?.cancel();
+    _emergencyAlertTimer?.cancel();
+    _localNotif.cancel(_emergencyNotifId);
     super.dispose();
+  }
+
+  void _startEmergencyMonitoring() {
+    _emergencySubscription = AppRepositories.support
+        .watchThreadsForRole('therapist')
+        .listen((threads) {
+      bool hasActiveEmergency = false;
+      String parentName = '';
+      for (final t in threads) {
+        if (t.hasOpenEmergency) {
+          hasActiveEmergency = true;
+          parentName = t.parentDisplayName.isNotEmpty ? t.parentDisplayName : 'A parent';
+          break;
+        }
+      }
+
+      if (hasActiveEmergency) {
+        _startGlobalEmergencyAlert(parentName);
+      } else {
+        _stopGlobalEmergencyAlert();
+      }
+    });
+  }
+
+  void _startGlobalEmergencyAlert(String parentName) {
+    if (_emergencyAlertActive) return; // already active
+    _emergencyAlertActive = true;
+
+    final bodyText = '$parentName needs immediate help. Open the chat now.';
+    final notifDetails = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'autiease_high_channel',
+        'High Importance Notifications',
+        channelDescription: 'Used for important messages and emergencies.',
+        importance: Importance.max,
+        priority: Priority.high,
+        icon: '@mipmap/ic_launcher',
+        playSound: true,
+        enableVibration: true,
+        styleInformation: BigTextStyleInformation(bodyText),
+      ),
+      iOS: const DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      ),
+    );
+
+    // Show immediately
+    _localNotif.show(
+      _emergencyNotifId,
+      '🚨 Emergency Support Requested!',
+      bodyText,
+      notifDetails,
+    );
+
+    // Show every 10 seconds
+    _emergencyAlertTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!_emergencyAlertActive) return;
+      _localNotif.show(
+        _emergencyNotifId,
+        '🚨 Emergency Support Requested!',
+        bodyText,
+        notifDetails,
+      );
+    });
+  }
+
+  void _stopGlobalEmergencyAlert() {
+    if (!_emergencyAlertActive) return;
+    _emergencyAlertActive = false;
+    _emergencyAlertTimer?.cancel();
+    _emergencyAlertTimer = null;
+    _localNotif.cancel(_emergencyNotifId);
   }
 
   void _triggerBellAnimation() {
