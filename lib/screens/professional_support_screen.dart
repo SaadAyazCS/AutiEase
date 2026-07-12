@@ -3876,9 +3876,27 @@ class _ParentSubscriptionsHistoryScreenState
       return const SizedBox.shrink();
     }
 
-    final priceLabel = therapist.pricing.isNotEmpty 
-        ? formatPriceString(therapist.pricing) 
-        : 'Rs. 4,999 PKR/month';
+    final visiblePackages = therapist.servicePackages.where((p) => p.visible).toList();
+    TherapyPackage? selectedPackage;
+    if (sub.productId.startsWith('auto_${therapist.id}_')) {
+      final parts = sub.productId.split('_');
+      if (parts.length >= 3) {
+        final idx = int.tryParse(parts.last) ?? 0;
+        if (idx >= 0 && idx < visiblePackages.length) {
+          selectedPackage = visiblePackages[idx];
+        }
+      }
+    }
+
+    if (selectedPackage == null && visiblePackages.isNotEmpty) {
+      selectedPackage = visiblePackages.first;
+    }
+
+    final priceLabel = selectedPackage != null
+        ? '${formatPrice(selectedPackage.price)}/month'
+        : (therapist.pricing.isNotEmpty 
+            ? formatPriceString(therapist.pricing) 
+            : 'Rs. 4,999 PKR/month');
 
     Color statusColor;
     String statusText;
