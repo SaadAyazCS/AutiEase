@@ -619,12 +619,15 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
   Future<bool> _openCheckoutForTherapist(TherapistProfile therapist, {int packageIndex = 0}) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser != null) {
-      final hasRestriction = await AppRepositories.support.hasAnyActiveRestriction(currentUser.uid);
+      final hasRestriction = await AppRepositories.support.hasActiveRestrictionBetween(
+        parentId: currentUser.uid,
+        therapistId: therapist.id,
+      );
       if (hasRestriction) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('You cannot purchase new subscriptions while under an active restriction.'),
+              content: Text('Your account is restricted. You cannot switch or buy another package.'),
               backgroundColor: AppColors.errorRed,
             ),
           );
@@ -1418,41 +1421,51 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
           padding: const EdgeInsets.fromLTRB(10, 10, 10, 20),
           children: [
             for (final thread in backendThreads)
-              _MessageHomeCard(
-                therapistName: thread.therapistDisplayName.isNotEmpty
-                    ? thread.therapistDisplayName
-                    : (therapistById[thread.therapistId]?.displayName ??
-                          'Therapist'),
-                preview: thread.lastMessagePreview.isEmpty
-                    ? "I'd recommend continuing with the communication exercises at home."
-                    : thread.lastMessagePreview,
-                timeLabel: _formatTime(thread.lastMessageAt),
-                photoBase64: therapistById[thread.therapistId]?.photoUrlBase64.isNotEmpty == true
-                    ? therapistById[thread.therapistId]?.photoUrlBase64
-                    : therapistById[thread.therapistId]?.photoUrl,
-                isOnline: (() {
-                  final t = therapistById[thread.therapistId];
-                  if (t == null || t.lastActiveAt == null) return false;
-                  return DateTime.now().difference(t.lastActiveAt!).inMinutes < 5;
-                })(),
-                rating: therapistById[thread.therapistId]?.rating ?? 0.0,
-                isUnread: (() {
-                  if (thread.lastMessageAt == null) return false;
-                  if (thread.parentLastRead == null) return true;
-                  return thread.lastMessageAt!.isAfter(thread.parentLastRead!);
-                })(),
-                onTap: () {
-                  final therapist = therapistById[thread.therapistId];
-                  if (therapist == null) {
-                    return;
-                  }
-                  _openExistingThread(
-                    thread,
-                    therapist,
-                    chatEnabled: chatEnabled,
+              StreamBuilder<RestrictionRecord?>(
+                stream: AppRepositories.support.watchActiveRestriction(
+                  parentId: thread.parentId,
+                  therapistId: thread.therapistId,
+                ),
+                builder: (context, restSnap) {
+                  final hasRest = restSnap.data != null && restSnap.data!.isActive;
+                  return _MessageHomeCard(
+                    therapistName: thread.therapistDisplayName.isNotEmpty
+                        ? thread.therapistDisplayName
+                        : (therapistById[thread.therapistId]?.displayName ??
+                              'Therapist'),
+                    preview: thread.lastMessagePreview.isEmpty
+                        ? "I'd recommend continuing with the communication exercises at home."
+                        : thread.lastMessagePreview,
+                    timeLabel: _formatTime(thread.lastMessageAt),
+                    photoBase64: therapistById[thread.therapistId]?.photoUrlBase64.isNotEmpty == true
+                        ? therapistById[thread.therapistId]?.photoUrlBase64
+                        : therapistById[thread.therapistId]?.photoUrl,
+                    isOnline: (() {
+                      final t = therapistById[thread.therapistId];
+                      if (t == null || t.lastActiveAt == null) return false;
+                      return DateTime.now().difference(t.lastActiveAt!).inMinutes < 5;
+                    })(),
+                    rating: therapistById[thread.therapistId]?.rating ?? 0.0,
+                    isUnread: (() {
+                      if (thread.lastMessageAt == null) return false;
+                      if (thread.parentLastRead == null) return true;
+                      return thread.lastMessageAt!.isAfter(thread.parentLastRead!);
+                    })(),
+                    isRestricted: hasRest,
+                    onTap: () {
+                      final therapist = therapistById[thread.therapistId];
+                      if (therapist == null) {
+                        return;
+                      }
+                      _openExistingThread(
+                        thread,
+                        therapist,
+                        chatEnabled: chatEnabled,
+                      );
+                    },
+                    onLongPress: () => _confirmDeleteChat(thread),
                   );
                 },
-                onLongPress: () => _confirmDeleteChat(thread),
               ),
             for (final therapist in localSubscribedWithoutThread)
               _MessageHomeCard(
@@ -1866,6 +1879,7 @@ class _MessageHomeCard extends StatelessWidget {
     this.isOnline = false,
     this.rating = 0.0,
     this.isUnread = false,
+    this.isRestricted = false,
   });
 
   final String therapistName;
@@ -1877,6 +1891,7 @@ class _MessageHomeCard extends StatelessWidget {
   final bool isOnline;
   final double rating;
   final bool isUnread;
+  final bool isRestricted;
 
   @override
   Widget build(BuildContext context) {
@@ -1946,13 +1961,26 @@ class _MessageHomeCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    therapistName,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF1F2937),
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          therapistName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF1F2937),
+                          ),
+                        ),
+                      ),
+                      if (isRestricted)
+                        const Padding(
+                          padding: EdgeInsets.only(left: 6),
+                          child: Icon(Icons.lock_clock, color: Colors.amber, size: 18),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -2027,6 +2055,7 @@ class SupportTherapistDetailsScreenState
   late bool _isSubscribed;
   bool _isSubscribing = false;
   bool _isSwitching = false;
+  bool _isRestricted = false;
   bool _loadingTherapistMeta = true;
   int _yearsFromProfile = 0;
   int _monthsFromProfile = 0;
@@ -2051,6 +2080,22 @@ class SupportTherapistDetailsScreenState
     _isSubscribed = widget.initiallySubscribed;
     _loadTherapistMeta();
     _loadActiveChild();
+    _checkRestriction();
+  }
+
+  Future<void> _checkRestriction() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser != null) {
+      final res = await AppRepositories.support.hasActiveRestrictionBetween(
+        parentId: currentUser.uid,
+        therapistId: widget.therapist.id,
+      );
+      if (mounted) {
+        setState(() {
+          _isRestricted = res;
+        });
+      }
+    }
   }
 
   Future<void> _loadActiveChild() async {
@@ -2651,6 +2696,7 @@ class SupportTherapistDetailsScreenState
                             currentIndex: safePackageIndex,
                             isSubscribed: _isSubscribed,
                             subscribedPackageIndex: _subscribedPackageIndex,
+                            isRestricted: _isRestricted,
                             onPackageSelected: (index) {
                               if (!mounted) {
                                 return;
@@ -2751,7 +2797,16 @@ class SupportTherapistDetailsScreenState
                                 onPressed: _isSubscribing || therapist.isAcceptingClients == false
                                     ? null
                                     : (widget.paymentsEnabled
-                                          ? _subscribe
+                                          ? (_isRestricted
+                                              ? () {
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text('Your account is restricted. You cannot switch or buy another package.'),
+                                                      backgroundColor: Color(0xFFEF4444),
+                                                    ),
+                                                  );
+                                                }
+                                              : _subscribe)
                                           : () {
                                               ScaffoldMessenger.of(
                                                 context,
@@ -2834,6 +2889,7 @@ class _PackageSelectionList extends StatelessWidget {
     required this.isSubscribed,
     required this.onSwitchPackage,
     required this.onManageSubscription,
+    required this.isRestricted,
   });
 
   final List<_SupportServicePackage> packages;
@@ -2843,6 +2899,7 @@ class _PackageSelectionList extends StatelessWidget {
   final bool isSubscribed;
   final ValueChanged<int> onSwitchPackage;
   final VoidCallback onManageSubscription;
+  final bool isRestricted;
 
   @override
   Widget build(BuildContext context) {
@@ -2858,6 +2915,15 @@ class _PackageSelectionList extends StatelessWidget {
                   : (i == currentIndex),
               isLocked: isSubscribed && subscribedPackageIndex != null && (subscribedPackageIndex != i),
               onTap: () {
+                if (isRestricted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Your account is restricted. You cannot switch or buy another package.'),
+                      backgroundColor: Color(0xFFEF4444),
+                    ),
+                  );
+                  return;
+                }
                 if (isSubscribed && subscribedPackageIndex != null && (subscribedPackageIndex != i)) {
                   showDialog<void>(
                     context: context,

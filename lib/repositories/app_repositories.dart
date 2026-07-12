@@ -267,6 +267,7 @@ abstract class SupportRepository {
   /// Returns true if [userId] has any active restriction (as either party).
   /// Used to block new subscription purchases for restricted parents.
   Future<bool> hasAnyActiveRestriction(String userId);
+  Future<bool> hasActiveRestrictionBetween({required String parentId, required String therapistId});
 
   // ─── Moderation: One-Time Messages ─────────────────────────────────────────
 
@@ -3006,6 +3007,27 @@ class FirebaseSupportRepository implements SupportRepository {
     return false;
   }
 
+  @override
+  Future<bool> hasActiveRestrictionBetween({
+    required String parentId,
+    required String therapistId,
+  }) async {
+    final now = DateTime.now();
+    final snap = await _firestore
+        .collection('restrictions')
+        .where('parentId', isEqualTo: parentId)
+        .where('therapistId', isEqualTo: therapistId)
+        .where('status', isEqualTo: 'active')
+        .get();
+    for (final doc in snap.docs) {
+      final record = RestrictionRecord.fromMap(doc.id, doc.data());
+      if (record.endDate.isAfter(now)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Moderation: One-Time Messages
   // ═══════════════════════════════════════════════════════════════════════════
@@ -4707,19 +4729,27 @@ class FirebaseAdminRepository implements AdminRepository {
       'navigationTarget': {'route': 'Notifications'},
     });
 
+    final isOtherPartyTherapist = targetRole == 'parent';
+
     // Notify the other party
     await _firestore.collection('notifications').add({
       'userId': otherUserId,
       'title': '🔒 Communication Temporarily Restricted',
-      'message': 'Your communication with $targetName has been temporarily restricted '
-          'by the platform administrators for $restrictionDays day(s). '
-          'Reason: $reason. '
-          'The restriction will automatically expire on $endDateStr. '
-          'You may choose to continue or cancel your current subscription.',
+      'message': isOtherPartyTherapist
+          ? 'Your communication with $targetName has been temporarily restricted '
+              'by the platform administrators for $restrictionDays day(s). '
+              'Reason: $reason. '
+              'The restriction will automatically expire on $endDateStr.'
+          : 'Your communication with $targetName has been temporarily restricted '
+              'by the platform administrators for $restrictionDays day(s). '
+              'Reason: $reason. '
+              'The restriction will automatically expire on $endDateStr. '
+              'You may choose to continue or cancel your current subscription.',
       'category': 'moderation',
       'isRead': false,
       'timestamp': FieldValue.serverTimestamp(),
-      'navigationTarget': {'route': 'SubscriptionDecisionAfterModeration', 'reportId': reportId},
+      if (!isOtherPartyTherapist)
+        'navigationTarget': {'route': 'SubscriptionDecisionAfterModeration', 'reportId': reportId},
     });
   }
 
@@ -5013,16 +5043,44 @@ class FirebaseAdminRepository implements AdminRepository {
                 }, SetOptions(merge: true));
               }
             }
-            await _firestore.collection('notifications').add({
-              'userId': uid,
-              'title': '✅ Restriction Removed',
-              'message': 'The communication restriction has been removed by the platform administrators. '
-                  'You may now communicate normally. Reason for removal: $reason.',
-              'category': 'moderation',
-              'isRead': false,
-              'timestamp': FieldValue.serverTimestamp(),
-            });
           }
+
+          // Resolve names for customized notifications
+          String parentName = 'the parent';
+          String therapistName = 'the therapist';
+          try {
+            final pDoc = await _firestore.collection(FirestoreCollections.users).doc(parentId).get();
+            final pData = pDoc.data() ?? {};
+            parentName = '${pData['firstName'] ?? ''} ${pData['lastName'] ?? ''}'.trim();
+            if (parentName.isEmpty) parentName = 'the parent';
+          } catch (_) {}
+          try {
+            final tDoc = await _firestore.collection(FirestoreCollections.therapistProfiles).doc(therapistId).get();
+            therapistName = (tDoc.data()?['displayName'] ?? '').toString();
+            if (therapistName.isEmpty) therapistName = 'the therapist';
+          } catch (_) {}
+
+          // Notify Parent
+          await _firestore.collection('notifications').add({
+            'userId': parentId,
+            'title': '✅ Communication Restored',
+            'message': 'Your communication with $therapistName has been restored by the platform administrators. '
+                'You may now communicate normally. Reason: $reason.',
+            'category': 'moderation',
+            'isRead': false,
+            'timestamp': FieldValue.serverTimestamp(),
+          });
+
+          // Notify Therapist
+          await _firestore.collection('notifications').add({
+            'userId': therapistId,
+            'title': '✅ Communication Restored',
+            'message': 'Your communication with $parentName has been restored by the platform administrators. '
+                'You may now communicate normally. Reason: $reason.',
+            'category': 'moderation',
+            'isRead': false,
+            'timestamp': FieldValue.serverTimestamp(),
+          });
         }
         break;
 
@@ -5031,6 +5089,7 @@ class FirebaseAdminRepository implements AdminRepository {
       case 'restore':
         // Fetch user data first to see if they were restricted or suspended
         bool wasRestricted = false;
+        bool didSendCustomNotification = false;
         try {
           final uDoc = await _firestore.collection(FirestoreCollections.users).doc(targetUserId).get();
           wasRestricted = uDoc.data()?['hasActiveRestrictions'] == true;
@@ -5047,7 +5106,6 @@ class FirebaseAdminRepository implements AdminRepository {
             final data = d.data();
             return data['parentId'] == targetUserId || data['therapistId'] == targetUserId;
           }).toList();
-
           for (final doc in targetRestrictions) {
             final data = doc.data();
             final parentId = data['parentId']?.toString() ?? '';
@@ -5059,6 +5117,45 @@ class FirebaseAdminRepository implements AdminRepository {
               'removalReason': reason,
               'removedAt': FieldValue.serverTimestamp(),
             });
+
+            // Resolve names for customized notifications
+            String parentName = 'the parent';
+            String therapistName = 'the therapist';
+            try {
+              final pDoc = await _firestore.collection(FirestoreCollections.users).doc(parentId).get();
+              final pData = pDoc.data() ?? {};
+              parentName = '${pData['firstName'] ?? ''} ${pData['lastName'] ?? ''}'.trim();
+              if (parentName.isEmpty) parentName = 'the parent';
+            } catch (_) {}
+            try {
+              final tDoc = await _firestore.collection(FirestoreCollections.therapistProfiles).doc(therapistId).get();
+              therapistName = (tDoc.data()?['displayName'] ?? '').toString();
+              if (therapistName.isEmpty) therapistName = 'the therapist';
+            } catch (_) {}
+
+            // Notify Parent
+            await _firestore.collection('notifications').add({
+              'userId': parentId,
+              'title': '✅ Communication Restored',
+              'message': 'Your communication with $therapistName has been restored by the platform administrators. '
+                  'You may now communicate normally. Reason: $reason.',
+              'category': 'moderation',
+              'isRead': false,
+              'timestamp': FieldValue.serverTimestamp(),
+            });
+
+            // Notify Therapist
+            await _firestore.collection('notifications').add({
+              'userId': therapistId,
+              'title': '✅ Communication Restored',
+              'message': 'Your communication with $parentName has been restored by the platform administrators. '
+                  'You may now communicate normally. Reason: $reason.',
+              'category': 'moderation',
+              'isRead': false,
+              'timestamp': FieldValue.serverTimestamp(),
+            });
+
+            didSendCustomNotification = true;
 
             // Re-check and clear hasActiveRestrictions for both users
             for (final uid in [parentId, therapistId]) {
@@ -5150,15 +5247,17 @@ class FirebaseAdminRepository implements AdminRepository {
 
         // Notify the user based on whether they were restricted vs suspended/banned
         if (wasRestricted) {
-          await _firestore.collection('notifications').add({
-            'userId': targetUserId,
-            'title': '✅ Communication Restored',
-            'message': 'The restriction on your account has been removed by the platform administrators. '
-                'You may now communicate normally. Reason: $reason.',
-            'category': 'moderation',
-            'isRead': false,
-            'timestamp': FieldValue.serverTimestamp(),
-          });
+          if (!didSendCustomNotification) {
+            await _firestore.collection('notifications').add({
+              'userId': targetUserId,
+              'title': '✅ Communication Restored',
+              'message': 'The restriction on your account has been removed by the platform administrators. '
+                  'You may now communicate normally. Reason: $reason.',
+              'category': 'moderation',
+              'isRead': false,
+              'timestamp': FieldValue.serverTimestamp(),
+            });
+          }
         } else {
           await _firestore.collection('notifications').add({
             'userId': targetUserId,
