@@ -206,6 +206,9 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
       // Just mark as read, keep user in the inbox
     } else if (route == 'ProfileStatus') {
       // Just mark as read, keep user in the inbox
+    } else if (route == 'SubscriptionDecisionAfterModeration' && target['reportId'] != null) {
+      final reportId = target['reportId'].toString();
+      _showSubscriptionDecisionDialog(context, reportId);
     } else if (route == 'Chat' && target['threadId'] != null) {
       final threadId = target['threadId'].toString();
       try {
@@ -489,6 +492,246 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
           ),
         ),
       ),
+    );
+  }
+
+  Future<void> _showSubscriptionDecisionDialog(BuildContext ctx, String reportId) async {
+    final messenger = ScaffoldMessenger.of(ctx);
+    final navigator = Navigator.of(ctx);
+
+    showDialog<void>(
+      context: ctx,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final reportDoc = await FirebaseFirestore.instance.collection('reports').doc(reportId).get();
+      if (!mounted) return;
+      navigator.pop(); // Dismiss loading dialog
+
+      if (!reportDoc.exists) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Report details not found.'), backgroundColor: Color(0xFFEF4444)),
+        );
+        return;
+      }
+
+      final data = reportDoc.data() ?? {};
+      final reportedId = data['reportedId']?.toString() ?? '';
+      final reporterId = data['reporterId']?.toString() ?? '';
+      final currentUid = AppRepositories.auth.currentUser?.uid;
+      final therapistId = (currentUid == reporterId) ? reportedId : reporterId;
+
+      final therapistDoc = await FirebaseFirestore.instance.collection('therapist_profiles').doc(therapistId).get();
+      final therapistName = therapistDoc.exists ? (therapistDoc.data()?['displayName'] ?? 'Therapist').toString() : 'Therapist';
+
+      if (!mounted || !ctx.mounted) return;
+      final confirmContinue = await showDialog<bool>(
+        context: ctx,
+        barrierDismissible: false,
+        builder: (dialogCtx) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('Moderation Decision', style: TextStyle(fontWeight: FontWeight.bold)),
+            content: Text(
+              'The administration has resolved the report regarding $therapistName.\n\n'
+              'Do you wish to continue or cancel your subscription?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogCtx, false), // Cancel Subscription
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                child: const Text('Cancel Subscription'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(dialogCtx, true), // Continue
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00C853), foregroundColor: Colors.white),
+                child: const Text('Continue Subscription'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (confirmContinue == true) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('You chose to continue the subscription.'),
+            backgroundColor: Color(0xFF00C853),
+          ),
+        );
+      } else if (confirmContinue == false) {
+        if (!mounted || !ctx.mounted) return;
+        final selectedReason = await showDialog<String>(
+          context: ctx,
+          barrierDismissible: false,
+          builder: (dialogCtx) {
+            return CancelSubscriptionDialog(
+              therapistName: therapistName,
+              onConfirmCancel: (reason) {
+                Navigator.pop(dialogCtx, reason);
+              },
+            );
+          },
+        );
+
+        if (selectedReason != null && mounted && ctx.mounted) {
+          final choice = await showDialog<String>(
+            context: ctx,
+            barrierDismissible: false,
+            builder: (dialogCtx) {
+              return ChatHistoryChoicesDialog(
+                therapistId: therapistId,
+                cancellationReason: selectedReason,
+                onComplete: (choice) {
+                  // Popping inside populates value
+                },
+              );
+            },
+          );
+
+          if (choice == 'keep' && mounted && ctx.mounted) {
+            final therapistProfile = TherapistProfile.fromMap(therapistId, therapistDoc.data() ?? {});
+            _showReviewDialog(ctx, therapistProfile);
+          }
+        }
+      }
+    } catch (e) {
+      if (ctx.mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Failed to process decision: $e'), backgroundColor: const Color(0xFFEF4444)),
+        );
+      }
+    }
+  }
+
+  void _showReviewDialog(BuildContext ctx, TherapistProfile therapist) {
+    int selectedRating = 5;
+    final publicController = TextEditingController();
+    final privateController = TextEditingController();
+    final messenger = ScaffoldMessenger.of(ctx);
+
+    showDialog<void>(
+      context: ctx,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: Text(
+                'Rate & Review\n${therapist.displayName}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1F2937),
+                ),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'How was your experience with this therapist?',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, color: Color(0xFF4B5563)),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(5, (index) {
+                        final starValue = index + 1;
+                        return IconButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              selectedRating = starValue;
+                            });
+                          },
+                          icon: Icon(
+                            starValue <= selectedRating
+                                ? Icons.star
+                                : Icons.star_border,
+                            color: Colors.amber,
+                            size: 32,
+                          ),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: publicController,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: 'Written Feedback (Optional)',
+                        hintText: 'Share your experience with other parents...',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: privateController,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: 'Private Notes (Optional)',
+                        hintText: 'Feedback visible only to admin/platform...',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Maybe Later', style: TextStyle(color: Color(0xFF6B7280))),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    try {
+                      await AppRepositories.support.submitReview(
+                        therapistId: therapist.id,
+                        rating: selectedRating,
+                        feedback: publicController.text.trim(),
+                        privateFeedback: privateController.text.trim(),
+                      );
+                      if (dialogCtx.mounted) {
+                        Navigator.pop(dialogCtx);
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text('Thank you! Your review has been submitted.'),
+                            backgroundColor: Color(0xFF00C853),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (dialogCtx.mounted) {
+                        messenger.showSnackBar(
+                          SnackBar(
+                            content: Text('Failed to submit review: $e'),
+                            backgroundColor: const Color(0xFFEF4444),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00C853), foregroundColor: Colors.white),
+                  child: const Text('Submit Review'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

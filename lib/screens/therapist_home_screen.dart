@@ -4671,6 +4671,22 @@ class _TherapistMessagesScreenState extends State<TherapistMessagesScreen> {
                                        ),
                                      ),
                                    ],
+                                   StreamBuilder<RestrictionRecord?>(
+                                     stream: AppRepositories.support.watchActiveRestriction(
+                                       parentId: thread.parentId,
+                                       therapistId: thread.therapistId,
+                                     ),
+                                     builder: (context, restSnap) {
+                                       final hasRest = restSnap.data != null && restSnap.data!.isActive;
+                                       if (hasRest) {
+                                         return const Padding(
+                                           padding: EdgeInsets.only(left: 6),
+                                           child: Icon(Icons.lock_clock, color: Colors.amber, size: 18),
+                                         );
+                                       }
+                                       return const SizedBox.shrink();
+                                     },
+                                   ),
                                  ],
                                ),
                                onLongPress: () => _confirmDeleteChat(thread),

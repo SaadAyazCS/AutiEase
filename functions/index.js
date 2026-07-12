@@ -2,6 +2,7 @@ const admin = require('firebase-admin');
 const { onCall, HttpsError, onRequest } = require('firebase-functions/v2/https');
 const { onDocumentDeleted, onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { onUserDeleted } = require('firebase-functions/v2/identity');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 
 admin.initializeApp();
 
@@ -303,3 +304,156 @@ exports.onReviewDeleted = onDocumentDeleted(
     await updateTherapistRating(therapistId);
   }
 );
+
+// ─── Moderation: Disable / Enable Firebase Auth Account ──────────────────────
+
+/**
+ * Disables a Firebase Auth user account (suspend / ban).
+ * Also revokes all refresh tokens so the user is immediately signed out
+ * from all devices.
+ *
+ * Must be called by an authenticated admin user.
+ */
+exports.disableUserAccount = onCall(async (request) => {
+  // Verify the caller is authenticated
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Caller must be authenticated.');
+  }
+
+  // Verify the caller is an admin
+  const callerUid = request.auth.uid;
+  const callerDoc = await db.collection('users').doc(callerUid).get();
+  if (!callerDoc.exists || callerDoc.data().role !== 'admin') {
+    throw new HttpsError('permission-denied', 'Only admins may disable user accounts.');
+  }
+
+  const { uid } = request.data;
+  if (!uid || typeof uid !== 'string') {
+    throw new HttpsError('invalid-argument', 'uid must be a non-empty string.');
+  }
+
+  try {
+    // Disable the Auth account (prevents new sign-ins)
+    await admin.auth().updateUser(uid, { disabled: true });
+    // Revoke all existing refresh tokens (forces immediate sign-out)
+    await admin.auth().revokeRefreshTokens(uid);
+    console.log(`disableUserAccount: disabled and revoked tokens for uid=${uid}`);
+  } catch (error) {
+    console.error(`disableUserAccount: failed for uid=${uid}:`, error);
+    throw new HttpsError('internal', `Failed to disable account: ${error.message}`);
+  }
+});
+
+/**
+ * Re-enables a Firebase Auth user account (unsuspend / restore).
+ * Must be called by an authenticated admin user.
+ */
+exports.enableUserAccount = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Caller must be authenticated.');
+  }
+
+  const callerUid = request.auth.uid;
+  const callerDoc = await db.collection('users').doc(callerUid).get();
+  if (!callerDoc.exists || callerDoc.data().role !== 'admin') {
+    throw new HttpsError('permission-denied', 'Only admins may enable user accounts.');
+  }
+
+  const { uid } = request.data;
+  if (!uid || typeof uid !== 'string') {
+    throw new HttpsError('invalid-argument', 'uid must be a non-empty string.');
+  }
+
+  try {
+    await admin.auth().updateUser(uid, { disabled: false });
+    console.log(`enableUserAccount: re-enabled uid=${uid}`);
+  } catch (error) {
+    console.error(`enableUserAccount: failed for uid=${uid}:`, error);
+    throw new HttpsError('internal', `Failed to enable account: ${error.message}`);
+  }
+});
+
+// ─── Moderation: Auto-Expire Restrictions ────────────────────────────────────
+
+/**
+ * Runs every hour. Finds all restriction records whose endDate has passed
+ * and status is still 'active', marks them as 'expired', and clears the
+ * hasActiveRestrictions flag from affected users if they have no remaining
+ * active restrictions.
+ */
+exports.autoExpireRestrictions = onSchedule('every 60 minutes', async () => {
+  const now = admin.firestore.Timestamp.now();
+  const snapshot = await db
+    .collection('restrictions')
+    .where('status', '==', 'active')
+    .where('endDate', '<=', now)
+    .get();
+
+  if (snapshot.empty) {
+    console.log('autoExpireRestrictions: no expired restrictions found.');
+    return;
+  }
+
+  console.log(`autoExpireRestrictions: expiring ${snapshot.size} restriction(s).`);
+
+  // Collect all affected user IDs (parentId + therapistId for each expired record)
+  const affectedUserIds = new Set();
+
+  const batch = db.batch();
+  for (const doc of snapshot.docs) {
+    batch.update(doc.ref, { status: 'expired', expiredAt: now });
+    const data = doc.data();
+    if (data.parentId) affectedUserIds.add(data.parentId);
+    if (data.therapistId) affectedUserIds.add(data.therapistId);
+  }
+  await batch.commit();
+
+  // For each affected user, check if they have any remaining active restrictions.
+  // If not, clear the hasActiveRestrictions flag.
+  for (const uid of affectedUserIds) {
+    const remainingSnap = await db
+      .collection('restrictions')
+      .where('status', '==', 'active')
+      .where('endDate', '>', now)
+      .get();
+
+    // Filter for this specific user client-side (Firestore doesn't support OR queries on different fields)
+    const stillRestricted = remainingSnap.docs.some(
+      (d) => d.data().parentId === uid || d.data().therapistId === uid
+    );
+
+    if (!stillRestricted) {
+      const userRef = db.collection('users').doc(uid);
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+        const role = userDoc.data()?.role;
+        await userRef.update({ hasActiveRestrictions: false, updatedAt: now });
+
+        // Also update therapist_profiles if therapist
+        if (role === 'therapist') {
+          const therapistRef = db.collection('therapist_profiles').doc(uid);
+          const therapistDoc = await therapistRef.get();
+          if (therapistDoc.exists) {
+            await therapistRef.update({ hasActiveRestrictions: false, updatedAt: now });
+          }
+        }
+
+        // Send a notification to the user that the restriction has lifted
+        await db.collection('notifications').add({
+          userId: uid,
+          title: '✅ Communication Restriction Lifted',
+          message:
+            'Your temporary communication restriction has expired. ' +
+            'You may now communicate normally with the other party.',
+          category: 'moderation',
+          isRead: false,
+          timestamp: now,
+        });
+
+        console.log(`autoExpireRestrictions: cleared hasActiveRestrictions for uid=${uid}`);
+      }
+    }
+  }
+});
+
+

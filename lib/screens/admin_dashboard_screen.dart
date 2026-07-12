@@ -763,6 +763,121 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     ),
                   ),
                 ],
+
+                // ── One-Time Messages ───────────────────────────
+                const SizedBox(height: 16),
+                const Text(
+                  'One-Time Messages (Additional Info)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+                ),
+                const Divider(),
+                StreamBuilder<List<ReportMessage>>(
+                  stream: AppRepositories.support.watchReportMessages(report.id),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: Padding(
+                        padding: EdgeInsets.all(8.0),
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ));
+                    }
+                    final msgs = snapshot.data ?? [];
+                    if (msgs.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          'No additional information submitted yet.',
+                          style: TextStyle(fontSize: 12.5, fontStyle: FontStyle.italic, color: Color(0xFF64748B)),
+                        ),
+                      );
+                    }
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: msgs.map((msg) {
+                        final formattedTime = '${msg.timestamp.day}/${msg.timestamp.month}/${msg.timestamp.year} ${msg.timestamp.hour.toString().padLeft(2, '0')}:${msg.timestamp.minute.toString().padLeft(2, '0')}';
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFFBEB), // soft amber background
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFFCD34D)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    '${msg.senderRole.toUpperCase()} (ID: ${msg.senderId})',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFFB45309)),
+                                  ),
+                                  Text(
+                                    formattedTime,
+                                    style: const TextStyle(fontSize: 10, color: Color(0xFFB45309)),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                msg.content,
+                                style: const TextStyle(fontSize: 13, color: Color(0xFF78350F)),
+                              ),
+                              if (msg.attachments.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                ...msg.attachments.map((att) {
+                                  final type = att['type']?.toString() ?? 'file';
+                                  final filename = att['filename']?.toString() ?? 'Attachment';
+                                  final data = att['data']?.toString() ?? '';
+
+                                  if (type == 'image') {
+                                    Widget imgWidget;
+                                    try {
+                                      final bytes = base64Decode(data);
+                                      imgWidget = ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Image.memory(bytes, fit: BoxFit.cover, height: 150),
+                                      );
+                                    } catch (_) {
+                                      imgWidget = const Icon(Icons.broken_image, color: Colors.grey);
+                                    }
+                                    return Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: imgWidget,
+                                    );
+                                  } else if (type == 'voice') {
+                                    return Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: _AdminVoicePlayer(payload: 'audio:10:$data'),
+                                    );
+                                  } else {
+                                    return Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.picture_as_pdf, color: Colors.redAccent, size: 16),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              filename,
+                                              style: const TextStyle(fontSize: 12, color: Colors.blue, decoration: TextDecoration.underline),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }
+                                })
+                              ]
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
               ],
             ),
           ),
@@ -1946,34 +2061,130 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   }
 
   void _showModerationDialog(String userId, String reportId) {
+    // Determine the target's role by looking up in Firestore asynchronously.
+    // We start with loading the role before opening the dialog so we can pass
+    // it to applyModerationAction.
+    _showModerationDialogWithRole(userId, reportId, null);
+  }
 
-    final controller = TextEditingController();
+  Future<void> _showModerationDialogWithRole(String userId, String reportId, String? knownRole) async {
+    String targetRole = knownRole ?? 'parent';
+
+    if (knownRole == null) {
+      try {
+        final tDoc = await FirebaseFirestore.instance
+            .collection('therapist_profiles')
+            .doc(userId)
+            .get();
+        if (tDoc.exists) {
+          targetRole = 'therapist';
+        }
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
+
+    final reasonController = TextEditingController();
+    final descriptionController = TextEditingController();
     final messenger = ScaffoldMessenger.of(context);
-    String selectedAction = 'no_action';
+    String selectedAction = 'warn';
+    String requestFrom = 'reporter';
+    int restrictionDays = 4;
+    String? otherPartyId;
+
+    // For 'restrict', we need the other party's ID from the report
+    if (reportId.isNotEmpty) {
+      try {
+        final reportDoc = await FirebaseFirestore.instance
+            .collection('reports')
+            .doc(reportId)
+            .get();
+        final data = reportDoc.data() ?? {};
+        final reporterId = data['reporterId']?.toString() ?? '';
+        final reportedId = data['reportedId']?.toString() ?? '';
+        // The other party is whoever is NOT the target
+        otherPartyId = (reportedId == userId) ? reporterId : reportedId;
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
 
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final isRestrict = selectedAction == 'restrict';
+            final isRequestInfo = selectedAction == 'request_info';
+            final isSuspendOrBan = selectedAction == 'suspend' || selectedAction == 'ban';
+
+            Color actionColor = const Color(0xFF0F766E); // teal
+            if (isSuspendOrBan) actionColor = const Color(0xFFDC2626);
+            if (selectedAction == 'warn') actionColor = const Color(0xFFD97706);
+            if (isRestrict) actionColor = const Color(0xFF7C3AED);
+
             return AlertDialog(
-              title: const Text('Resolve Report & Take Action'),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+              contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+              title: Row(
+                children: [
+                  Icon(Icons.gavel_rounded, color: actionColor, size: 22),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Apply Moderation Action',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                    ),
+                  ),
+                ],
+              ),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Target: ${targetRole == 'therapist' ? '🩺 Therapist' : '👨‍👩‍👧 Parent'}',
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                          ),
+                          Text(
+                            'User ID: ${userId.length > 16 ? '${userId.substring(0, 16)}\u2026' : userId}',
+                            style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Action selector
+                    const Text('Action', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                    const SizedBox(height: 6),
                     DropdownButtonFormField<String>(
                       isExpanded: true,
                       initialValue: selectedAction,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
                       items: const [
-                        DropdownMenuItem(value: 'no_action', child: Text('No Action Required', overflow: TextOverflow.ellipsis)),
-                        DropdownMenuItem(value: 'warn', child: Text('Send Warning', overflow: TextOverflow.ellipsis)),
-                        DropdownMenuItem(value: 'suspend', child: Text('Suspend Account', overflow: TextOverflow.ellipsis)),
-                        DropdownMenuItem(value: 'restrict', child: Text('Temporary Restriction', overflow: TextOverflow.ellipsis)),
-                        DropdownMenuItem(value: 'ban', child: Text('Permanent Ban', overflow: TextOverflow.ellipsis)),
-                        DropdownMenuItem(value: 'remove', child: Text('Remove Report', overflow: TextOverflow.ellipsis)),
-                        DropdownMenuItem(value: 'close', child: Text('Close Report', overflow: TextOverflow.ellipsis)),
-                        DropdownMenuItem(value: 'request_info', child: Text('Request Additional Info', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'no_action', child: Text('✅ No Action Required', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'warn', child: Text('⚠️ Issue Warning', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'restrict', child: Text('🔒 Temporary Restriction', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'suspend', child: Text('🔴 Suspend Account', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'ban', child: Text('⛔ Permanent Ban', overflow: TextOverflow.ellipsis)),
+                        DropdownMenuItem(value: 'request_info', child: Text('📋 Request Additional Info', overflow: TextOverflow.ellipsis)),
                       ],
                       onChanged: (val) {
                         if (val != null) {
@@ -1981,15 +2192,125 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         }
                       },
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
+
+                    // Restriction duration picker (only for 'restrict')
+                    if (isRestrict) ...[
+                      const Text('Restriction Duration (days)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Slider(
+                              value: restrictionDays.toDouble(),
+                              min: 1,
+                              max: 30,
+                              divisions: 29,
+                              label: '$restrictionDays days',
+                              activeColor: const Color(0xFF7C3AED),
+                              onChanged: (val) => setDialogState(() => restrictionDays = val.round()),
+                            ),
+                          ),
+                          Container(
+                            width: 50,
+                            alignment: Alignment.center,
+                            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEDE9FE),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '$restrictionDays',
+                              style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF7C3AED), fontSize: 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                    ],
+
+                    // Request info options
+                    if (isRequestInfo) ...[
+                      const Text('Request Information From', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      DropdownButtonFormField<String>(
+                        isExpanded: true,
+                        initialValue: requestFrom,
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'reporter', child: Text('Reporter only')),
+                          DropdownMenuItem(value: 'reported', child: Text('Reported user only')),
+                          DropdownMenuItem(value: 'both', child: Text('Both parties')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) setDialogState(() => requestFrom = val);
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      const Text('What information do you need?', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: descriptionController,
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          hintText: 'Describe what additional information is needed...',
+                          contentPadding: const EdgeInsets.all(10),
+                        ),
+                        maxLines: 3,
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+
+                    // Mandatory reason field
+                    Row(
+                      children: [
+                        const Text('Reason', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                        if (selectedAction != 'no_action')
+                          const Text(' *', style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
                     TextField(
-                      controller: controller,
-                      decoration: const InputDecoration(
-                        labelText: 'Admin Notes (Optional)',
-                        hintText: 'Enter reason/notes for this action...',
+                      controller: reasonController,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        hintText: selectedAction == 'no_action'
+                            ? 'Optional: reason for no action...'
+                            : 'Mandatory: explain the reason for this action...',
+                        contentPadding: const EdgeInsets.all(10),
                       ),
                       maxLines: 3,
                     ),
+
+                    // Warning for destructive actions
+                    if (isSuspendOrBan) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFFCA5A5)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                selectedAction == 'ban'
+                                    ? '⛔ PERMANENT BAN: This action is irreversible. All subscriptions will be cancelled and the user will be permanently locked out.'
+                                    : '🔴 SUSPENSION: All subscriptions and bookings will be cancelled. The account will be disabled immediately.',
+                                style: const TextStyle(fontSize: 11, color: Color(0xFF7F1D1D)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1999,28 +2320,116 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   child: const Text('Cancel'),
                 ),
                 ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: actionColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
                   onPressed: () async {
-                    final notes = controller.text.trim();
+                    final reason = reasonController.text.trim();
+                    if (selectedAction != 'no_action' && reason.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please enter a reason before proceeding.'),
+                          backgroundColor: Color(0xFFDC2626),
+                        ),
+                      );
+                      return;
+                    }
+
+                    // Double-confirmation for suspend/ban
+                    if (isSuspendOrBan) {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (confirmCtx) => AlertDialog(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          title: Text(
+                            selectedAction == 'ban' ? '⛔ Confirm Permanent Ban' : '🔴 Confirm Suspension',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          content: Text(
+                            selectedAction == 'ban'
+                                ? 'This user will be permanently banned from the platform. '
+                                  'All subscriptions, bookings, and access will be terminated immediately. '
+                                  'This action cannot be undone automatically.\n\nAre you absolutely sure?'
+                                : 'This user will be suspended and signed out from all devices immediately. '
+                                  'All active subscriptions and bookings will be cancelled.\n\nAre you sure?',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(confirmCtx, false),
+                              child: const Text('Go Back'),
+                            ),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFDC2626),
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: () => Navigator.pop(confirmCtx, true),
+                              child: Text(selectedAction == 'ban' ? 'Yes, Ban Permanently' : 'Yes, Suspend'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirm != true) return;
+                    }
+
+                    if (ctx.mounted) Navigator.pop(ctx);
+
+                    // Show loading snackbar
+                    messenger.showSnackBar(
+                      const SnackBar(
+                        content: Row(
+                          children: [
+                            SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                            SizedBox(width: 12),
+                            Text('Applying moderation action...'),
+                          ],
+                        ),
+                        duration: Duration(seconds: 30),
+                      ),
+                    );
+
                     try {
-                      await AppRepositories.support.resolveReport(
-                        reportId: reportId,
-                        action: selectedAction,
-                        notes: notes,
-                      );
+                      if (isRequestInfo) {
+                        await AppRepositories.admin.requestAdditionalInfo(
+                          reportId: reportId,
+                          requestFrom: requestFrom,
+                          reason: reason.isEmpty ? 'Additional information required.' : reason,
+                          description: descriptionController.text.trim(),
+                        );
+                      } else {
+                        await AppRepositories.admin.applyModerationAction(
+                          targetUserId: userId,
+                          targetRole: targetRole,
+                          action: selectedAction,
+                          reason: reason.isEmpty ? 'No additional reason provided.' : reason,
+                          reportId: reportId.isEmpty ? null : reportId,
+                          restrictedWithUserId: isRestrict ? otherPartyId : null,
+                          restrictionDays: isRestrict ? restrictionDays : null,
+                        );
+                      }
+
                       await _loadStats();
-                      if (ctx.mounted) Navigator.pop(ctx);
-                      messenger.showSnackBar(
-                        SnackBar(content: Text('Report resolved with action: "$selectedAction"')),
-                      );
                       setState(() {});
-                    } catch (e) {
+                      messenger.hideCurrentSnackBar();
                       messenger.showSnackBar(
-                        SnackBar(content: Text('Failed to resolve report: $e')),
+                        SnackBar(
+                          content: Text('Action applied: "$selectedAction"'),
+                          backgroundColor: const Color(0xFF059669),
+                        ),
+                      );
+                    } catch (e) {
+                      messenger.hideCurrentSnackBar();
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text('Failed: $e'),
+                          backgroundColor: const Color(0xFFDC2626),
+                        ),
                       );
                     }
                   },
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                  child: const Text('Execute'),
+                  child: const Text('Apply Action'),
                 ),
               ],
             );
@@ -2029,6 +2438,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       },
     );
   }
+
+
 
   void _showParentDetailsDialog(UserProfile parent, List<ChildProfile> children) {
     showDialog(
@@ -2184,6 +2595,32 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                           ),
                         )),
 
+
+                      // ── Moderation Management ──────────────────────
+                      const SizedBox(height: 20),
+                      _dialogSectionHeader(Icons.gavel_rounded, 'Moderation Management'),
+                      const SizedBox(height: 10),
+                      _ModerationPanel(
+                        userId: parent.uid,
+                        userRole: 'parent',
+                        currentStatus: parent.moderationStatus,
+                        onActionTaken: () {
+                          Navigator.pop(ctx);
+                          _loadStats();
+                          setState(() {});
+                        },
+                        onOpenDialog: (uid, role) {
+                          Navigator.pop(ctx);
+                          _showModerationDialogWithRole(uid, '', role);
+                        },
+                      ),
+
+                      // ── Moderation History / Timeline ──────────────
+                      const SizedBox(height: 20),
+                      _dialogSectionHeader(Icons.history_rounded, 'Moderation Timeline'),
+                      const SizedBox(height: 10),
+                      _ModerationTimeline(userId: parent.uid),
+
                       // ── Admin Message ─────────────────────────────
                       const SizedBox(height: 20),
                       _dialogSectionHeader(Icons.send_rounded, 'Send Message'),
@@ -2225,16 +2662,60 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   }
 
   Widget _buildParentsTab() {
+    return DefaultTabController(
+      length: 5,
+      child: Column(
+        children: [
+          Container(
+            color: Colors.white,
+            child: const TabBar(
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              labelColor: Color(0xFF1E293B),
+              unselectedLabelColor: Color(0xFF64748B),
+              indicatorColor: Color(0xFF38BDF8),
+              indicatorSize: TabBarIndicatorSize.tab,
+              tabs: [
+                Tab(text: 'All'),
+                Tab(text: '⚠️ Warned'),
+                Tab(text: '🔒 Restricted'),
+                Tab(text: '🔴 Suspended'),
+                Tab(text: '⛔ Banned'),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                _buildParentList(''),
+                _buildParentList('warned'),
+                _buildParentList('restricted'),
+                _buildParentList('suspended'),
+                _buildParentList('banned'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildParentList(String filterStatus) {
     return FutureBuilder<List<UserProfile>>(
-      future: AppRepositories.admin.listParents(),
+      future: filterStatus.isEmpty
+          ? AppRepositories.admin.listParents()
+          : AppRepositories.admin.listParentsByModerationStatus(filterStatus),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
         final list = snapshot.data ?? [];
         if (list.isEmpty) {
-          return const Center(
-            child: Text('No parent profiles found.', style: TextStyle(color: Color(0xFF64748B))),
+          return Center(
+            child: Text(
+              filterStatus.isEmpty ? 'No parent profiles found.' : 'No $filterStatus parents.',
+              style: const TextStyle(color: Color(0xFF64748B)),
+            ),
           );
         }
 
@@ -2244,19 +2725,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final parent = list[index];
-
-            Color statusColor;
-            Color statusBg;
-            switch (parent.status) {
-              case 'active':
-              case 'verified':
-                statusColor = const Color(0xFF059669);
-                statusBg = const Color(0xFFD1FAE5);
-                break;
-              default:
-                statusColor = const Color(0xFFD97706);
-                statusBg = const Color(0xFFFEF3C7);
-            }
+            final modStatus = parent.moderationStatus.isEmpty ? 'verified' : parent.moderationStatus;
 
             return Material(
               color: Colors.white,
@@ -2320,23 +2789,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                 ],
                               ),
                             ),
-                            // Status badge
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: statusBg,
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                parent.status.toUpperCase(),
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                  color: statusColor,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ),
+                            _moderationStatusBadge(modStatus),
                           ],
                         ),
                       ),
@@ -2371,44 +2824,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 10),
-                            FutureBuilder<List<ChildProfile>>(
-                              future: AppRepositories.users.getChildrenForParent(parent.uid),
-                              builder: (context, childSnapshot) {
-                                if (childSnapshot.connectionState == ConnectionState.waiting) {
-                                  return const SizedBox(
-                                    height: 16,
-                                    width: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 1.5),
-                                  );
-                                }
-                                final children = childSnapshot.data ?? [];
-                                if (children.isEmpty) {
-                                  return const Text(
-                                    'No children profiles setup yet.',
-                                    style: TextStyle(fontStyle: FontStyle.italic, color: Color(0xFF94A3B8), fontSize: 12),
-                                  );
-                                }
-                                return Wrap(
-                                  spacing: 6,
-                                  runSpacing: 6,
-                                  children: children.map((c) {
-                                    return Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFEFF6FF),
-                                        borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(color: const Color(0xFFBFDBFE)),
-                                      ),
-                                      child: Text(
-                                        '${c.name} (${c.supportAreas.isNotEmpty ? c.supportAreas.join(", ") : "General"})',
-                                        style: const TextStyle(fontSize: 11, color: Color(0xFF1D4ED8), fontWeight: FontWeight.w500),
-                                      ),
-                                    );
-                                  }).toList(),
-                                );
-                              },
-                            ),
                           ],
                         ),
                       ),
@@ -2419,13 +2834,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         decoration: const BoxDecoration(
                           color: Color(0xFFF8FAFC),
                           borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
-                          border: Border(
-                            top: BorderSide(color: Color(0xFFE2E8F0)),
-                          ),
+                          border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
                         ),
                         child: const Center(
                           child: Text(
-                            'Tap to view full profile & send message',
+                            'Tap to view full profile & moderate',
                             style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
                           ),
                         ),
@@ -2442,6 +2855,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   }
 
   Widget _buildFeedbackTab() {
+
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: AppRepositories.admin.listAllFeedbackAndReviews(),
       builder: (context, snapshot) {
@@ -3275,8 +3689,49 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   }
 
   Widget _buildTherapistsTab() {
+    return DefaultTabController(
+      length: 5,
+      child: Column(
+        children: [
+          Container(
+            color: Colors.white,
+            child: const TabBar(
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              labelColor: Color(0xFF1E293B),
+              unselectedLabelColor: Color(0xFF64748B),
+              indicatorColor: Color(0xFF38BDF8),
+              indicatorSize: TabBarIndicatorSize.tab,
+              tabs: [
+                Tab(text: 'All'),
+                Tab(text: '⚠️ Warned'),
+                Tab(text: '🔒 Restricted'),
+                Tab(text: '🔴 Suspended'),
+                Tab(text: '⛔ Banned'),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                _buildTherapistList(''),
+                _buildTherapistList('warned'),
+                _buildTherapistList('restricted'),
+                _buildTherapistList('suspended'),
+                _buildTherapistList('banned'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTherapistList(String filterStatus) {
     return FutureBuilder<List<TherapistProfile>>(
-      future: AppRepositories.admin.listTherapistsByStatus(""),
+      future: filterStatus.isEmpty
+          ? AppRepositories.admin.listTherapistsByStatus('')
+          : AppRepositories.admin.listTherapistsByModerationStatus(filterStatus),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -3289,7 +3744,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               children: [
                 Icon(Icons.person_search_rounded, size: 56, color: Colors.grey.shade300),
                 const SizedBox(height: 12),
-                const Text('No therapist profiles found.', style: TextStyle(color: Color(0xFF64748B), fontSize: 15)),
+                Text(
+                  filterStatus.isEmpty ? 'No therapist profiles found.' : 'No $filterStatus therapists.',
+                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 15),
+                ),
               ],
             ),
           );
@@ -3301,8 +3759,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final therapist = list[index];
+            final modStatus = therapist.moderationStatus.isEmpty ? 'verified' : therapist.moderationStatus;
 
-            // Pick status colour
+            // Verification status colour
             Color statusColor;
             Color statusBg;
             switch (therapist.verificationStatus) {
@@ -3371,9 +3830,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                 ],
                               ),
                             ),
-                            // Status badge
+                            // Verification badge
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
                                 color: statusBg,
                                 borderRadius: BorderRadius.circular(20),
@@ -3388,6 +3847,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                 ),
                               ),
                             ),
+                            const SizedBox(width: 6),
+                            // Moderation badge
+                            _moderationStatusBadge(modStatus),
                           ],
                         ),
                       ),
@@ -3397,7 +3859,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Specializations as chips
                             if (therapist.specializations.isNotEmpty) ...[
                               Wrap(
                                 spacing: 6,
@@ -3436,7 +3897,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                               ),
                               const SizedBox(height: 10),
                             ],
-                            // Stats row
                             Row(
                               children: [
                                 _miniStat(Icons.star_rounded, therapist.rating.toStringAsFixed(1), const Color(0xFFF59E0B)),
@@ -3457,13 +3917,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         decoration: const BoxDecoration(
                           color: Color(0xFFF8FAFC),
                           borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
-                          border: Border(
-                            top: BorderSide(color: Color(0xFFE2E8F0)),
-                          ),
+                          border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
                         ),
                         child: const Center(
                           child: Text(
-                            'Tap to view full profile & send message',
+                            'Tap to view full profile & moderate',
                             style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
                           ),
                         ),
@@ -3480,6 +3938,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   }
 
   Widget _miniStat(IconData icon, String label, Color color) {
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -3750,6 +4209,31 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                           ),
                         ),
                       ],
+
+                      // ── Moderation Management ──────────────────────
+                      const SizedBox(height: 20),
+                      _dialogSectionHeader(Icons.gavel_rounded, 'Moderation Management'),
+                      const SizedBox(height: 10),
+                      _ModerationPanel(
+                        userId: therapist.id,
+                        userRole: 'therapist',
+                        currentStatus: therapist.moderationStatus,
+                        onActionTaken: () {
+                          Navigator.pop(ctx);
+                          _loadStats();
+                          setState(() {});
+                        },
+                        onOpenDialog: (uid, role) {
+                          Navigator.pop(ctx);
+                          _showModerationDialogWithRole(uid, '', role);
+                        },
+                      ),
+
+                      // ── Moderation History / Timeline ──────────────
+                      const SizedBox(height: 20),
+                      _dialogSectionHeader(Icons.history_rounded, 'Moderation Timeline'),
+                      const SizedBox(height: 10),
+                      _ModerationTimeline(userId: therapist.id),
 
                       // ── Admin Message ─────────────────────────────
                       const SizedBox(height: 20),
@@ -5408,3 +5892,402 @@ class _AdminVoicePlayerState extends State<_AdminVoicePlayer> {
     );
   }
 }
+
+// ─── Moderation Status Badge Helper ──────────────────────────────────────────
+
+Widget _moderationStatusBadge(String moderationStatus) {
+  final config = _moderationBadgeConfig(moderationStatus);
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    decoration: BoxDecoration(
+      color: config['bg'] as Color,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: config['border'] as Color),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(config['icon'] as String, style: const TextStyle(fontSize: 10)),
+        const SizedBox(width: 4),
+        Text(
+          (config['label'] as String).toUpperCase(),
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.bold,
+            color: config['text'] as Color,
+            letterSpacing: 0.4,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+Map<String, dynamic> _moderationBadgeConfig(String status) {
+  switch (status) {
+    case 'warned':
+      return {
+        'icon': '⚠️', 'label': 'Warned',
+        'bg': const Color(0xFFFEF3C7), 'border': const Color(0xFFFCD34D),
+        'text': const Color(0xFF92400E),
+      };
+    case 'restricted':
+      return {
+        'icon': '🔒', 'label': 'Restricted',
+        'bg': const Color(0xFFEDE9FE), 'border': const Color(0xFFC4B5FD),
+        'text': const Color(0xFF5B21B6),
+      };
+    case 'suspended':
+      return {
+        'icon': '🔴', 'label': 'Suspended',
+        'bg': const Color(0xFFFEE2E2), 'border': const Color(0xFFFCA5A5),
+        'text': const Color(0xFF991B1B),
+      };
+    case 'banned':
+      return {
+        'icon': '⛔', 'label': 'Banned',
+        'bg': const Color(0xFF1F2937), 'border': const Color(0xFF374151),
+        'text': const Color(0xFFF87171),
+      };
+    default: // verified / active / clean
+      return {
+        'icon': '✅', 'label': 'Verified',
+        'bg': const Color(0xFFD1FAE5), 'border': const Color(0xFF6EE7B7),
+        'text': const Color(0xFF065F46),
+      };
+  }
+}
+
+// ─── _ModerationPanel ────────────────────────────────────────────────────────
+
+/// Embedded moderation management panel shown inside Parent/Therapist detail
+/// dialogs. Displays current moderation status and provides quick-action
+/// buttons that open the full `_showModerationDialogWithRole` dialog.
+class _ModerationPanel extends StatelessWidget {
+  const _ModerationPanel({
+    required this.userId,
+    required this.userRole,
+    required this.currentStatus,
+    required this.onActionTaken,
+    required this.onOpenDialog,
+  });
+
+  final String userId;
+  final String userRole;
+  final String currentStatus;
+  final VoidCallback onActionTaken;
+  final void Function(String uid, String role) onOpenDialog;
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = currentStatus == 'active' || currentStatus == 'verified' || currentStatus.isEmpty;
+    final isBanned = currentStatus == 'banned';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Current status
+          Row(
+            children: [
+              const Text(
+                'Current Status: ',
+                style: TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+              ),
+              _moderationStatusBadge(currentStatus.isEmpty ? 'verified' : currentStatus),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Quick Actions',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+          ),
+          const SizedBox(height: 8),
+
+          // Action buttons in two rows
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              // Warn
+              if (currentStatus != 'banned') _actionChip(
+                context,
+                icon: '⚠️', label: 'Warn',
+                color: const Color(0xFFD97706),
+                bg: const Color(0xFFFFFBEB),
+                onTap: () => onOpenDialog(userId, userRole),
+              ),
+              // Restrict
+              if (!isBanned) _actionChip(
+                context,
+                icon: '🔒', label: 'Restrict',
+                color: const Color(0xFF7C3AED),
+                bg: const Color(0xFFF5F3FF),
+                onTap: () => onOpenDialog(userId, userRole),
+              ),
+              // Suspend
+              if (!isBanned) _actionChip(
+                context,
+                icon: '🔴', label: 'Suspend',
+                color: const Color(0xFFDC2626),
+                bg: const Color(0xFFFFF1F2),
+                onTap: () => onOpenDialog(userId, userRole),
+              ),
+              // Ban
+              if (!isBanned) _actionChip(
+                context,
+                icon: '⛔', label: 'Ban',
+                color: const Color(0xFF7F1D1D),
+                bg: const Color(0xFFFEE2E2),
+                onTap: () => onOpenDialog(userId, userRole),
+              ),
+              // Restore / Remove restrictions
+              if (!isActive) _actionChip(
+                context,
+                icon: '↩️', label: 'Restore',
+                color: const Color(0xFF059669),
+                bg: const Color(0xFFF0FDF4),
+                onTap: () => _showRestoreDialog(context),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _actionChip(
+    BuildContext context, {
+    required String icon,
+    required String label,
+    required Color color,
+    required Color bg,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(icon, style: const TextStyle(fontSize: 12)),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showRestoreDialog(BuildContext context) async {
+    final reasonController = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: const Text('↩️ Restore Account', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('This will remove all moderation actions and restore the account to active status.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              decoration: InputDecoration(
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                hintText: 'Reason for restoring (required)...',
+                contentPadding: const EdgeInsets.all(10),
+              ),
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF059669), foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+    final reason = reasonController.text.trim();
+    if (reason.isEmpty) {
+      messenger.showSnackBar(const SnackBar(content: Text('Please enter a reason.')));
+      return;
+    }
+
+    try {
+      await AppRepositories.admin.removeModerationAction(
+        targetUserId: userId,
+        targetRole: userRole,
+        action: 'restore',
+        reason: reason,
+      );
+      onActionTaken();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Account restored.'), backgroundColor: Color(0xFF059669)),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Failed: $e'), backgroundColor: const Color(0xFFDC2626)));
+    }
+  }
+}
+
+// ─── Moderation Timeline Widget ──────────────────────────────────────────────
+
+class _ModerationTimeline extends StatelessWidget {
+  const _ModerationTimeline({required this.userId});
+  final String userId;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<ModerationHistoryEntry>>(
+      stream: AppRepositories.support.watchModerationHistory(userId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: Padding(
+            padding: EdgeInsets.all(8.0),
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ));
+        }
+
+        final entries = snapshot.data ?? [];
+        if (entries.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'No moderation history found.',
+              style: TextStyle(fontSize: 12.5, fontStyle: FontStyle.italic, color: Color(0xFF64748B)),
+            ),
+          );
+        }
+
+        return ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: entries.length,
+          itemBuilder: (context, index) {
+            final entry = entries[index];
+            final dateStr = '${entry.timestamp.day}/${entry.timestamp.month}/${entry.timestamp.year} ${entry.timestamp.hour.toString().padLeft(2, '0')}:${entry.timestamp.minute.toString().padLeft(2, '0')}';
+            
+            // Determine action color and icon
+            Color actionColor;
+            IconData actionIcon;
+            switch (entry.action) {
+              case 'warn':
+                actionColor = const Color(0xFFD97706); // Amber
+                actionIcon = Icons.warning_amber_rounded;
+                break;
+              case 'restrict':
+                actionColor = const Color(0xFF7C3AED); // Purple
+                actionIcon = Icons.lock_outline;
+                break;
+              case 'suspend':
+                actionColor = const Color(0xFFDC2626); // Red
+                actionIcon = Icons.gavel;
+                break;
+              case 'ban':
+                actionColor = const Color(0xFF7F1D1D); // Dark Red
+                actionIcon = Icons.block;
+                break;
+              case 'restore':
+                actionColor = const Color(0xFF059669); // Green
+                actionIcon = Icons.settings_backup_restore;
+                break;
+              default:
+                actionColor = const Color(0xFF64748B); // Slate/Grey
+                actionIcon = Icons.info_outline;
+            }
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6.0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: actionColor.withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(actionIcon, size: 16, color: actionColor),
+                      ),
+                      if (index != entries.length - 1)
+                        Container(
+                          width: 2,
+                          height: 35,
+                          color: const Color(0xFFE2E8F0),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              entry.action.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: actionColor,
+                              ),
+                            ),
+                            Text(
+                              dateStr,
+                              style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          entry.reason,
+                          style: const TextStyle(fontSize: 12.5, color: Color(0xFF334155)),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'By: ${entry.adminEmail}',
+                          style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontStyle: FontStyle.italic),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+

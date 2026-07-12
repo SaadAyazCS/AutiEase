@@ -617,6 +617,23 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
   }
 
   Future<bool> _openCheckoutForTherapist(TherapistProfile therapist, {int packageIndex = 0}) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser != null) {
+      final hasRestriction = await AppRepositories.support.hasAnyActiveRestriction(currentUser.uid);
+      if (hasRestriction) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('You cannot purchase new subscriptions while under an active restriction.'),
+              backgroundColor: AppColors.errorRed,
+            ),
+          );
+        }
+        return false;
+      }
+    }
+    if (!mounted) return false;
+
     final confirmed = await _showSubscriptionWarningDialog(context, therapist);
     if (confirmed != true) {
       return false;

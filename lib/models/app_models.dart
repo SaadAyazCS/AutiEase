@@ -95,6 +95,9 @@ class UserProfile {
     this.isChildModeLocked = false,
     this.childModePin = '',
     this.lastActiveAt,
+    // Moderation fields
+    this.moderationStatus = 'verified',
+    this.hasActiveRestrictions = false,
   });
 
   final String uid;
@@ -102,6 +105,8 @@ class UserProfile {
   final String firstName;
   final String lastName;
   final String role;
+  /// Account lifecycle status: 'active', 'suspended', 'banned'.
+  /// Used for login blocking. Changed only by Suspend/Ban global actions.
   final String status;
   final String phone;
   final String photoUrl;
@@ -115,8 +120,25 @@ class UserProfile {
   final bool isChildModeLocked;
   final String childModePin;
   final DateTime? lastActiveAt;
+  /// Admin moderation label: 'verified', 'warned'.
+  /// Does not include 'restricted' (stored per-relationship in restrictions collection).
+  /// Does not include 'suspended'/'banned' (those are tracked via [status]).
+  final String moderationStatus;
+  /// True when this user has at least one active entry in the restrictions collection.
+  /// Used for fast tab filtering in admin panel without extra queries.
+  final bool hasActiveRestrictions;
 
   String get fullName => '$firstName $lastName'.trim();
+
+  /// Convenience getter for the effective display badge in admin UI.
+  /// Priority: banned > suspended > restricted > warned > verified.
+  String get effectiveModerationBadge {
+    if (status == 'banned') return 'banned';
+    if (status == 'suspended') return 'suspended';
+    if (hasActiveRestrictions) return 'restricted';
+    if (moderationStatus == 'warned') return 'warned';
+    return 'verified';
+  }
 
   factory UserProfile.fromMap(String uid, Map<String, dynamic> data) {
     return UserProfile(
@@ -125,7 +147,7 @@ class UserProfile {
       firstName: (data['firstName'] ?? '').toString(),
       lastName: (data['lastName'] ?? '').toString(),
       role: (data['role'] ?? '').toString(),
-      status: (data['status'] ?? '').toString(),
+      status: (data['status'] ?? 'active').toString(),
       phone: (data['phone'] ?? '').toString(),
       photoUrl: (data['photoUrl'] ?? '').toString(),
       subscriptionTier: (data['subscriptionTier'] ?? 'free').toString(),
@@ -138,6 +160,8 @@ class UserProfile {
       isChildModeLocked: data['isChildModeLocked'] == true,
       childModePin: (data['childModePin'] ?? '').toString(),
       lastActiveAt: dateTimeFromFirestore(data['lastActiveAt']),
+      moderationStatus: (data['moderationStatus'] ?? 'verified').toString(),
+      hasActiveRestrictions: data['hasActiveRestrictions'] == true,
     );
   }
 
@@ -157,6 +181,8 @@ class UserProfile {
       'notificationPreferences': notificationPreferences,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
+      'moderationStatus': moderationStatus,
+      'hasActiveRestrictions': hasActiveRestrictions,
     };
     if (role == 'parent') {
       map['playSettings'] = playSettings;
@@ -847,7 +873,11 @@ class TherapistProfile {
     this.lastActiveAt,
     this.hasUnacknowledgedChanges = false,
     this.unacknowledgedChangesFields = const <String>[],
+    @Deprecated('Use restrictions collection for per-relationship restrictions')
     this.restrictionUntil,
+    // Moderation fields
+    this.moderationStatus = 'verified',
+    this.hasActiveRestrictions = false,
   });
 
   final String id;
@@ -881,7 +911,25 @@ class TherapistProfile {
   final DateTime? lastActiveAt;
   final bool hasUnacknowledgedChanges;
   final List<String> unacknowledgedChangesFields;
+  /// Deprecated: per-relationship restrictions are now in the `restrictions` Firestore collection.
+  @Deprecated('Use restrictions collection for per-relationship restrictions')
   final DateTime? restrictionUntil;
+  /// Admin moderation label: 'verified', 'warned'.
+  /// Does not include 'restricted' (stored per-relationship in restrictions collection).
+  /// Does not include 'suspended'/'banned' (those are tracked via verificationStatus).
+  final String moderationStatus;
+  /// True when this therapist has at least one active entry in the restrictions collection.
+  final bool hasActiveRestrictions;
+
+  /// Convenience getter for the effective display badge in admin UI.
+  /// Priority: banned > suspended > restricted > warned > verified.
+  String get effectiveModerationBadge {
+    if (verificationStatus == 'banned') return 'banned';
+    if (verificationStatus == 'suspended') return 'suspended';
+    if (hasActiveRestrictions) return 'restricted';
+    if (moderationStatus == 'warned') return 'warned';
+    return 'verified';
+  }
 
   /// Convenience alias for yearsOfExperience.
   int get experienceYears => yearsOfExperience;
@@ -916,6 +964,8 @@ class TherapistProfile {
     bool? hasUnacknowledgedChanges,
     List<String>? unacknowledgedChangesFields,
     DateTime? restrictionUntil,
+    String? moderationStatus,
+    bool? hasActiveRestrictions,
   }) {
     return TherapistProfile(
       id: id,
@@ -947,7 +997,10 @@ class TherapistProfile {
       lastActiveAt: lastActiveAt ?? this.lastActiveAt,
       hasUnacknowledgedChanges: hasUnacknowledgedChanges ?? this.hasUnacknowledgedChanges,
       unacknowledgedChangesFields: unacknowledgedChangesFields ?? this.unacknowledgedChangesFields,
+      // ignore: deprecated_member_use_from_same_package
       restrictionUntil: restrictionUntil ?? this.restrictionUntil,
+      moderationStatus: moderationStatus ?? this.moderationStatus,
+      hasActiveRestrictions: hasActiveRestrictions ?? this.hasActiveRestrictions,
     );
   }
 
@@ -1003,7 +1056,10 @@ class TherapistProfile {
       lastActiveAt: dateTimeFromFirestore(data['lastActiveAt']),
       hasUnacknowledgedChanges: data['hasUnacknowledgedChanges'] == true,
       unacknowledgedChangesFields: stringListFrom(data['unacknowledgedChangesFields']),
+      // ignore: deprecated_member_use_from_same_package
       restrictionUntil: dateTimeFromFirestore(data['restrictionUntil']),
+      moderationStatus: (data['moderationStatus'] ?? 'verified').toString(),
+      hasActiveRestrictions: data['hasActiveRestrictions'] == true,
     );
   }
 
@@ -1038,7 +1094,8 @@ class TherapistProfile {
       'lastActiveAt': lastActiveAt,
       'hasUnacknowledgedChanges': hasUnacknowledgedChanges,
       'unacknowledgedChangesFields': unacknowledgedChangesFields,
-      'restrictionUntil': restrictionUntil,
+      'moderationStatus': moderationStatus,
+      'hasActiveRestrictions': hasActiveRestrictions,
     };
   }
 }
@@ -1111,6 +1168,12 @@ class UserReport {
     this.adminDecision,
     this.adminNotes,
     this.resolvedAt,
+    // Additional information request fields
+    this.additionalInfoRequestedFrom,
+    this.adminInfoRequestReason,
+    this.adminInfoRequestDescription,
+    // Restriction configuration
+    this.restrictionDays,
   });
 
   final String id;
@@ -1121,13 +1184,25 @@ class UserReport {
   final String comments;
   final List<Map<String, dynamic>> chatContext;
   final DateTime timestamp;
-  final String status; // 'pending', 'dismissed', 'warned', 'suspended', 'banned', 'resolved'
+  /// Report lifecycle status.
+  /// Values: 'pending', 'additional_info_requested', 'resolved'
+  /// (adminDecision stores the actual action: warn/restrict/suspend/ban/no_action/additional_info)
+  final String status;
   final String? threadId;
   final String subscriptionStatus;
   final String parentAction;
+  /// The admin's moderation decision: 'warn', 'restrict', 'suspend', 'ban', 'no_action'.
   final String? adminDecision;
   final String? adminNotes;
   final DateTime? resolvedAt;
+  /// Who the admin is requesting additional info from: 'reporter', 'reported', or 'both'.
+  final String? additionalInfoRequestedFrom;
+  /// The admin's reason for needing additional information.
+  final String? adminInfoRequestReason;
+  /// Specific description of what information the admin needs.
+  final String? adminInfoRequestDescription;
+  /// Number of days the restriction should last (set by admin when action is 'restrict').
+  final int? restrictionDays;
 
   factory UserReport.fromMap(String id, Map<String, dynamic> data) {
     final rawContext = data['chatContext'] as List?;
@@ -1151,6 +1226,10 @@ class UserReport {
       adminDecision: data['adminDecision']?.toString(),
       adminNotes: data['adminNotes']?.toString(),
       resolvedAt: dateTimeFromFirestore(data['resolvedAt']),
+      additionalInfoRequestedFrom: data['additionalInfoRequestedFrom']?.toString(),
+      adminInfoRequestReason: data['adminInfoRequestReason']?.toString(),
+      adminInfoRequestDescription: data['adminInfoRequestDescription']?.toString(),
+      restrictionDays: data['restrictionDays'] != null ? intFrom(data['restrictionDays']) : null,
     );
   }
 
@@ -1170,6 +1249,224 @@ class UserReport {
       if (adminDecision != null) 'adminDecision': adminDecision,
       if (adminNotes != null) 'adminNotes': adminNotes,
       if (resolvedAt != null) 'resolvedAt': resolvedAt,
+      if (additionalInfoRequestedFrom != null) 'additionalInfoRequestedFrom': additionalInfoRequestedFrom,
+      if (adminInfoRequestReason != null) 'adminInfoRequestReason': adminInfoRequestReason,
+      if (adminInfoRequestDescription != null) 'adminInfoRequestDescription': adminInfoRequestDescription,
+      if (restrictionDays != null) 'restrictionDays': restrictionDays,
+    };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Moderation System Models
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A single entry in a user's permanent moderation history.
+/// Records every admin action applied or removed. This history is NEVER deleted.
+class ModerationHistoryEntry {
+  const ModerationHistoryEntry({
+    required this.id,
+    required this.targetUserId,
+    required this.targetRole,
+    required this.action,
+    required this.reason,
+    required this.adminId,
+    required this.adminEmail,
+    required this.timestamp,
+    this.reportId,
+    this.restrictedWithUserId,
+    this.restrictionDays,
+  });
+
+  final String id;
+  /// The user who received the moderation action.
+  final String targetUserId;
+  /// Role of the target user: 'parent' or 'therapist'.
+  final String targetRole;
+  /// The moderation action applied.
+  /// Values: 'warn', 'restrict', 'suspend', 'ban', 'no_action',
+  ///         'remove_warn', 'remove_restrict', 'remove_suspend', 'remove_ban',
+  ///         'additional_info_requested', 'restore'
+  final String action;
+  /// Mandatory reason provided by the admin. Never empty.
+  final String reason;
+  final String adminId;
+  final String adminEmail;
+  final DateTime timestamp;
+  /// The report that triggered this moderation action (if applicable).
+  final String? reportId;
+  /// For 'restrict' actions: the other party's userId (e.g., the parent for a therapist restriction).
+  final String? restrictedWithUserId;
+  /// For 'restrict' actions: duration in days configured by admin.
+  final int? restrictionDays;
+
+  factory ModerationHistoryEntry.fromMap(String id, Map<String, dynamic> data) {
+    return ModerationHistoryEntry(
+      id: id,
+      targetUserId: (data['targetUserId'] ?? '').toString(),
+      targetRole: (data['targetRole'] ?? '').toString(),
+      action: (data['action'] ?? '').toString(),
+      reason: (data['reason'] ?? '').toString(),
+      adminId: (data['adminId'] ?? '').toString(),
+      adminEmail: (data['adminEmail'] ?? '').toString(),
+      timestamp: dateTimeFromFirestore(data['timestamp']) ?? DateTime.now(),
+      reportId: data['reportId']?.toString(),
+      restrictedWithUserId: data['restrictedWithUserId']?.toString(),
+      restrictionDays: data['restrictionDays'] != null ? intFrom(data['restrictionDays']) : null,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'targetUserId': targetUserId,
+      'targetRole': targetRole,
+      'action': action,
+      'reason': reason,
+      'adminId': adminId,
+      'adminEmail': adminEmail,
+      'timestamp': timestamp,
+      if (reportId != null) 'reportId': reportId,
+      if (restrictedWithUserId != null) 'restrictedWithUserId': restrictedWithUserId,
+      if (restrictionDays != null) 'restrictionDays': restrictionDays,
+    };
+  }
+}
+
+/// A per-relationship restriction record.
+/// A restriction only affects interaction between [parentId] and [therapistId].
+/// All other parents/therapists are unaffected.
+class RestrictionRecord {
+  const RestrictionRecord({
+    required this.id,
+    required this.parentId,
+    required this.therapistId,
+    required this.reportId,
+    required this.moderationHistoryId,
+    required this.startDate,
+    required this.endDate,
+    required this.restrictionDays,
+    required this.status,
+    required this.appliedByAdminId,
+    this.removedByAdminId,
+    this.removalReason,
+    this.removedAt,
+  });
+
+  final String id;
+  final String parentId;
+  final String therapistId;
+  /// The report that triggered this restriction.
+  final String reportId;
+  /// The moderation_history entry that created this restriction.
+  final String moderationHistoryId;
+  final DateTime startDate;
+  final DateTime endDate;
+  final int restrictionDays;
+  /// Status: 'active', 'expired', 'removed'
+  final String status;
+  final String appliedByAdminId;
+  final String? removedByAdminId;
+  final String? removalReason;
+  final DateTime? removedAt;
+
+  bool get isActive =>
+      status == 'active' && DateTime.now().isBefore(endDate);
+
+  factory RestrictionRecord.fromMap(String id, Map<String, dynamic> data) {
+    return RestrictionRecord(
+      id: id,
+      parentId: (data['parentId'] ?? '').toString(),
+      therapistId: (data['therapistId'] ?? '').toString(),
+      reportId: (data['reportId'] ?? '').toString(),
+      moderationHistoryId: (data['moderationHistoryId'] ?? '').toString(),
+      startDate: dateTimeFromFirestore(data['startDate']) ?? DateTime.now(),
+      endDate: dateTimeFromFirestore(data['endDate']) ?? DateTime.now(),
+      restrictionDays: intFrom(data['restrictionDays'], 4),
+      status: (data['status'] ?? 'active').toString(),
+      appliedByAdminId: (data['appliedByAdminId'] ?? '').toString(),
+      removedByAdminId: data['removedByAdminId']?.toString(),
+      removalReason: data['removalReason']?.toString(),
+      removedAt: dateTimeFromFirestore(data['removedAt']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'parentId': parentId,
+      'therapistId': therapistId,
+      'reportId': reportId,
+      'moderationHistoryId': moderationHistoryId,
+      'startDate': startDate,
+      'endDate': endDate,
+      'restrictionDays': restrictionDays,
+      'status': status,
+      'appliedByAdminId': appliedByAdminId,
+      if (removedByAdminId != null) 'removedByAdminId': removedByAdminId,
+      if (removalReason != null) 'removalReason': removalReason,
+      if (removedAt != null) 'removedAt': removedAt,
+    };
+  }
+}
+
+/// A message submitted by a reporter or reported user as part of an
+/// 'Additional Information Required' request from an admin.
+/// Stored as a subcollection: reports/{reportId}/messages/{messageId}.
+class ReportMessage {
+  const ReportMessage({
+    required this.id,
+    required this.reportId,
+    required this.senderId,
+    required this.senderRole,
+    required this.messageType,
+    required this.content,
+    required this.timestamp,
+    required this.requestedByAdminId,
+    this.attachments = const [],
+  });
+
+  final String id;
+  final String reportId;
+  final String senderId;
+  /// 'parent' or 'therapist'
+  final String senderRole;
+  /// 'text', 'image', 'pdf', 'voice'
+  final String messageType;
+  /// Text content, or a description for non-text messages.
+  final String content;
+  final DateTime timestamp;
+  /// The admin who requested this information.
+  final String requestedByAdminId;
+  /// Attachment data: [{type, data (base64 or url), filename}]
+  final List<Map<String, dynamic>> attachments;
+
+  factory ReportMessage.fromMap(String id, Map<String, dynamic> data) {
+    final rawAttachments = data['attachments'] as List?;
+    final attachments = rawAttachments != null
+        ? rawAttachments.map((item) => Map<String, dynamic>.from(item as Map)).toList()
+        : const <Map<String, dynamic>>[];
+    return ReportMessage(
+      id: id,
+      reportId: (data['reportId'] ?? '').toString(),
+      senderId: (data['senderId'] ?? '').toString(),
+      senderRole: (data['senderRole'] ?? '').toString(),
+      messageType: (data['messageType'] ?? 'text').toString(),
+      content: (data['content'] ?? '').toString(),
+      timestamp: dateTimeFromFirestore(data['timestamp']) ?? DateTime.now(),
+      requestedByAdminId: (data['requestedByAdminId'] ?? '').toString(),
+      attachments: attachments,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'reportId': reportId,
+      'senderId': senderId,
+      'senderRole': senderRole,
+      'messageType': messageType,
+      'content': content,
+      'timestamp': timestamp,
+      'requestedByAdminId': requestedByAdminId,
+      'attachments': attachments,
     };
   }
 }

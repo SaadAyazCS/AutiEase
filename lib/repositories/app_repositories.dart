@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:convert';
+
 
 
 import '../config/app_runtime_config.dart';
@@ -160,6 +162,7 @@ abstract class SupportRepository {
     String subscriptionStatus = 'none',
     String parentAction = 'none',
   });
+  /// Legacy resolve method — kept for compatibility. Use [applyModerationAction] for new code.
   Future<void> resolveReport({
     required String reportId,
     required String action,
@@ -245,6 +248,48 @@ abstract class SupportRepository {
     String? parentName,
   });
   Future<void> deleteAppointmentSlot(String slotId);
+
+  // ─── Moderation: Restriction Checking ──────────────────────────────────────
+
+  /// Returns the active per-relationship restriction between [parentId] and
+  /// [therapistId], or null if no active restriction exists.
+  Future<RestrictionRecord?> getActiveRestriction({
+    required String parentId,
+    required String therapistId,
+  });
+
+  /// Stream version of [getActiveRestriction] for real-time UI updates.
+  Stream<RestrictionRecord?> watchActiveRestriction({
+    required String parentId,
+    required String therapistId,
+  });
+
+  /// Returns true if [userId] has any active restriction (as either party).
+  /// Used to block new subscription purchases for restricted parents.
+  Future<bool> hasAnyActiveRestriction(String userId);
+
+  // ─── Moderation: One-Time Messages ─────────────────────────────────────────
+
+  /// Submit a one-time message (text/image/PDF/voice) in response to an
+  /// admin 'Additional Information Required' request.
+  Future<void> submitReportMessage({
+    required String reportId,
+    required String messageType,
+    required String content,
+    required String requestedByAdminId,
+    List<Map<String, dynamic>> attachments = const [],
+  });
+
+  /// Stream of messages submitted for a report (admin + sender can read).
+  Stream<List<ReportMessage>> watchReportMessages(String reportId);
+
+  // ─── Moderation: History ───────────────────────────────────────────────────
+
+  /// Fetch the full, permanent moderation history for a user.
+  Future<List<ModerationHistoryEntry>> getModerationHistory(String userId);
+
+  /// Stream version for real-time moderation timeline in admin UI.
+  Stream<List<ModerationHistoryEntry>> watchModerationHistory(String userId);
 }
 
 abstract class AdminRepository {
@@ -275,6 +320,67 @@ abstract class AdminRepository {
     String? adminNotes,
     String? receiptBase64,
   });
+
+  // ─── New Moderation Actions ─────────────────────────────────────────────────
+
+  /// Apply a moderation action. This is the primary entry point for all
+  /// moderation decisions — from reports, therapist details, parent details,
+  /// or audit logs.
+  ///
+  /// [action] values: 'warn', 'restrict', 'suspend', 'ban', 'no_action'
+  /// [reason] is mandatory and must be non-empty.
+  /// [reportId] links the action to the source report if applicable.
+  /// [restrictedWithUserId] is required for 'restrict' (the other party).
+  /// [restrictionDays] is required for 'restrict' (admin-configured duration).
+  Future<void> applyModerationAction({
+    required String targetUserId,
+    required String targetRole,    // 'parent' or 'therapist'
+    required String action,
+    required String reason,
+    String? reportId,
+    String? restrictedWithUserId,
+    int? restrictionDays,
+  });
+
+  /// Remove or reverse an existing moderation action.
+  ///
+  /// [action] values: 'remove_warn', 'remove_restrict', 'remove_suspend',
+  ///                  'remove_ban', 'restore'
+  Future<void> removeModerationAction({
+    required String targetUserId,
+    required String targetRole,
+    required String action,
+    required String reason,
+    String? restrictionId,  // for remove_restrict: which restriction to remove
+  });
+
+  /// Request additional information from the reporter, reported user, or both.
+  Future<void> requestAdditionalInfo({
+    required String reportId,
+    required String requestFrom,   // 'reporter', 'reported', 'both'
+    required String reason,
+    required String description,
+  });
+
+  /// Cancel ALL active subscriptions for [userId] (used for Suspend/Ban).
+  Future<void> batchCancelSubscriptionsForUser({
+    required String userId,
+    required String reason,
+  });
+
+  /// Cancel ALL future booked appointments for [userId] (used for Suspend/Ban).
+  Future<void> batchCancelBookingsForUser({
+    required String userId,
+    required String reason,
+  });
+
+  /// List parents filtered by moderation status badge.
+  /// [badge] values: 'all', 'verified', 'warned', 'restricted', 'suspended', 'banned'
+  Future<List<UserProfile>> listParentsByModerationStatus(String badge);
+
+  /// List therapists filtered by moderation status badge.
+  /// [badge] values: 'all', 'verified', 'warned', 'restricted', 'suspended', 'banned'
+  Future<List<TherapistProfile>> listTherapistsByModerationStatus(String badge);
 }
 
 abstract class BillingRepository {
@@ -2822,7 +2928,151 @@ class FirebaseSupportRepository implements SupportRepository {
   Future<void> deleteAppointmentSlot(String slotId) async {
     await _firestore.collection(FirestoreCollections.appointmentSlots).doc(slotId).delete();
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Moderation: Restriction Checking
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @override
+  Future<RestrictionRecord?> getActiveRestriction({
+    required String parentId,
+    required String therapistId,
+  }) async {
+    final now = Timestamp.now();
+    final snap = await _firestore
+        .collection('restrictions')
+        .where('parentId', isEqualTo: parentId)
+        .where('therapistId', isEqualTo: therapistId)
+        .where('status', isEqualTo: 'active')
+        .where('endDate', isGreaterThan: now)
+        .limit(1)
+        .get();
+    if (snap.docs.isEmpty) return null;
+    return RestrictionRecord.fromMap(snap.docs.first.id, snap.docs.first.data());
+  }
+
+  @override
+  Stream<RestrictionRecord?> watchActiveRestriction({
+    required String parentId,
+    required String therapistId,
+  }) {
+    final now = Timestamp.now();
+    return _firestore
+        .collection('restrictions')
+        .where('parentId', isEqualTo: parentId)
+        .where('therapistId', isEqualTo: therapistId)
+        .where('status', isEqualTo: 'active')
+        .where('endDate', isGreaterThan: now)
+        .limit(1)
+        .snapshots()
+        .map((snap) {
+      if (snap.docs.isEmpty) return null;
+      return RestrictionRecord.fromMap(snap.docs.first.id, snap.docs.first.data());
+    });
+  }
+
+  @override
+  Future<bool> hasAnyActiveRestriction(String userId) async {
+    final now = Timestamp.now();
+    // Check as parent
+    final asParent = await _firestore
+        .collection('restrictions')
+        .where('parentId', isEqualTo: userId)
+        .where('status', isEqualTo: 'active')
+        .where('endDate', isGreaterThan: now)
+        .limit(1)
+        .get();
+    if (asParent.docs.isNotEmpty) return true;
+    // Check as therapist
+    final asTherapist = await _firestore
+        .collection('restrictions')
+        .where('therapistId', isEqualTo: userId)
+        .where('status', isEqualTo: 'active')
+        .where('endDate', isGreaterThan: now)
+        .limit(1)
+        .get();
+    return asTherapist.docs.isNotEmpty;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Moderation: One-Time Messages
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @override
+  Future<void> submitReportMessage({
+    required String reportId,
+    required String messageType,
+    required String content,
+    required String requestedByAdminId,
+    List<Map<String, dynamic>> attachments = const [],
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) throw StateError('No logged-in user');
+
+    // Fetch sender's role from their user doc
+    final userDoc = await _firestore.collection(FirestoreCollections.users).doc(user.uid).get();
+    final senderRole = (userDoc.data()?['role'] ?? 'parent').toString();
+
+    final msgRef = _firestore
+        .collection('reports')
+        .doc(reportId)
+        .collection('messages')
+        .doc();
+
+    await msgRef.set({
+      'reportId': reportId,
+      'senderId': user.uid,
+      'senderRole': senderRole,
+      'messageType': messageType,
+      'content': content,
+      'requestedByAdminId': requestedByAdminId,
+      'attachments': attachments,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
+  Stream<List<ReportMessage>> watchReportMessages(String reportId) {
+    return _firestore
+        .collection('reports')
+        .doc(reportId)
+        .collection('messages')
+        .orderBy('timestamp', descending: false)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((d) => ReportMessage.fromMap(d.id, d.data()))
+            .toList());
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Moderation: History
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @override
+  Future<List<ModerationHistoryEntry>> getModerationHistory(String userId) async {
+    final snap = await _firestore
+        .collection('moderation_history')
+        .where('targetUserId', isEqualTo: userId)
+        .orderBy('timestamp', descending: true)
+        .get();
+    return snap.docs
+        .map((d) => ModerationHistoryEntry.fromMap(d.id, d.data()))
+        .toList();
+  }
+
+  @override
+  Stream<List<ModerationHistoryEntry>> watchModerationHistory(String userId) {
+    return _firestore
+        .collection('moderation_history')
+        .where('targetUserId', isEqualTo: userId)
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((d) => ModerationHistoryEntry.fromMap(d.id, d.data()))
+            .toList());
+  }
 }
+
 
 class FirebaseBillingRepository implements BillingRepository {
   FirebaseBillingRepository(this._auth, this._firestore, this._paymentBackend);
@@ -4114,5 +4364,900 @@ class FirebaseAdminRepository implements AdminRepository {
       }
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // New Moderation Action Implementations
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @override
+  Future<void> applyModerationAction({
+    required String targetUserId,
+    required String targetRole,
+    required String action,
+    required String reason,
+    String? reportId,
+    String? restrictedWithUserId,
+    int? restrictionDays,
+  }) async {
+    if (reason.trim().isEmpty) {
+      throw ArgumentError('A reason is mandatory for every moderation action.');
+    }
+
+    final adminId = _auth.currentUser?.uid ?? '';
+    final adminEmail = _auth.currentUser?.email ?? '';
+
+    // ── Resolve real display names ────────────────────────────────────────────
+    String targetName = 'the user';
+    String otherPartyName = 'the other user';
+    try {
+      if (targetRole == 'therapist') {
+        final tDoc = await _firestore.collection(FirestoreCollections.therapistProfiles).doc(targetUserId).get();
+        targetName = (tDoc.data()?['displayName'] ?? '').toString();
+        if (targetName.isEmpty) targetName = 'the therapist';
+        if (restrictedWithUserId != null) {
+          final pDoc = await _firestore.collection(FirestoreCollections.users).doc(restrictedWithUserId).get();
+          final data = pDoc.data() ?? {};
+          otherPartyName = '${data['firstName'] ?? ''} ${data['lastName'] ?? ''}'.trim();
+          if (otherPartyName.isEmpty) otherPartyName = 'the parent';
+        }
+      } else {
+        final pDoc = await _firestore.collection(FirestoreCollections.users).doc(targetUserId).get();
+        final data = pDoc.data() ?? {};
+        targetName = '${data['firstName'] ?? ''} ${data['lastName'] ?? ''}'.trim();
+        if (targetName.isEmpty) targetName = 'the parent';
+        if (restrictedWithUserId != null) {
+          final tDoc = await _firestore.collection(FirestoreCollections.therapistProfiles).doc(restrictedWithUserId).get();
+          otherPartyName = (tDoc.data()?['displayName'] ?? '').toString();
+          if (otherPartyName.isEmpty) otherPartyName = 'the therapist';
+        }
+      }
+    } catch (e) {
+      debugPrint('applyModerationAction: failed to resolve names: $e');
+    }
+
+    // ── Write moderation_history entry ────────────────────────────────────────
+    final histRef = _firestore.collection('moderation_history').doc();
+    await histRef.set({
+      'targetUserId': targetUserId,
+      'targetRole': targetRole,
+      'action': action,
+      'reason': reason,
+      'adminId': adminId,
+      'adminEmail': adminEmail,
+      'timestamp': FieldValue.serverTimestamp(),
+      if (reportId != null) 'reportId': reportId,
+      if (restrictedWithUserId != null) 'restrictedWithUserId': restrictedWithUserId,
+      if (restrictionDays != null) 'restrictionDays': restrictionDays,
+    });
+
+    // ── Write audit log ────────────────────────────────────────────────────────
+    final logRef = _firestore.collection('admin_audit_logs').doc();
+    await logRef.set({
+      'id': logRef.id,
+      'adminUid': adminId,
+      'adminEmail': adminEmail,
+      'targetUid': targetUserId,
+      'actionType': 'moderation_$action',
+      'details': 'Action: $action | Target: $targetName ($targetRole) | Reason: $reason',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    // ── Action-specific logic ──────────────────────────────────────────────────
+    switch (action) {
+      case 'warn':
+        await _applyWarn(
+          targetUserId: targetUserId,
+          targetRole: targetRole,
+          targetName: targetName,
+          reason: reason,
+          reportId: reportId,
+        );
+        break;
+
+      case 'restrict':
+        final days = restrictionDays ?? 4;
+        final otherId = restrictedWithUserId;
+        if (otherId == null) {
+          throw ArgumentError('restrictedWithUserId is required for restrict action.');
+        }
+        await _applyRestrict(
+          targetUserId: targetUserId,
+          targetRole: targetRole,
+          targetName: targetName,
+          otherUserId: otherId,
+          otherPartyName: otherPartyName,
+          restrictionDays: days,
+          reportId: reportId ?? '',
+          moderationHistoryId: histRef.id,
+          reason: reason,
+        );
+        break;
+
+      case 'suspend':
+        await _applyGlobalAction(
+          targetUserId: targetUserId,
+          targetRole: targetRole,
+          targetName: targetName,
+          isPermanent: false,
+          reason: reason,
+          reportId: reportId,
+        );
+        break;
+
+      case 'ban':
+        await _applyGlobalAction(
+          targetUserId: targetUserId,
+          targetRole: targetRole,
+          targetName: targetName,
+          isPermanent: true,
+          reason: reason,
+          reportId: reportId,
+        );
+        break;
+
+      case 'no_action':
+        // Update report only; no user status changes
+        if (reportId != null) {
+          await _firestore.collection('reports').doc(reportId).update({
+            'status': 'resolved',
+            'adminDecision': 'no_action',
+            'adminNotes': reason,
+            'resolvedAt': FieldValue.serverTimestamp(),
+          });
+          // Clear thread report flags
+          final reportDoc = await _firestore.collection('reports').doc(reportId).get();
+          final threadId = reportDoc.data()?['threadId']?.toString();
+          if (threadId != null && threadId.isNotEmpty) {
+            await _firestore.collection(FirestoreCollections.therapistThreads).doc(threadId).update({
+              'reportedByParent': false,
+              'reportedByTherapist': false,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+          }
+          // Notify reporter only
+          final reporterId = reportDoc.data()?['reporterId']?.toString() ?? '';
+          await _firestore.collection('notifications').add({
+            'userId': reporterId,
+            'title': '✅ Report Reviewed — No Action Taken',
+            'message': 'Your report against $targetName has been thoroughly reviewed. '
+                'After investigation, our team determined that no policy violation occurred. '
+                'No action has been taken at this time. Thank you for helping keep the platform safe.',
+            'category': 'moderation',
+            'isRead': false,
+            'timestamp': FieldValue.serverTimestamp(),
+          });
+        }
+        break;
+    }
+  }
+
+  Future<void> _applyWarn({
+    required String targetUserId,
+    required String targetRole,
+    required String targetName,
+    required String reason,
+    String? reportId,
+  }) async {
+    // Update user's moderationStatus to 'warned' (NOT status — account stays active)
+    await _firestore.collection(FirestoreCollections.users).doc(targetUserId).update({
+      'moderationStatus': 'warned',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    // If therapist, also update therapist profile moderationStatus
+    if (targetRole == 'therapist') {
+      await _firestore.collection(FirestoreCollections.therapistProfiles).doc(targetUserId).set({
+        'moderationStatus': 'warned',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    // Resolve report if linked
+    String? reporterId;
+    String? threadId;
+    if (reportId != null) {
+      final reportDoc = await _firestore.collection('reports').doc(reportId).get();
+      reporterId = reportDoc.data()?['reporterId']?.toString();
+      threadId = reportDoc.data()?['threadId']?.toString();
+      await _firestore.collection('reports').doc(reportId).update({
+        'status': 'resolved',
+        'adminDecision': 'warn',
+        'adminNotes': reason,
+        'resolvedAt': FieldValue.serverTimestamp(),
+      });
+      // Clear thread report flags — communication continues normally
+      if (threadId != null && threadId.isNotEmpty) {
+        await _firestore.collection(FirestoreCollections.therapistThreads).doc(threadId).update({
+          'reportedByParent': false,
+          'reportedByTherapist': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    // Notify target: warning issued
+    await _firestore.collection('notifications').add({
+      'userId': targetUserId,
+      'title': '⚠️ Official Warning Issued',
+      'message': 'An official warning has been issued on your account by the platform administrators. '
+          'Reason: $reason. '
+          'Please review our community guidelines and ensure compliance to avoid further action. '
+          'This warning is recorded on your account.',
+      'category': 'moderation',
+      'isRead': false,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    // Notify reporter: warning was issued
+    if (reporterId != null && reporterId.isNotEmpty) {
+      await _firestore.collection('notifications').add({
+        'userId': reporterId,
+        'title': '📋 Report Update: Warning Issued',
+        'message': 'Your report against $targetName has been reviewed. '
+            'The administration has issued an official warning to this user. '
+            'Thank you for helping maintain a safe platform.',
+        'category': 'moderation',
+        'isRead': false,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  Future<void> _applyRestrict({
+    required String targetUserId,
+    required String targetRole,
+    required String targetName,
+    required String otherUserId,
+    required String otherPartyName,
+    required int restrictionDays,
+    required String reportId,
+    required String moderationHistoryId,
+    required String reason,
+  }) async {
+    final now = DateTime.now();
+    final endDate = now.add(Duration(days: restrictionDays));
+
+    // Determine parentId and therapistId
+    final String parentId = targetRole == 'parent' ? targetUserId : otherUserId;
+    final String therapistId = targetRole == 'therapist' ? targetUserId : otherUserId;
+
+    // Create restriction record
+    final restrictRef = _firestore.collection('restrictions').doc();
+    await restrictRef.set({
+      'parentId': parentId,
+      'therapistId': therapistId,
+      'reportId': reportId,
+      'moderationHistoryId': moderationHistoryId,
+      'startDate': Timestamp.fromDate(now),
+      'endDate': Timestamp.fromDate(endDate),
+      'restrictionDays': restrictionDays,
+      'status': 'active',
+      'appliedByAdminId': _auth.currentUser?.uid ?? '',
+    });
+
+    // Flag both users as having active restrictions
+    await _firestore.collection(FirestoreCollections.users).doc(parentId).update({
+      'hasActiveRestrictions': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    await _firestore.collection(FirestoreCollections.users).doc(therapistId).update({
+      'hasActiveRestrictions': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    // Also update therapist_profiles for hasActiveRestrictions
+    await _firestore.collection(FirestoreCollections.therapistProfiles).doc(therapistId).set({
+      'hasActiveRestrictions': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    // Resolve the report
+    await _firestore.collection('reports').doc(reportId).update({
+      'status': 'resolved',
+      'adminDecision': 'restrict',
+      'adminNotes': reason,
+      'restrictionDays': restrictionDays,
+      'resolvedAt': FieldValue.serverTimestamp(),
+    });
+
+    // IMPORTANT: Do NOT lock the thread, change isActive, or modify isAcceptingClients.
+    // The chat screen checks restrictions collection in real-time.
+    // Only clear report flags.
+    final reportDoc = await _firestore.collection('reports').doc(reportId).get();
+    final threadId = reportDoc.data()?['threadId']?.toString();
+    if (threadId != null && threadId.isNotEmpty) {
+      await _firestore.collection(FirestoreCollections.therapistThreads).doc(threadId).update({
+        'reportedByParent': false,
+        'reportedByTherapist': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    final endDateStr = '${endDate.day}/${endDate.month}/${endDate.year}';
+
+    // Notify the target (restricted party)
+    await _firestore.collection('notifications').add({
+      'userId': targetUserId,
+      'title': '🔒 Communication Temporarily Restricted',
+      'message': 'Your communication with $otherPartyName has been temporarily restricted '
+          'by the platform administrators for $restrictionDays day(s). '
+          'Reason: $reason. '
+          'The restriction will automatically expire on $endDateStr. '
+          'Your profile visibility and other relationships are not affected.',
+      'category': 'moderation',
+      'isRead': false,
+      'timestamp': FieldValue.serverTimestamp(),
+      'navigationTarget': {'route': 'Notifications'},
+    });
+
+    // Notify the other party
+    await _firestore.collection('notifications').add({
+      'userId': otherUserId,
+      'title': '🔒 Communication Temporarily Restricted',
+      'message': 'Your communication with $targetName has been temporarily restricted '
+          'by the platform administrators for $restrictionDays day(s). '
+          'Reason: $reason. '
+          'The restriction will automatically expire on $endDateStr. '
+          'You may choose to continue or cancel your current subscription.',
+      'category': 'moderation',
+      'isRead': false,
+      'timestamp': FieldValue.serverTimestamp(),
+      'navigationTarget': {'route': 'SubscriptionDecisionAfterModeration', 'reportId': reportId},
+    });
+  }
+
+  Future<void> _applyGlobalAction({
+    required String targetUserId,
+    required String targetRole,
+    required String targetName,
+    required bool isPermanent,
+    required String reason,
+    String? reportId,
+  }) async {
+    final action = isPermanent ? 'ban' : 'suspend';
+    final newStatus = isPermanent ? 'banned' : 'suspended';
+    final verifStatus = isPermanent ? 'banned' : 'suspended';
+
+    // 1. Update user doc status
+    await _firestore.collection(FirestoreCollections.users).doc(targetUserId).update({
+      'status': newStatus,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    // 2. If therapist, update therapist profile
+    if (targetRole == 'therapist') {
+      await _firestore.collection(FirestoreCollections.therapistProfiles).doc(targetUserId).set({
+        'verificationStatus': verifStatus,
+        'isActive': false,
+        'isAcceptingClients': false,
+        'adminFeedback': reason,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    // 3. Disable Firebase Auth account via Cloud Function (force sign-out all devices)
+    try {
+      final functions = FirebaseFunctions.instance;
+      await functions.httpsCallable('disableUserAccount').call({'uid': targetUserId});
+    } catch (e) {
+      debugPrint('applyGlobalAction: Cloud Function disableUserAccount failed: $e');
+      // Non-fatal: client-side login guard will still catch it on next login attempt
+    }
+
+    // 4. Resolve report if linked
+    if (reportId != null) {
+      final reportDoc = await _firestore.collection('reports').doc(reportId).get();
+      final threadId = reportDoc.data()?['threadId']?.toString();
+      await _firestore.collection('reports').doc(reportId).update({
+        'status': 'resolved',
+        'adminDecision': action,
+        'adminNotes': reason,
+        'resolvedAt': FieldValue.serverTimestamp(),
+      });
+      if (threadId != null && threadId.isNotEmpty) {
+        await _firestore.collection(FirestoreCollections.therapistThreads).doc(threadId).update({
+          'status': 'locked',
+          'reportedByParent': false,
+          'reportedByTherapist': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    // 5. Batch cancel all subscriptions & collect affected user IDs for notifications
+    final Set<String> affectedUserIds = {};
+    await batchCancelSubscriptionsForUser(userId: targetUserId, reason: reason);
+
+    // Collect affected other-party IDs for bulk notifications
+    if (targetRole == 'therapist') {
+      final subsSnap = await _firestore
+          .collection(FirestoreCollections.subscriptions)
+          .where('therapistId', isEqualTo: targetUserId)
+          .get();
+      for (final doc in subsSnap.docs) {
+        final parentId = doc.data()['userId']?.toString();
+        if (parentId != null && parentId.isNotEmpty) {
+          affectedUserIds.add(parentId);
+        }
+      }
+    } else {
+      final subsSnap = await _firestore
+          .collection(FirestoreCollections.subscriptions)
+          .where('userId', isEqualTo: targetUserId)
+          .get();
+      for (final doc in subsSnap.docs) {
+        final therapistId = doc.data()['therapistId']?.toString();
+        if (therapistId != null && therapistId.isNotEmpty) {
+          affectedUserIds.add(therapistId);
+        }
+      }
+    }
+
+    // 6. Batch cancel all future bookings
+    await batchCancelBookingsForUser(userId: targetUserId, reason: reason);
+
+    // 7. Notify target user
+    final suspendMsg = isPermanent
+        ? 'Your account has been permanently banned by the platform administrators '
+          'due to a serious violation of platform policies. '
+          'Reason: $reason. '
+          'You are no longer permitted to access this platform.'
+        : 'Your account has been suspended by the administration due to a violation of platform policies. '
+          'Reason: $reason. '
+          'If you believe this action was taken in error, please contact our Support Team at autieasefyp@gmail.com for further assistance. '
+          'All active subscriptions and bookings have been cancelled.';
+
+    await _firestore.collection('notifications').add({
+      'userId': targetUserId,
+      'title': isPermanent ? '⛔ Account Permanently Banned' : '🔴 Account Suspended',
+      'message': suspendMsg,
+      'category': 'moderation',
+      'isRead': false,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    // 8. Notify all affected other-party users
+    for (final affectedId in affectedUserIds) {
+      String affectedMsg;
+      if (targetRole == 'therapist') {
+        affectedMsg = isPermanent
+            ? 'We regret to inform you that $targetName has been permanently removed from the platform '
+              'due to a serious policy violation. '
+              'Reason: $reason. '
+              'Your subscription has been cancelled and no further charges will apply. '
+              'We apologize for any inconvenience and encourage you to explore other qualified therapists on AutiEase.'
+            : 'We regret to inform you that $targetName has been suspended from the platform '
+              'due to a policy violation. '
+              'Reason: $reason. '
+              'Your subscription has been cancelled. '
+              'You may explore and subscribe to another therapist on AutiEase.';
+      } else {
+        affectedMsg = isPermanent
+            ? 'A parent you were working with, $targetName, has been permanently banned from the platform.'
+            : 'A parent you were working with, $targetName, has been temporarily suspended from the platform.';
+      }
+
+      await _firestore.collection('notifications').add({
+        'userId': affectedId,
+        'title': isPermanent
+            ? '⚠️ Therapist Permanently Removed'
+            : '⚠️ Therapist Suspended',
+        'message': affectedMsg,
+        'category': 'moderation',
+        'isRead': false,
+        'timestamp': FieldValue.serverTimestamp(),
+        'navigationTarget': {'route': 'ProfessionalSupport'},
+      });
+    }
+
+    // 9. Notify original reporter (if report exists and reporter is identifiable)
+    if (reportId != null) {
+      try {
+        final reportDoc = await _firestore.collection('reports').doc(reportId).get();
+        final reporterId = reportDoc.data()?['reporterId']?.toString();
+        if (reporterId != null && reporterId.isNotEmpty) {
+          await _firestore.collection('notifications').add({
+            'userId': reporterId,
+            'title': '📋 Report Update: ${isPermanent ? "Ban" : "Suspension"} Applied',
+            'message': 'Your report against $targetName has been reviewed and acted upon. '
+                'The administration has ${isPermanent ? "permanently banned" : "suspended"} this user. '
+                'Thank you for helping maintain a safe platform.',
+            'category': 'moderation',
+            'isRead': false,
+            'timestamp': FieldValue.serverTimestamp(),
+          });
+        }
+      } catch (e) {
+        debugPrint('applyGlobalAction: failed to notify reporter: $e');
+      }
+    }
+  }
+
+  @override
+  Future<void> removeModerationAction({
+    required String targetUserId,
+    required String targetRole,
+    required String action,
+    required String reason,
+    String? restrictionId,
+  }) async {
+    if (reason.trim().isEmpty) {
+      throw ArgumentError('A reason is mandatory for removing a moderation action.');
+    }
+
+    final adminId = _auth.currentUser?.uid ?? '';
+    final adminEmail = _auth.currentUser?.email ?? '';
+
+    // Resolve target display name
+    String targetName = 'the user';
+    try {
+      if (targetRole == 'therapist') {
+        final tDoc = await _firestore.collection(FirestoreCollections.therapistProfiles).doc(targetUserId).get();
+        targetName = (tDoc.data()?['displayName'] ?? '').toString();
+        if (targetName.isEmpty) targetName = 'the therapist';
+      } else {
+        final pDoc = await _firestore.collection(FirestoreCollections.users).doc(targetUserId).get();
+        final data = pDoc.data() ?? {};
+        targetName = '${data['firstName'] ?? ''} ${data['lastName'] ?? ''}'.trim();
+        if (targetName.isEmpty) targetName = 'the parent';
+      }
+    } catch (_) {}
+
+    // Write history entry for the removal
+    final histRef = _firestore.collection('moderation_history').doc();
+    await histRef.set({
+      'targetUserId': targetUserId,
+      'targetRole': targetRole,
+      'action': action,
+      'reason': reason,
+      'adminId': adminId,
+      'adminEmail': adminEmail,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    // Write audit log
+    final logRef = _firestore.collection('admin_audit_logs').doc();
+    await logRef.set({
+      'id': logRef.id,
+      'adminUid': adminId,
+      'adminEmail': adminEmail,
+      'targetUid': targetUserId,
+      'actionType': 'moderation_$action',
+      'details': 'Removing: $action | Target: $targetName | Reason: $reason',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    switch (action) {
+      case 'remove_warn':
+        await _firestore.collection(FirestoreCollections.users).doc(targetUserId).update({
+          'moderationStatus': 'verified',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        if (targetRole == 'therapist') {
+          await _firestore.collection(FirestoreCollections.therapistProfiles).doc(targetUserId).set({
+            'moderationStatus': 'verified',
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+        await _firestore.collection('notifications').add({
+          'userId': targetUserId,
+          'title': '✅ Warning Removed',
+          'message': 'The official warning on your account has been removed by the platform administrators. '
+              'Your account status has been restored to Verified. Reason: $reason.',
+          'category': 'moderation',
+          'isRead': false,
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+        break;
+
+      case 'remove_restrict':
+        if (restrictionId != null) {
+          final restrictDoc = await _firestore.collection('restrictions').doc(restrictionId).get();
+          final parentId = restrictDoc.data()?['parentId']?.toString() ?? '';
+          final therapistId = restrictDoc.data()?['therapistId']?.toString() ?? '';
+
+          await _firestore.collection('restrictions').doc(restrictionId).update({
+            'status': 'removed',
+            'removedByAdminId': adminId,
+            'removalReason': reason,
+            'removedAt': FieldValue.serverTimestamp(),
+          });
+
+          // Check if either user still has other active restrictions
+          for (final uid in [parentId, therapistId]) {
+            final stillRestricted = await _firestore
+                .collection('restrictions')
+                .where('status', isEqualTo: 'active')
+                .where('endDate', isGreaterThan: Timestamp.now())
+                .get();
+            // Filter for this specific user
+            final userStillRestricted = stillRestricted.docs.any((d) =>
+                d.data()['parentId'] == uid || d.data()['therapistId'] == uid);
+            if (!userStillRestricted) {
+              await _firestore.collection(FirestoreCollections.users).doc(uid).update({
+                'hasActiveRestrictions': false,
+                'updatedAt': FieldValue.serverTimestamp(),
+              });
+              if (uid == therapistId) {
+                await _firestore.collection(FirestoreCollections.therapistProfiles).doc(uid).set({
+                  'hasActiveRestrictions': false,
+                  'updatedAt': FieldValue.serverTimestamp(),
+                }, SetOptions(merge: true));
+              }
+            }
+            await _firestore.collection('notifications').add({
+              'userId': uid,
+              'title': '✅ Restriction Removed',
+              'message': 'The communication restriction has been removed by the platform administrators. '
+                  'You may now communicate normally. Reason for removal: $reason.',
+              'category': 'moderation',
+              'isRead': false,
+              'timestamp': FieldValue.serverTimestamp(),
+            });
+          }
+        }
+        break;
+
+      case 'remove_suspend':
+      case 'remove_ban':
+      case 'restore':
+        // Re-enable the Firebase Auth account
+        try {
+          final functions = FirebaseFunctions.instance;
+          await functions.httpsCallable('enableUserAccount').call({'uid': targetUserId});
+        } catch (e) {
+          debugPrint('removeModerationAction: Cloud Function enableUserAccount failed: $e');
+        }
+
+        // Restore user status to active
+        await _firestore.collection(FirestoreCollections.users).doc(targetUserId).update({
+          'status': 'active',
+          'moderationStatus': 'verified',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        if (targetRole == 'therapist') {
+          await _firestore.collection(FirestoreCollections.therapistProfiles).doc(targetUserId).set({
+            'verificationStatus': 'approved',
+            'isActive': true,
+            'isAcceptingClients': true,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+
+        // Notify the user
+        await _firestore.collection('notifications').add({
+          'userId': targetUserId,
+          'title': '✅ Account Restored',
+          'message': 'Your account has been restored by the platform administrators. '
+              'You may now log in and resume using AutiEase. '
+              'Note: Previously cancelled subscriptions are not automatically restored. '
+              'Reason: $reason.',
+          'category': 'moderation',
+          'isRead': false,
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+        break;
+    }
+  }
+
+  @override
+  Future<void> requestAdditionalInfo({
+    required String reportId,
+    required String requestFrom,
+    required String reason,
+    required String description,
+  }) async {
+    final adminId = _auth.currentUser?.uid ?? '';
+    final adminEmail = _auth.currentUser?.email ?? '';
+
+    // Fetch report data
+    final reportDoc = await _firestore.collection('reports').doc(reportId).get();
+    if (!reportDoc.exists) throw StateError('Report $reportId not found');
+    final data = reportDoc.data() ?? {};
+    final reporterId = data['reporterId']?.toString() ?? '';
+    final reportedId = data['reportedId']?.toString() ?? '';
+
+    // Update report status
+    await _firestore.collection('reports').doc(reportId).update({
+      'status': 'additional_info_requested',
+      'additionalInfoRequestedFrom': requestFrom,
+      'adminInfoRequestReason': reason,
+      'adminInfoRequestDescription': description,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    // Write moderation history entry
+    final histRef = _firestore.collection('moderation_history').doc();
+    await histRef.set({
+      'targetUserId': reportedId,
+      'targetRole': data['reporterRole'] == 'parent' ? 'therapist' : 'parent',
+      'action': 'additional_info_requested',
+      'reason': reason,
+      'adminId': adminId,
+      'adminEmail': adminEmail,
+      'reportId': reportId,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    // Write audit log
+    await _firestore.collection('admin_audit_logs').doc().set({
+      'adminUid': adminId,
+      'adminEmail': adminEmail,
+      'targetUid': reportedId,
+      'actionType': 'additional_info_requested',
+      'details': 'Report: $reportId | From: $requestFrom | Reason: $reason',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    // Send notifications to the requested parties
+    final notifyIds = <String>[];
+    if (requestFrom == 'reporter' || requestFrom == 'both') {
+      notifyIds.add(reporterId);
+    }
+    if (requestFrom == 'reported' || requestFrom == 'both') {
+      notifyIds.add(reportedId);
+    }
+
+    for (final userId in notifyIds) {
+      await _firestore.collection('notifications').add({
+        'userId': userId,
+        'title': '📋 Additional Information Requested',
+        'message': 'The administration has reviewed your report and requires additional information. '
+            'Reason: $reason. '
+            'Details needed: $description. '
+            'Please submit your information through the "View Report" option. '
+            'You will only be able to submit information once, so please be thorough.',
+        'category': 'moderation',
+        'isRead': false,
+        'timestamp': FieldValue.serverTimestamp(),
+        'navigationTarget': {
+          'route': 'ReportMessage',
+          'reportId': reportId,
+          'requestedByAdminId': adminId,
+        },
+      });
+    }
+  }
+
+  @override
+  Future<void> batchCancelSubscriptionsForUser({
+    required String userId,
+    required String reason,
+  }) async {
+    // Find all active subscriptions for this user (as subscriber or as therapist)
+    final subsAsUser = await _firestore
+        .collection(FirestoreCollections.subscriptions)
+        .where('userId', isEqualTo: userId)
+        .where('status', whereIn: ['active', 'trialing', 'grace_period'])
+        .get();
+    final subsAsTherapist = await _firestore
+        .collection(FirestoreCollections.subscriptions)
+        .where('therapistId', isEqualTo: userId)
+        .where('status', whereIn: ['active', 'trialing', 'grace_period'])
+        .get();
+
+    final allSubs = {...subsAsUser.docs, ...subsAsTherapist.docs};
+    for (final doc in allSubs) {
+      await doc.reference.update({
+        'status': 'cancelled',
+        'cancelAtPeriodEnd': false,
+        'cancelledAt': FieldValue.serverTimestamp(),
+        'cancellationReason': 'admin_moderation: $reason',
+      });
+    }
+
+    // Also lock associated threads
+    final threads = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final parentThreads = await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .where('parentId', isEqualTo: userId)
+        .get();
+    threads.addAll(parentThreads.docs);
+    final therapistThreads = await _firestore
+        .collection(FirestoreCollections.therapistThreads)
+        .where('therapistId', isEqualTo: userId)
+        .get();
+    threads.addAll(therapistThreads.docs);
+
+    for (final thread in threads) {
+      if (thread.data()['status'] != 'locked') {
+        await thread.reference.update({
+          'status': 'locked',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+  }
+
+  @override
+  Future<void> batchCancelBookingsForUser({
+    required String userId,
+    required String reason,
+  }) async {
+    final now = Timestamp.now();
+    // Cancel future bookings where this user is either the therapist or booker
+    final asParent = await _firestore
+        .collection(FirestoreCollections.appointmentSlots)
+        .where('bookedByParentId', isEqualTo: userId)
+        .where('status', isEqualTo: 'booked')
+        .where('dateTime', isGreaterThan: now)
+        .get();
+    final asTherapist = await _firestore
+        .collection(FirestoreCollections.appointmentSlots)
+        .where('therapistId', isEqualTo: userId)
+        .where('status', isEqualTo: 'booked')
+        .where('dateTime', isGreaterThan: now)
+        .get();
+
+    for (final slot in [...asParent.docs, ...asTherapist.docs]) {
+      await slot.reference.update({
+        'status': 'cancelled',
+        'cancellationReason': 'admin_moderation: $reason',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  @override
+  Future<List<UserProfile>> listParentsByModerationStatus(String badge) async {
+    Query<Map<String, dynamic>> query =
+        _firestore.collection(FirestoreCollections.users).where('role', isEqualTo: 'parent');
+
+    switch (badge) {
+      case 'verified':
+        query = query
+            .where('status', isEqualTo: 'active')
+            .where('moderationStatus', isEqualTo: 'verified')
+            .where('hasActiveRestrictions', isEqualTo: false);
+        break;
+      case 'warned':
+        query = query.where('moderationStatus', isEqualTo: 'warned');
+        break;
+      case 'restricted':
+        query = query.where('hasActiveRestrictions', isEqualTo: true);
+        break;
+      case 'suspended':
+        query = query.where('status', isEqualTo: 'suspended');
+        break;
+      case 'banned':
+        query = query.where('status', isEqualTo: 'banned');
+        break;
+      // 'all' — no additional filter
+    }
+
+    final snap = await query.get();
+    return snap.docs.map((d) => UserProfile.fromMap(d.id, d.data())).toList();
+  }
+
+  @override
+  Future<List<TherapistProfile>> listTherapistsByModerationStatus(String badge) async {
+    Query<Map<String, dynamic>> query =
+        _firestore.collection(FirestoreCollections.therapistProfiles);
+
+    switch (badge) {
+      case 'verified':
+        query = query
+            .where('verificationStatus', isEqualTo: 'approved')
+            .where('moderationStatus', isEqualTo: 'verified')
+            .where('hasActiveRestrictions', isEqualTo: false);
+        break;
+      case 'warned':
+        query = query.where('moderationStatus', isEqualTo: 'warned');
+        break;
+      case 'restricted':
+        query = query.where('hasActiveRestrictions', isEqualTo: true);
+        break;
+      case 'suspended':
+        query = query.where('verificationStatus', isEqualTo: 'suspended');
+        break;
+      case 'banned':
+        query = query.where('verificationStatus', isEqualTo: 'banned');
+        break;
+      // 'all' — no additional filter
+    }
+
+    final snap = await query.get();
+    return snap.docs.map((d) => TherapistProfile.fromMap(d.id, d.data())).toList();
+  }
 }
+
 

@@ -122,6 +122,11 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   // Blocking status (populated from live thread stream)
   BlockInfo _blockInfo = const BlockInfo();
 
+  // Admin restriction status (populated by watchActiveRestriction stream)
+  RestrictionRecord? _activeRestriction;
+  StreamSubscription<RestrictionRecord?>? _restrictionSub;
+
+
   // Emojis panel state
   bool _showEmojiPicker = false;
   static const List<String> _commonEmojis = [
@@ -208,6 +213,13 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     if (DateTime.now().year == 1990) {
       _startEmergencyAlertLoop('');
     }
+    // Start real-time restriction watcher for this thread's parent-therapist pair
+    _restrictionSub = AppRepositories.support.watchActiveRestriction(
+      parentId: widget.thread.parentId,
+      therapistId: widget.thread.therapistId,
+    ).listen((restriction) {
+      if (mounted) setState(() => _activeRestriction = restriction);
+    });
   }
 
   @override
@@ -233,6 +245,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     _audioCompleteSubscription?.cancel();
     // Stop emergency alert loop if still running
     _stopEmergencyAlertLoop();
+    _restrictionSub?.cancel();
     super.dispose();
   }
 
@@ -423,6 +436,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   }
 
   bool _canSendMessage(TherapistThread thread) {
+    if (_activeRestriction != null && _activeRestriction!.isActive) return false;
     if (widget.readOnly) return false;
     if (thread.status == 'locked' || thread.status == 'reported') return false;
     if (!thread.isBlocked) {
@@ -438,6 +452,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
   /// Whether the BLOCKED party can still send their one-time final message.
   bool _canSendFinalMessage(TherapistThread thread) {
+    if (_activeRestriction != null && _activeRestriction!.isActive) return false;
     if (!_blockInfo.theyBlockedMe) return false;
     final alreadySent = widget.senderRole == 'parent'
         ? thread.finalMessageSentByParent
@@ -447,6 +462,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
   /// Whether the BLOCKER can send a one-time reply (after the blocked user sent their final message).
   bool _canSendFinalReply(TherapistThread thread) {
+    if (_activeRestriction != null && _activeRestriction!.isActive) return false;
     if (!_blockInfo.iBlockedThem) return false;
     // Blocker can reply only after blocked party sent their final message
     final blockedPartyHasSent = widget.senderRole == 'parent'
@@ -1127,6 +1143,15 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
 
   Future<void> _showClinicalNoteDialog() async {
+    if (_activeRestriction != null && _activeRestriction!.isActive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot add clinical notes while communication is restricted.'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+      return;
+    }
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -2697,6 +2722,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                           ? currentThread.reportedByParent
                           : currentThread.reportedByTherapist;
 
+                      final isRestricted = _activeRestriction != null && _activeRestriction!.isActive;
+
                       return [
                         const PopupMenuItem(
                           value: 'profile',
@@ -2718,9 +2745,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                             ],
                           ),
                         ),
-                        // Clinical note, report, and block are all hidden in view-only mode
+                        // Clinical note, report, and block are all hidden in view-only mode or under restriction
                         // Also hide 'Add Clinical Note' if the parent blocked the therapist
-                        if (!isViewOnly && widget.senderRole == 'therapist' && !_blockInfo.theyBlockedMe)
+                        if (!isViewOnly && !isRestricted && widget.senderRole == 'therapist' && !_blockInfo.theyBlockedMe)
                           const PopupMenuItem(
                             value: 'clinical_note',
                             child: Row(
@@ -2731,7 +2758,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                               ],
                             ),
                           ),
-                        if (!isViewOnly) ...[ 
+                        if (!isViewOnly && !isRestricted) ...[ 
                           // Only show Report User if this side hasn't already filed one
                           if (!hasAlreadyReported)
                             const PopupMenuItem(
@@ -2808,6 +2835,11 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                         peerDisplayName: widget.senderRole == 'parent'
                             ? thread.therapistDisplayName
                             : thread.parentDisplayName,
+                      ),
+                    if (_activeRestriction != null && _activeRestriction!.isActive)
+                      _RestrictionBanner(
+                        endDate: _activeRestriction!.endDate,
+                        senderRole: widget.senderRole,
                       ),
 
                     Expanded(
@@ -3126,7 +3158,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                     ),
                                   ),
                                 ),
-                              if (!canSendMessage)
+                              if (_activeRestriction != null && _activeRestriction!.isActive)
+                                _RestrictedComposerBanner(endDate: _activeRestriction!.endDate)
+                              else if (!canSendMessage)
                                 _BlockedInputArea(
                                   thread: thread,
                                   senderRole: widget.senderRole,
@@ -4347,6 +4381,85 @@ class _ImageZoomViewer extends StatelessWidget {
               ? Image.memory(bytes)
               : const Icon(Icons.broken_image, color: Colors.white54, size: 80),
         ),
+      ),
+    );
+  }
+}
+
+// ─── Restriction Banner ──────────────────────────────────────────────────────
+
+class _RestrictionBanner extends StatelessWidget {
+  const _RestrictionBanner({
+    required this.endDate,
+    required this.senderRole,
+  });
+
+  final DateTime endDate;
+  final String senderRole;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateStr = '${endDate.day}/${endDate.month}/${endDate.year}';
+    final message = '⚠️ Communication with this user has been temporarily restricted by admin. This restriction expires on $dateStr.';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: const BoxDecoration(
+        color: Color(0xFFFEF3C7),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFFCD34D), width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706), size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF92400E),
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RestrictedComposerBanner extends StatelessWidget {
+  const _RestrictedComposerBanner({required this.endDate});
+  final DateTime endDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateStr = '${endDate.day}/${endDate.month}/${endDate.year}';
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF3C7),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFCD34D)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.lock_clock_outlined, color: Color(0xFFD97706), size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'This chat is temporarily restricted by the administrator until $dateStr. You cannot send messages.',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF92400E),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

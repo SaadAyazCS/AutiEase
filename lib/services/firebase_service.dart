@@ -124,6 +124,12 @@ class FirebaseService {
       case 'wrong-password':
       case 'invalid-credential':
         return 'Invalid email or password.';
+      case 'user-disabled':
+        // Account has been suspended or banned by an admin.
+        // The specific reason is delivered via in-app notification.
+        return 'Your account has been suspended by the administration due to a '
+            'violation of platform policies. If you believe this action was taken '
+            'in error, please contact our Support Team at autieasefyp@gmail.com for further assistance.';
       default:
         return error.message ?? fallback;
     }
@@ -775,11 +781,23 @@ class FirebaseService {
       final status = (data['status'] ?? '').toString();
       if (status == 'suspended') {
         await _auth.signOut();
-        return {'success': false, 'message': 'Account suspended: please contact support.'};
+        return {
+          'success': false,
+          'message': 'Your account has been suspended by the administration due to a '
+              'violation of platform policies. '
+              'If you believe this action was taken in error, please contact our '
+              'Support Team at autieasefyp@gmail.com for further assistance.',
+        };
       }
       if (status == 'banned') {
         await _auth.signOut();
-        return {'success': false, 'message': 'Account permanently banned due to policy violations.'};
+        return {
+          'success': false,
+          'message': 'Your account has been permanently banned due to serious '
+              'violations of platform policies. '
+              'If you believe this action was taken in error, please contact our '
+              'Support Team at autieasefyp@gmail.com.',
+        };
       }
 
       if (!isAdminEmail) {

@@ -114,10 +114,13 @@ service cloud.firestore {
       allow update: if (isTherapist() && request.auth.uid == therapistId &&
         (!('verificationStatus' in request.resource.data) || 
          request.resource.data.verificationStatus == resource.data.verificationStatus ||
-         (resource.data.verificationStatus == 'rejected' && request.resource.data.verificationStatus == 'pending') ||
-         (resource.data.verificationStatus == 'restricted' && request.resource.data.verificationStatus == 'approved' && request.time > resource.data.restrictionUntil)
+         // Allow re-submission after rejection
+         (resource.data.verificationStatus == 'rejected' && request.resource.data.verificationStatus == 'pending')
         ) &&
         (!('verifiedBadge' in request.resource.data) || request.resource.data.verifiedBadge == resource.data.verifiedBadge) &&
+        // Prevent therapist from self-modifying moderation fields
+        (!('moderationStatus' in request.resource.data) || request.resource.data.moderationStatus == resource.data.get('moderationStatus', 'verified')) &&
+        (!('hasActiveRestrictions' in request.resource.data) || request.resource.data.hasActiveRestrictions == resource.data.get('hasActiveRestrictions', false)) &&
         (!('bio' in request.resource.data) || request.resource.data.bio.size() <= 1000) &&
         (!('servicePackages' in request.resource.data) || (arePackagesValid(request.resource.data.servicePackages) && arePackagesLimitValid(request.resource.data, resource.data))) &&
         (!('isAcceptingClients' in request.resource.data) || request.resource.data.isAcceptingClients is bool)) ||
@@ -321,13 +324,62 @@ service cloud.firestore {
     }
 
     match /reports/{reportId} {
+      // Reporters and reported users can read their own reports (for notification tap-through).
+      // Admins have full read access.
+      allow read: if isAdmin() || (
+        signedIn() && (
+          resource.data.reporterId == request.auth.uid ||
+          resource.data.reportedId == request.auth.uid
+        )
+      );
+      // Any signed-in user can file a report if they are the reporter.
       allow create: if signedIn() && request.resource.data.reporterId == request.auth.uid;
-      allow read, update, delete: if isAdmin();
+      // Only admin can update report status / resolution.
+      allow update: if isAdmin();
+      // Reports are never deleted — even admins cannot delete them.
+      allow delete: if false;
+
+      // One-time messages submitted by users in response to admin's
+      // 'Additional Information Required' request.
+      match /messages/{messageId} {
+        // Admins see all messages on a report.
+        // The sender can read their own submitted message.
+        allow read: if isAdmin() || (
+          signedIn() && resource.data.senderId == request.auth.uid
+        );
+        // Signed-in users may submit exactly one message per admin request.
+        // The senderId must match the authenticated user.
+        allow create: if signedIn() &&
+          request.resource.data.senderId == request.auth.uid;
+        // Messages are immutable after submission.
+        allow update, delete: if false;
+      }
     }
 
     match /admin_audit_logs/{logId} {
       allow read, create: if isAdmin();
       allow update, delete: if false;
+    }
+
+    // Permanent, chronological record of every moderation action on every user.
+    // Immutable: only admin can create entries; no one can update or delete them.
+    match /moderation_history/{entryId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // Per-relationship restriction records.
+    // Users need read access to check if they are currently restricted.
+    // Only admin can create/update; records are never deleted (status is updated to 'expired'/'removed').
+    match /restrictions/{restrictionId} {
+      allow read: if signedIn() && (
+        resource.data.parentId == request.auth.uid ||
+        resource.data.therapistId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create, update: if isAdmin();
+      allow delete: if false;
     }
 
     // Platform revenue summary — backend writes via Admin SDK (bypasses rules)
@@ -356,7 +408,8 @@ service cloud.firestore {
           request.resource.data.category == 'activities' ||
           request.resource.data.category == 'reports' ||
           request.resource.data.category == 'emergency' ||
-          request.resource.data.category == 'wallet'
+          request.resource.data.category == 'wallet' ||
+          request.resource.data.category == 'moderation'
         ))
       );
       allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
