@@ -5001,11 +5001,13 @@ class FirebaseAdminRepository implements AdminRepository {
             if (!userStillRestricted) {
               await _firestore.collection(FirestoreCollections.users).doc(uid).update({
                 'hasActiveRestrictions': false,
+                'moderationStatus': 'verified',
                 'updatedAt': FieldValue.serverTimestamp(),
               });
               if (uid == therapistId) {
                 await _firestore.collection(FirestoreCollections.therapistProfiles).doc(uid).set({
                   'hasActiveRestrictions': false,
+                  'moderationStatus': 'verified',
                   'updatedAt': FieldValue.serverTimestamp(),
                 }, SetOptions(merge: true));
               }
