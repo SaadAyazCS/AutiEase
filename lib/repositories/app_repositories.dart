@@ -5028,6 +5028,74 @@ class FirebaseAdminRepository implements AdminRepository {
       case 'remove_suspend':
       case 'remove_ban':
       case 'restore':
+        // Fetch user data first to see if they were restricted or suspended
+        bool wasRestricted = false;
+        try {
+          final uDoc = await _firestore.collection(FirestoreCollections.users).doc(targetUserId).get();
+          wasRestricted = uDoc.data()?['hasActiveRestrictions'] == true;
+        } catch (_) {}
+
+        // 1. Find and remove all active restrictions involving targetUserId
+        try {
+          final activeRestrictionsQuery = await _firestore
+              .collection('restrictions')
+              .where('status', isEqualTo: 'active')
+              .get();
+          
+          final targetRestrictions = activeRestrictionsQuery.docs.where((d) {
+            final data = d.data();
+            return data['parentId'] == targetUserId || data['therapistId'] == targetUserId;
+          }).toList();
+
+          for (final doc in targetRestrictions) {
+            final data = doc.data();
+            final parentId = data['parentId']?.toString() ?? '';
+            final therapistId = data['therapistId']?.toString() ?? '';
+
+            await doc.reference.update({
+              'status': 'removed',
+              'removedByAdminId': adminId,
+              'removalReason': reason,
+              'removedAt': FieldValue.serverTimestamp(),
+            });
+
+            // Re-check and clear hasActiveRestrictions for both users
+            for (final uid in [parentId, therapistId]) {
+              final activeRestricts = await _firestore
+                  .collection('restrictions')
+                  .where('status', isEqualTo: 'active')
+                  .get();
+              final now = DateTime.now();
+              final userStillRestricted = activeRestricts.docs.any((d) {
+                final rData = d.data();
+                final isTarget = rData['parentId'] == uid || rData['therapistId'] == uid;
+                if (!isTarget) return false;
+                final endTs = rData['endDate'];
+                if (endTs is Timestamp) {
+                  return endTs.toDate().isAfter(now);
+                }
+                return false;
+              });
+              if (!userStillRestricted) {
+                await _firestore.collection(FirestoreCollections.users).doc(uid).update({
+                  'hasActiveRestrictions': false,
+                  'moderationStatus': 'verified',
+                  'updatedAt': FieldValue.serverTimestamp(),
+                });
+                if (uid == therapistId) {
+                  await _firestore.collection(FirestoreCollections.therapistProfiles).doc(uid).set({
+                    'hasActiveRestrictions': false,
+                    'moderationStatus': 'verified',
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  }, SetOptions(merge: true));
+                }
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('removeModerationAction: failed to clear restrictions: $e');
+        }
+
         // Re-enable the Firebase Auth account
         try {
           final functions = FirebaseFunctions.instance;
@@ -5040,6 +5108,7 @@ class FirebaseAdminRepository implements AdminRepository {
         await _firestore.collection(FirestoreCollections.users).doc(targetUserId).update({
           'status': 'active',
           'moderationStatus': 'verified',
+          'hasActiveRestrictions': false,
           'updatedAt': FieldValue.serverTimestamp(),
         });
         if (targetRole == 'therapist') {
@@ -5047,22 +5116,36 @@ class FirebaseAdminRepository implements AdminRepository {
             'verificationStatus': 'approved',
             'isActive': true,
             'isAcceptingClients': true,
+            'moderationStatus': 'verified',
+            'hasActiveRestrictions': false,
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
         }
 
-        // Notify the user
-        await _firestore.collection('notifications').add({
-          'userId': targetUserId,
-          'title': '✅ Account Restored',
-          'message': 'Your account has been restored by the platform administrators. '
-              'You may now log in and resume using AutiEase. '
-              'Note: Previously cancelled subscriptions are not automatically restored. '
-              'Reason: $reason.',
-          'category': 'moderation',
-          'isRead': false,
-          'timestamp': FieldValue.serverTimestamp(),
-        });
+        // Notify the user based on whether they were restricted vs suspended/banned
+        if (wasRestricted) {
+          await _firestore.collection('notifications').add({
+            'userId': targetUserId,
+            'title': '✅ Communication Restored',
+            'message': 'The restriction on your account has been removed by the platform administrators. '
+                'You may now communicate normally. Reason: $reason.',
+            'category': 'moderation',
+            'isRead': false,
+            'timestamp': FieldValue.serverTimestamp(),
+          });
+        } else {
+          await _firestore.collection('notifications').add({
+            'userId': targetUserId,
+            'title': '✅ Account Restored',
+            'message': 'Your account has been restored by the platform administrators. '
+                'You may now log in and resume using AutiEase. '
+                'Note: Previously cancelled subscriptions are not automatically restored. '
+                'Reason: $reason.',
+            'category': 'moderation',
+            'isRead': false,
+            'timestamp': FieldValue.serverTimestamp(),
+          });
+        }
         break;
     }
   }

@@ -5973,7 +5973,7 @@ class _AdminVoicePlayerState extends State<_AdminVoicePlayer> {
 String _resolveModerationStatus(String status, String moderationStatus, bool hasActiveRestrictions) {
   if (status == 'banned' || status == 'ban') return 'banned';
   if (status == 'suspended' || status == 'suspend') return 'suspended';
-  if (hasActiveRestrictions) return 'restricted';
+  if (hasActiveRestrictions && moderationStatus == 'restricted') return 'restricted';
   return moderationStatus.isEmpty ? 'verified' : moderationStatus;
 }
 
