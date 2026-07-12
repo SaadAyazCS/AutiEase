@@ -2572,7 +2572,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              _moderationStatusBadge(parent.moderationStatus.isEmpty ? 'verified' : parent.moderationStatus),
+                              _moderationStatusBadge(_resolveModerationStatus(parent.status, parent.moderationStatus, parent.hasActiveRestrictions)),
                             ],
                           ),
                         ],
@@ -2668,7 +2668,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       _ModerationPanel(
                         userId: parent.uid,
                         userRole: 'parent',
-                        currentStatus: parent.moderationStatus,
+                        currentStatus: _resolveModerationStatus(parent.status, parent.moderationStatus, parent.hasActiveRestrictions),
                         onActionTaken: () {
                           Navigator.pop(ctx);
                           _loadStats();
@@ -2790,7 +2790,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final parent = list[index];
-            final modStatus = parent.moderationStatus.isEmpty ? 'verified' : parent.moderationStatus;
+            final modStatus = _resolveModerationStatus(parent.status, parent.moderationStatus, parent.hasActiveRestrictions);
 
             return Material(
               color: Colors.white,
@@ -3824,7 +3824,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final therapist = list[index];
-            final modStatus = therapist.moderationStatus.isEmpty ? 'verified' : therapist.moderationStatus;
+            final modStatus = _resolveModerationStatus(therapist.verificationStatus, therapist.moderationStatus, therapist.hasActiveRestrictions);
 
             // Verification status colour
             Color statusColor;
@@ -4097,7 +4097,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              _moderationStatusBadge(therapist.moderationStatus.isEmpty ? 'verified' : therapist.moderationStatus),
+                              _moderationStatusBadge(_resolveModerationStatus(therapist.verificationStatus, therapist.moderationStatus, therapist.hasActiveRestrictions)),
                               const SizedBox(width: 8),
                               Icon(Icons.star_rounded, color: const Color(0xFFFBBF24), size: 14),
                               const SizedBox(width: 3),
@@ -4284,7 +4284,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       _ModerationPanel(
                         userId: therapist.id,
                         userRole: 'therapist',
-                        currentStatus: therapist.moderationStatus,
+                        currentStatus: _resolveModerationStatus(therapist.verificationStatus, therapist.moderationStatus, therapist.hasActiveRestrictions),
                         onActionTaken: () {
                           Navigator.pop(ctx);
                           _loadStats();
@@ -5961,6 +5961,13 @@ class _AdminVoicePlayerState extends State<_AdminVoicePlayer> {
 }
 
 // ─── Moderation Status Badge Helper ──────────────────────────────────────────
+
+String _resolveModerationStatus(String status, String moderationStatus, bool hasActiveRestrictions) {
+  if (status == 'banned' || status == 'ban') return 'banned';
+  if (status == 'suspended' || status == 'suspend') return 'suspended';
+  if (hasActiveRestrictions) return 'restricted';
+  return moderationStatus.isEmpty ? 'verified' : moderationStatus;
+}
 
 Widget _moderationStatusBadge(String moderationStatus) {
   final config = _moderationBadgeConfig(moderationStatus);
