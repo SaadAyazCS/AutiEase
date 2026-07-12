@@ -625,9 +625,12 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
       );
       if (hasRestriction) {
         if (mounted) {
+          final isTherapistRestricted = therapist.moderationStatus == 'restricted';
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Your account is restricted. You cannot switch or buy another package.'),
+            SnackBar(
+              content: Text(isTherapistRestricted
+                  ? "Therapist's account is restricted, so you cannot switch or buy another package."
+                  : 'Your account is restricted. You cannot switch or buy another package.'),
               backgroundColor: AppColors.errorRed,
             ),
           );
@@ -2697,6 +2700,7 @@ class SupportTherapistDetailsScreenState
                             isSubscribed: _isSubscribed,
                             subscribedPackageIndex: _subscribedPackageIndex,
                             isRestricted: _isRestricted,
+                            isTherapistRestricted: widget.therapist.moderationStatus == 'restricted',
                             onPackageSelected: (index) {
                               if (!mounted) {
                                 return;
@@ -2799,10 +2803,13 @@ class SupportTherapistDetailsScreenState
                                     : (widget.paymentsEnabled
                                           ? (_isRestricted
                                               ? () {
+                                                  final isTherapistRestricted = therapist.moderationStatus == 'restricted';
                                                   ScaffoldMessenger.of(context).showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text('Your account is restricted. You cannot switch or buy another package.'),
-                                                      backgroundColor: Color(0xFFEF4444),
+                                                    SnackBar(
+                                                      content: Text(isTherapistRestricted
+                                                          ? "Therapist's account is restricted, so you cannot switch or buy another package."
+                                                          : 'Your account is restricted. You cannot switch or buy another package.'),
+                                                      backgroundColor: const Color(0xFFEF4444),
                                                     ),
                                                   );
                                                 }
@@ -2890,6 +2897,7 @@ class _PackageSelectionList extends StatelessWidget {
     required this.onSwitchPackage,
     required this.onManageSubscription,
     required this.isRestricted,
+    required this.isTherapistRestricted,
   });
 
   final List<_SupportServicePackage> packages;
@@ -2900,6 +2908,7 @@ class _PackageSelectionList extends StatelessWidget {
   final ValueChanged<int> onSwitchPackage;
   final VoidCallback onManageSubscription;
   final bool isRestricted;
+  final bool isTherapistRestricted;
 
   @override
   Widget build(BuildContext context) {
@@ -2917,9 +2926,11 @@ class _PackageSelectionList extends StatelessWidget {
               onTap: () {
                 if (isRestricted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Your account is restricted. You cannot switch or buy another package.'),
-                      backgroundColor: Color(0xFFEF4444),
+                    SnackBar(
+                      content: Text(isTherapistRestricted
+                          ? "Therapist's account is restricted, so you cannot switch or buy another package."
+                          : 'Your account is restricted. You cannot switch or buy another package.'),
+                      backgroundColor: const Color(0xFFEF4444),
                     ),
                   );
                   return;
