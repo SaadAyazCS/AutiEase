@@ -4683,6 +4683,7 @@ class FirebaseAdminRepository implements AdminRepository {
     final threadId = reportDoc.data()?['threadId']?.toString();
     if (threadId != null && threadId.isNotEmpty) {
       await _firestore.collection(FirestoreCollections.therapistThreads).doc(threadId).update({
+        'status': 'active',
         'reportedByParent': false,
         'reportedByTherapist': false,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -5094,6 +5095,31 @@ class FirebaseAdminRepository implements AdminRepository {
           }
         } catch (e) {
           debugPrint('removeModerationAction: failed to clear restrictions: $e');
+        }
+
+        // 2. Restore any locked/reported chat threads involving this user to active
+        try {
+          final parentThreads = await _firestore
+              .collection(FirestoreCollections.therapistThreads)
+              .where('parentId', isEqualTo: targetUserId)
+              .get();
+          final therapistThreads = await _firestore
+              .collection(FirestoreCollections.therapistThreads)
+              .where('therapistId', isEqualTo: targetUserId)
+              .get();
+
+          final allThreads = [...parentThreads.docs, ...therapistThreads.docs];
+          for (final doc in allThreads) {
+            final tStatus = doc.data()['status']?.toString();
+            if (tStatus == 'locked' || tStatus == 'reported') {
+              await doc.reference.update({
+                'status': 'active',
+                'updatedAt': FieldValue.serverTimestamp(),
+              });
+            }
+          }
+        } catch (e) {
+          debugPrint('removeModerationAction: failed to restore thread status: $e');
         }
 
         // Re-enable the Firebase Auth account
