@@ -18,34 +18,46 @@ class LegalDocumentScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Determine the correct hardcoded content based on audience + documentId.
+    // These are always the authoritative source. Firestore can only override
+    // if an admin explicitly provides substantially richer content.
+    final String canonicalTitle;
+    final String canonicalBody;
+    if (documentId == 'privacy-policy') {
+      canonicalTitle = audience == 'therapist'
+          ? 'Therapist Privacy Policy'
+          : 'Parent Privacy Policy';
+      canonicalBody = audience == 'therapist'
+          ? _defaultTherapistPrivacyPolicyBody
+          : _defaultParentPrivacyPolicyBody;
+    } else {
+      canonicalTitle = audience == 'therapist'
+          ? 'Therapist Terms & Conditions'
+          : 'Parent Terms & Conditions';
+      canonicalBody = audience == 'therapist'
+          ? _defaultTherapistTermsBody
+          : _defaultParentTermsBody;
+    }
+
     return FigmaModuleScaffold(
       title: documentId == 'privacy-policy' ? 'Privacy Policy' : 'Terms & Conditions',
       onBack: () => Navigator.pop(context),
       child: FutureBuilder<LegalDocument?>(
         future: AppRepositories.content.getLegalDocument(audience, documentId),
         builder: (context, snapshot) {
+          // Only use Firestore data if it has a body that is substantially
+          // longer than our hardcoded version (meaning admin updated it).
           final doc = snapshot.data;
-          if (snapshot.connectionState == ConnectionState.waiting &&
-              doc == null) {
-            return const Center(child: CircularProgressIndicator());
-          }
+          final firestoreBodyLonger = doc != null &&
+              doc.body.trim().length > canonicalBody.length + 200;
 
-          final String defaultBody;
-          if (documentId == 'privacy-policy') {
-            defaultBody = audience == 'therapist'
-                ? _defaultTherapistPrivacyPolicyBody
-                : _defaultParentPrivacyPolicyBody;
-          } else {
-            defaultBody = audience == 'therapist'
-                ? _defaultTherapistTermsBody
-                : _defaultParentTermsBody;
-          }
-          final title = (doc?.title ?? fallbackTitle).trim().isEmpty
-              ? (documentId == 'privacy-policy' ? 'Privacy Policy' : 'Terms & Conditions')
-              : (doc?.title ?? fallbackTitle).trim();
-          final body = (doc?.body ?? defaultBody).trim().isEmpty
-              ? defaultBody
-              : (doc?.body ?? defaultBody);
+          final String title = firestoreBodyLonger
+              ? doc.title.trim().isNotEmpty
+                  ? doc.title.trim()
+                  : canonicalTitle
+              : canonicalTitle;
+          final String body =
+              firestoreBodyLonger ? doc.body : canonicalBody;
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(8, 6, 8, 170),
@@ -74,17 +86,15 @@ class LegalDocumentScreen extends StatelessWidget {
                         color: Color(0xFF16243F),
                       ),
                     ),
-                    if (doc != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Version ${doc.version}',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF526482),
-                          fontWeight: FontWeight.w500,
-                        ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Version 1.0 — July 2026',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF526482),
+                        fontWeight: FontWeight.w500,
                       ),
-                    ],
+                    ),
                     const SizedBox(height: 12),
                     Text(
                       body,
