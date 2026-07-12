@@ -1760,7 +1760,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       controller: sourceController,
                       decoration: const InputDecoration(
                         labelText: 'Verification Source / Website *',
-                        hintText: 'e.g. HCPC Register, Licensing Board',
+                        hintText: 'e.g. PMDC/AHPC Register, Licensing Board',
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       ),

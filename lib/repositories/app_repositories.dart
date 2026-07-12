@@ -4521,6 +4521,7 @@ class FirebaseAdminRepository implements AdminRepository {
           final threadId = reportDoc.data()?['threadId']?.toString();
           if (threadId != null && threadId.isNotEmpty) {
             await _firestore.collection(FirestoreCollections.therapistThreads).doc(threadId).update({
+              'status': 'active',
               'reportedByParent': false,
               'reportedByTherapist': false,
               'updatedAt': FieldValue.serverTimestamp(),
@@ -4580,6 +4581,7 @@ class FirebaseAdminRepository implements AdminRepository {
       // Clear thread report flags — communication continues normally
       if (threadId != null && threadId.isNotEmpty) {
         await _firestore.collection(FirestoreCollections.therapistThreads).doc(threadId).update({
+          'status': 'active',
           'reportedByParent': false,
           'reportedByTherapist': false,
           'updatedAt': FieldValue.serverTimestamp(),
