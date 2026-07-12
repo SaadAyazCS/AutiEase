@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../widgets/session_guard.dart';
@@ -597,97 +598,159 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     );
   }
 
-  Widget _buildContextMessage(Map<String, dynamic> msg) {
-    final senderRole = (msg['senderRole'] ?? 'user').toString().toUpperCase();
-    final body = msg['body']?.toString() ?? '';
-    final type = msg['messageType'] ?? msg['type'] ?? 'text';
-    final attachments = msg['attachments'] is List ? List.from(msg['attachments']) : [];
-
-    Widget contentWidget;
-    if (type == 'image' && attachments.isNotEmpty) {
-      final attachStr = attachments.first.toString().trim();
-      if (attachStr.startsWith('http://') || attachStr.startsWith('https://')) {
-        contentWidget = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  void _viewFullScreenImage(BuildContext context, String source, bool isUrl) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(10),
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: Image.network(
-                attachStr,
-                height: 180,
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 40, color: Colors.grey),
+            InteractiveViewer(
+              maxScale: 4.0,
+              child: isUrl
+                  ? Image.network(
+                      source,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const Icon(Icons.broken_image, size: 80, color: Colors.white),
+                    )
+                  : Image.memory(
+                      base64Decode(source.contains('base64,')
+                          ? source.substring(source.indexOf('base64,') + 7)
+                          : source),
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const Icon(Icons.broken_image, size: 80, color: Colors.white),
+                    ),
+            ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: CircleAvatar(
+                backgroundColor: Colors.black54,
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
               ),
             ),
-            if (body.isNotEmpty && body != 'Sent an image')
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(body, style: const TextStyle(fontSize: 12, color: Color(0xFF334155))),
-              ),
           ],
-        );
-      } else {
-        try {
-          var cleanBase64 = attachStr;
-          if (cleanBase64.contains('base64,')) {
-            cleanBase64 = cleanBase64.substring(cleanBase64.indexOf('base64,') + 7);
-          }
-          final bytes = base64Decode(cleanBase64);
-          contentWidget = Column(
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContextMessage(Map<String, dynamic> msg) {
+    return Builder(
+      builder: (context) {
+        final senderRole = (msg['senderRole'] ?? 'user').toString().toUpperCase();
+        final body = msg['body']?.toString() ?? '';
+        final type = msg['messageType'] ?? msg['type'] ?? 'text';
+        final attachments = msg['attachments'] is List ? List.from(msg['attachments']) : [];
+
+        Widget contentWidget;
+        if (type == 'image' && attachments.isNotEmpty) {
+          final attachStr = attachments.first.toString().trim();
+          final isUrl = attachStr.startsWith('http://') || attachStr.startsWith('https://');
+
+          contentWidget = GestureDetector(
+            onTap: () => _viewFullScreenImage(context, attachStr, isUrl),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: isUrl
+                      ? Image.network(
+                          attachStr,
+                          height: 180,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 40, color: Colors.grey),
+                        )
+                      : Image.memory(
+                          base64Decode(attachStr.contains('base64,')
+                              ? attachStr.substring(attachStr.indexOf('base64,') + 7)
+                              : attachStr),
+                          height: 180,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 40, color: Colors.grey),
+                        ),
+                ),
+                if (body.isNotEmpty && body != 'Sent an image')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(body, style: const TextStyle(fontSize: 12, color: Color(0xFF334155))),
+                  ),
+              ],
+            ),
+          );
+        } else if (type == 'file' && attachments.isNotEmpty) {
+          final attachStr = attachments.first.toString().trim();
+          final isUrl = attachStr.startsWith('http://') || attachStr.startsWith('https://');
+
+          contentWidget = InkWell(
+            onTap: () async {
+              if (isUrl) {
+                try {
+                  await launchUrl(Uri.parse(attachStr), mode: LaunchMode.externalApplication);
+                } catch (_) {}
+              } else {
+                var cleanBase64 = attachStr;
+                if (cleanBase64.contains('base64,')) {
+                  cleanBase64 = cleanBase64.substring(cleanBase64.indexOf('base64,') + 7);
+                }
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ReceiptViewerScreen(
+                      base64String: cleanBase64,
+                      title: 'Document Attachment',
+                    ),
+                  ),
+                );
+              }
+            },
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.insert_drive_file_rounded, size: 16, color: Colors.blue),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    body.isNotEmpty && body != 'Sent a file' ? body : '[File Attachment]',
+                    style: const TextStyle(color: Colors.blue, fontSize: 12, decoration: TextDecoration.underline),
+                  ),
+                ),
+              ],
+            ),
+          );
+        } else if ((type == 'audio' || type == 'voice') && attachments.isNotEmpty) {
+          contentWidget = _AdminVoicePlayer(payload: attachments.first.toString());
+        } else {
+          contentWidget = Text(body, style: const TextStyle(fontSize: 12, color: Color(0xFF334155)));
+        }
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: Image.memory(bytes, height: 180, fit: BoxFit.contain),
-              ),
-              if (body.isNotEmpty && body != 'Sent an image')
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(body, style: const TextStyle(fontSize: 12, color: Color(0xFF334155))),
+              Text(
+                '$senderRole:',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: senderRole == 'PARENT' ? Colors.blue.shade800 : Colors.green.shade800,
                 ),
+              ),
+              const SizedBox(height: 2),
+              contentWidget,
             ],
-          );
-        } catch (_) {
-          contentWidget = const Text('[Image Attachment - Unreadable]', style: TextStyle(color: Colors.red, fontSize: 12));
-        }
-      }
-    } else if (type == 'file' && attachments.isNotEmpty) {
-      contentWidget = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.insert_drive_file_rounded, size: 16, color: Colors.blue),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              body.isNotEmpty && body != 'Sent a file' ? body : '[File Attachment]',
-              style: const TextStyle(color: Colors.blue, fontSize: 12, decoration: TextDecoration.underline),
-            ),
           ),
-        ],
-      );
-    } else if ((type == 'audio' || type == 'voice') && attachments.isNotEmpty) {
-      contentWidget = _AdminVoicePlayer(payload: attachments.first.toString());
-    } else {
-      contentWidget = Text(body, style: const TextStyle(fontSize: 12, color: Color(0xFF334155)));
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '$senderRole:',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: senderRole == 'PARENT' ? Colors.blue.shade800 : Colors.green.shade800,
-            ),
-          ),
-          const SizedBox(height: 2),
-          contentWidget,
-        ],
-      ),
+        );
+      },
     );
   }
 

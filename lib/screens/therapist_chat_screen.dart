@@ -886,7 +886,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
           .doc(widget.thread.id)
           .collection('messages')
           .orderBy('sentAt', descending: true)
-          .limit(15)
+          .limit(30)
           .get();
       
       final contextList = messagesSnapshot.docs
