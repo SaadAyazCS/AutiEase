@@ -3982,7 +3982,7 @@ class _ParentSubscriptionsHistoryScreenState
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Price: $priceLabel/mo',
+                'Price: $priceLabel',
                 style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF475569), fontSize: 13),
               ),
               Text(
