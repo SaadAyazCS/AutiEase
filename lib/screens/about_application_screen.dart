@@ -59,7 +59,7 @@ class AboutApplicationScreen extends StatelessWidget {
             ),
             Center(
               child: Text(
-                'Empowering Communication • Version 1.0.0',
+                'Empowering Communication • Version 1.0',
                 style: TextStyle(
                   fontSize: r.sp(13, min: 11, max: 15),
                   color: const Color(0xFF64748B),
