@@ -412,6 +412,22 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
       return;
     }
 
+    // Only show if the response occurred within the last 60 seconds
+    final diff = DateTime.now().difference(respondedAt);
+    if (diff.inSeconds > 60) {
+      _resolvedBannerTimer?.cancel();
+      _resolvedBannerTimer = null;
+      _lastResolvedAtSeen = respondedAt;
+      if (_showResolvedBanner) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() => _showResolvedBanner = false);
+          }
+        });
+      }
+      return;
+    }
+
     final isSameEvent = _lastResolvedAtSeen == respondedAt;
     if (isSameEvent) {
       return;
@@ -428,7 +444,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
       });
     }
 
-    _resolvedBannerTimer = Timer(const Duration(minutes: 1), () {
+    final remainingSeconds = 60 - diff.inSeconds;
+    _resolvedBannerTimer = Timer(Duration(seconds: remainingSeconds > 0 ? remainingSeconds : 1), () {
       if (mounted) {
         setState(() => _showResolvedBanner = false);
       }
