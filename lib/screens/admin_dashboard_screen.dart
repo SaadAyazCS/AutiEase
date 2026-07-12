@@ -2549,7 +2549,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                             style: const TextStyle(fontSize: 13, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 8),
-                          Row(
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -2571,7 +2574,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
                               _moderationStatusBadge(_resolveModerationStatus(parent.status, parent.moderationStatus, parent.hasActiveRestrictions)),
                             ],
                           ),
@@ -4078,7 +4080,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                             style: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
                           ),
                           const SizedBox(height: 8),
-                          Row(
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -4096,14 +4101,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
                               _moderationStatusBadge(_resolveModerationStatus(therapist.verificationStatus, therapist.moderationStatus, therapist.hasActiveRestrictions)),
-                              const SizedBox(width: 8),
-                              Icon(Icons.star_rounded, color: const Color(0xFFFBBF24), size: 14),
-                              const SizedBox(width: 3),
-                              Text(
-                                '${therapist.rating.toStringAsFixed(1)} (${therapist.totalReviews})',
-                                style: const TextStyle(fontSize: 12, color: Colors.white70),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.star_rounded, color: const Color(0xFFFBBF24), size: 14),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    '${therapist.rating.toStringAsFixed(1)} (${therapist.totalReviews})',
+                                    style: const TextStyle(fontSize: 12, color: Colors.white70),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -6220,12 +6228,16 @@ class _ModerationPanel extends StatelessWidget {
         action: 'restore',
         reason: reason,
       );
-      onActionTaken();
       messenger.showSnackBar(
         const SnackBar(content: Text('Account restored.'), backgroundColor: Color(0xFF059669)),
       );
+      if (context.mounted) {
+        onActionTaken();
+      }
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('Failed: $e'), backgroundColor: const Color(0xFFDC2626)));
+      if (context.mounted) {
+        messenger.showSnackBar(SnackBar(content: Text('Failed: $e'), backgroundColor: const Color(0xFFDC2626)));
+      }
     }
   }
 }
