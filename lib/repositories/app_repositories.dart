@@ -2938,17 +2938,18 @@ class FirebaseSupportRepository implements SupportRepository {
     required String parentId,
     required String therapistId,
   }) async {
-    final now = Timestamp.now();
     final snap = await _firestore
         .collection('restrictions')
         .where('parentId', isEqualTo: parentId)
         .where('therapistId', isEqualTo: therapistId)
         .where('status', isEqualTo: 'active')
-        .where('endDate', isGreaterThan: now)
-        .limit(1)
         .get();
     if (snap.docs.isEmpty) return null;
-    return RestrictionRecord.fromMap(snap.docs.first.id, snap.docs.first.data());
+    final record = RestrictionRecord.fromMap(snap.docs.first.id, snap.docs.first.data());
+    if (record.endDate.isAfter(DateTime.now())) {
+      return record;
+    }
+    return null;
   }
 
   @override
@@ -2956,42 +2957,53 @@ class FirebaseSupportRepository implements SupportRepository {
     required String parentId,
     required String therapistId,
   }) {
-    final now = Timestamp.now();
     return _firestore
         .collection('restrictions')
         .where('parentId', isEqualTo: parentId)
         .where('therapistId', isEqualTo: therapistId)
         .where('status', isEqualTo: 'active')
-        .where('endDate', isGreaterThan: now)
-        .limit(1)
         .snapshots()
         .map((snap) {
       if (snap.docs.isEmpty) return null;
-      return RestrictionRecord.fromMap(snap.docs.first.id, snap.docs.first.data());
+      final record = RestrictionRecord.fromMap(snap.docs.first.id, snap.docs.first.data());
+      if (record.endDate.isAfter(DateTime.now())) {
+        return record;
+      }
+      return null;
     });
   }
 
   @override
   Future<bool> hasAnyActiveRestriction(String userId) async {
-    final now = Timestamp.now();
+    final now = DateTime.now();
+    
     // Check as parent
     final asParent = await _firestore
         .collection('restrictions')
         .where('parentId', isEqualTo: userId)
         .where('status', isEqualTo: 'active')
-        .where('endDate', isGreaterThan: now)
-        .limit(1)
         .get();
-    if (asParent.docs.isNotEmpty) return true;
+    for (final doc in asParent.docs) {
+      final record = RestrictionRecord.fromMap(doc.id, doc.data());
+      if (record.endDate.isAfter(now)) {
+        return true;
+      }
+    }
+
     // Check as therapist
     final asTherapist = await _firestore
         .collection('restrictions')
         .where('therapistId', isEqualTo: userId)
         .where('status', isEqualTo: 'active')
-        .where('endDate', isGreaterThan: now)
-        .limit(1)
         .get();
-    return asTherapist.docs.isNotEmpty;
+    for (final doc in asTherapist.docs) {
+      final record = RestrictionRecord.fromMap(doc.id, doc.data());
+      if (record.endDate.isAfter(now)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -4964,14 +4976,21 @@ class FirebaseAdminRepository implements AdminRepository {
 
           // Check if either user still has other active restrictions
           for (final uid in [parentId, therapistId]) {
-            final stillRestricted = await _firestore
+            final activeRestricts = await _firestore
                 .collection('restrictions')
                 .where('status', isEqualTo: 'active')
-                .where('endDate', isGreaterThan: Timestamp.now())
                 .get();
-            // Filter for this specific user
-            final userStillRestricted = stillRestricted.docs.any((d) =>
-                d.data()['parentId'] == uid || d.data()['therapistId'] == uid);
+            final now = DateTime.now();
+            final userStillRestricted = activeRestricts.docs.any((d) {
+              final data = d.data();
+              final isTarget = data['parentId'] == uid || data['therapistId'] == uid;
+              if (!isTarget) return false;
+              final endTs = data['endDate'];
+              if (endTs is Timestamp) {
+                return endTs.toDate().isAfter(now);
+              }
+              return false;
+            });
             if (!userStillRestricted) {
               await _firestore.collection(FirestoreCollections.users).doc(uid).update({
                 'hasActiveRestrictions': false,
