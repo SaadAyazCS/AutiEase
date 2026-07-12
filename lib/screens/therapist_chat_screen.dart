@@ -545,8 +545,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
       // Trigger standard push mirror logic
       final peerId = widget.senderRole == 'parent' ? widget.thread.therapistId : widget.thread.parentId;
       final senderName = widget.senderRole == 'parent' 
-          ? (_peerUserProfile?.fullName ?? 'Parent') 
-          : (widget.therapistProfile?.displayName ?? 'Therapist');
+          ? (widget.thread.parentDisplayName.isNotEmpty ? widget.thread.parentDisplayName : 'Parent') 
+          : (widget.thread.therapistDisplayName.isNotEmpty ? widget.thread.therapistDisplayName : 'Therapist');
       
       await AppRepositories.support.sendNotification(
         userId: peerId,
