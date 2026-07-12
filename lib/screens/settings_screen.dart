@@ -419,7 +419,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => const AboutApplicationScreen(),
+                          builder: (_) => const AboutApplicationScreen(audience: 'parent'),
                         ),
                       );
                     },

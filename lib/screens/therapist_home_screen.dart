@@ -1158,7 +1158,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
             Navigator.pop(context);
             await Navigator.push<void>(
               this.context,
-              MaterialPageRoute(builder: (_) => const AboutApplicationScreen()),
+              MaterialPageRoute(builder: (_) => const AboutApplicationScreen(audience: 'therapist')),
             );
           },
           onLogout: () async {
@@ -1753,18 +1753,23 @@ class _TherapistInfoFlowScreenState extends State<TherapistInfoFlowScreen> {
   final List<Map<String, String>> _infoPages = [
     {
       'title': 'Dashboard',
-      'description': 'Your main hub where you can view your profile overview, manage your availability, and see quick stats about your therapy practice.',
-      'details': '• View your profile completion status\n• Check your current availability status\n• Access quick links to all features\n• Monitor your therapy sessions',
+      'description': 'Your central workspace showing verification status, client counts, payout records, and immediate tasks.',
+      'details': '• Track profile verification & approval status\n• View total client subscriptions & earnings\n• Initiate secure payout and withdrawal requests\n• Monitor daily profile visitation statistics',
     },
     {
       'title': 'Messages',
-      'description': 'Communicate directly with parents and coordinate therapy sessions. Stay connected with your clients through secure messaging.',
-      'details': '• Chat with parents in real-time\n• Share important updates\n• Schedule therapy sessions\n• Provide ongoing support',
+      'description': 'Communicate with parents, review children\'s planner logs, and coordinate developmental support through secure channels.',
+      'details': '• Coordinate child development plans with parents\n• Review active child profile records & logs\n• Share professional advice & progress insights\n• Lock or unlock chat threads when needed',
+    },
+    {
+      'title': 'Scheduler',
+      'description': 'Establish your consultation availability slots and review booked appointments from active parent clients.',
+      'details': '• Define active slot times for parent bookings\n• Review slot details & client information\n• Manage scheduler overrides and cooling periods',
     },
     {
       'title': 'Settings',
-      'description': 'Manage your profile, service packages, notification preferences, and account settings all in one place.',
-      'details': '• Update your professional information\n• Set your service packages and pricing\n• Configure notification preferences\n• Manage your account security',
+      'description': 'Configure your licensing details, rate cards, communication packages, and notification preferences.',
+      'details': '• Update bio, specializations, and certificates\n• Adjust pricing tiers and subscription options\n• Manage security settings and access policies\n• View platform guidelines and developer feedback',
     },
   ];
 

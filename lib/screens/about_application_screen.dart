@@ -3,9 +3,13 @@ import 'package:flutter/material.dart';
 import '../utils/responsive.dart';
 import '../widgets/figma_module_scaffold.dart';
 import '../widgets/session_guard.dart';
+import 'parent_terms_screen.dart';
+import 'therapist_terms_screen.dart';
+import 'legal_document_screen.dart';
 
 class AboutApplicationScreen extends StatelessWidget {
-  const AboutApplicationScreen({super.key});
+  final String? audience;
+  const AboutApplicationScreen({super.key, this.audience});
 
   @override
   Widget build(BuildContext context) {
@@ -154,6 +158,96 @@ class AboutApplicationScreen extends StatelessWidget {
                   height: 1.5,
                   color: const Color(0xFF64748B),
                 ),
+              ),
+            ),
+
+            SizedBox(height: r.h(20)),
+
+            // Contact & Support Section
+            _AboutSection(
+              title: 'Contact & Support',
+              icon: Icons.support_agent_rounded,
+              color: const Color(0xFF0D9488),
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.email_outlined, color: Color(0xFF0D9488)),
+                title: Text(
+                  'autieasefyp@gmail.com',
+                  style: TextStyle(
+                    fontSize: r.sp(14),
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF1E293B),
+                  ),
+                ),
+                subtitle: Text(
+                  'Reach out for any queries or help',
+                  style: TextStyle(
+                    fontSize: r.sp(12),
+                    color: const Color(0xFF64748B),
+                  ),
+                ),
+              ),
+            ),
+
+            SizedBox(height: r.h(20)),
+
+            // Legal Section
+            _AboutSection(
+              title: 'Legal & Policies',
+              icon: Icons.gavel_rounded,
+              color: const Color(0xFF64748B),
+              child: Column(
+                children: [
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.description_outlined, color: Color(0xFF3B82F6)),
+                    title: Text(
+                      'Terms & Conditions',
+                      style: TextStyle(
+                        fontSize: r.sp(14),
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF1E293B),
+                      ),
+                    ),
+                    trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => audience == 'therapist'
+                              ? const TherapistTermsScreen()
+                              : const ParentTermsScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.privacy_tip_outlined, color: Color(0xFF10B981)),
+                    title: Text(
+                      'Privacy Policy',
+                      style: TextStyle(
+                        fontSize: r.sp(14),
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF1E293B),
+                      ),
+                    ),
+                    trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => LegalDocumentScreen(
+                            audience: audience ?? 'parent',
+                            documentId: 'privacy-policy',
+                            fallbackTitle: 'Privacy Policy',
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
             ),
           ],

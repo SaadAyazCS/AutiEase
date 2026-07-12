@@ -7,6 +7,7 @@ import '../services/firebase_service.dart';
 import '../widgets/phone_input_field.dart';
 import '../widgets/password_input_field.dart';
 import 'parent_terms_screen.dart';
+import 'legal_document_screen.dart';
 import 'login_screen.dart';
 import 'child_profile_screen.dart';
 import 'email_verification_screen.dart';
@@ -502,6 +503,7 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
                         SizedBox(height: r.h(16)),
 
                         Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             SizedBox(
                               width: r.w(24),
@@ -518,14 +520,15 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
                               ),
                             ),
                             SizedBox(width: r.w(8)),
-                            Flexible(
+                            Expanded(
                               child: Wrap(
+                                crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
                                   Text(
-                                    'Agree with ',
+                                    'I agree with the ',
                                     style: TextStyle(
-                                      color: Color(0xFF2A364E),
-                                      fontSize: r.sp(15, min: 13, max: 18),
+                                      color: const Color(0xFF2A364E),
+                                      fontSize: r.sp(14, min: 12, max: 17),
                                     ),
                                   ),
                                   GestureDetector(
@@ -539,11 +542,43 @@ class _ParentSignupScreenState extends State<ParentSignupScreen> {
                                       );
                                     },
                                     child: Text(
-                                      'Terms and Conditions',
+                                      'Terms & Conditions',
                                       style: TextStyle(
-                                        color: Color(0xFF2F89FC),
-                                        fontSize: r.sp(15, min: 13, max: 18),
+                                        color: const Color(0xFF2F89FC),
+                                        fontSize: r.sp(14, min: 12, max: 17),
                                         fontWeight: FontWeight.w600,
+                                        decoration: TextDecoration.underline,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    ' and ',
+                                    style: TextStyle(
+                                      color: const Color(0xFF2A364E),
+                                      fontSize: r.sp(14, min: 12, max: 17),
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              const LegalDocumentScreen(
+                                            audience: 'parent',
+                                            documentId: 'privacy-policy',
+                                            fallbackTitle: 'Privacy Policy',
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    child: Text(
+                                      'Privacy Policy',
+                                      style: TextStyle(
+                                        color: const Color(0xFF2F89FC),
+                                        fontSize: r.sp(14, min: 12, max: 17),
+                                        fontWeight: FontWeight.w600,
+                                        decoration: TextDecoration.underline,
                                       ),
                                     ),
                                   ),
