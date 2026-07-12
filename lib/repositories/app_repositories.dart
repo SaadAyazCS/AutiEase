@@ -4653,15 +4653,18 @@ class FirebaseAdminRepository implements AdminRepository {
     await _firestore.collection(FirestoreCollections.users).doc(parentId).update({
       'hasActiveRestrictions': true,
       'updatedAt': FieldValue.serverTimestamp(),
+      if (parentId == targetUserId) 'moderationStatus': 'restricted',
     });
     await _firestore.collection(FirestoreCollections.users).doc(therapistId).update({
       'hasActiveRestrictions': true,
       'updatedAt': FieldValue.serverTimestamp(),
+      if (therapistId == targetUserId) 'moderationStatus': 'restricted',
     });
     // Also update therapist_profiles for hasActiveRestrictions
     await _firestore.collection(FirestoreCollections.therapistProfiles).doc(therapistId).set({
       'hasActiveRestrictions': true,
       'updatedAt': FieldValue.serverTimestamp(),
+      if (therapistId == targetUserId) 'moderationStatus': 'restricted',
     }, SetOptions(merge: true));
 
     // Resolve the report
@@ -4734,6 +4737,7 @@ class FirebaseAdminRepository implements AdminRepository {
     // 1. Update user doc status
     await _firestore.collection(FirestoreCollections.users).doc(targetUserId).update({
       'status': newStatus,
+      'moderationStatus': newStatus,
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
@@ -4741,6 +4745,7 @@ class FirebaseAdminRepository implements AdminRepository {
     if (targetRole == 'therapist') {
       await _firestore.collection(FirestoreCollections.therapistProfiles).doc(targetUserId).set({
         'verificationStatus': verifStatus,
+        'moderationStatus': newStatus,
         'isActive': false,
         'isAcceptingClients': false,
         'adminFeedback': reason,
@@ -5231,7 +5236,10 @@ class FirebaseAdminRepository implements AdminRepository {
             .where('hasActiveRestrictions', isEqualTo: false);
         break;
       case 'warned':
-        query = query.where('moderationStatus', isEqualTo: 'warned');
+        query = query
+            .where('status', isEqualTo: 'active')
+            .where('moderationStatus', isEqualTo: 'warned')
+            .where('hasActiveRestrictions', isEqualTo: false);
         break;
       case 'restricted':
         query = query.where('hasActiveRestrictions', isEqualTo: true);
@@ -5262,7 +5270,10 @@ class FirebaseAdminRepository implements AdminRepository {
             .where('hasActiveRestrictions', isEqualTo: false);
         break;
       case 'warned':
-        query = query.where('moderationStatus', isEqualTo: 'warned');
+        query = query
+            .where('verificationStatus', isEqualTo: 'approved')
+            .where('moderationStatus', isEqualTo: 'warned')
+            .where('hasActiveRestrictions', isEqualTo: false);
         break;
       case 'restricted':
         query = query.where('hasActiveRestrictions', isEqualTo: true);
