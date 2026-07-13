@@ -2127,10 +2127,8 @@ class SupportTherapistDetailsScreenState
       final doc = results[0] as DocumentSnapshot<Map<String, dynamic>>;
       final subscription = results[1] as UserSubscription?;
 
-      final data = doc.data() ?? <String, dynamic>{};
-      final parsed = _parsePackages(data['servicePackages']);
-
       int? subscribedPkgIdx;
+      _SupportServicePackage? snapshotPkg;
       if (subscription != null && subscription.isActive) {
         final prodId = subscription.productId;
         if (prodId.startsWith('auto_${widget.therapist.id}_')) {
@@ -2140,6 +2138,39 @@ class SupportTherapistDetailsScreenState
           }
         } else if (prodId == 'bypass-plan' || prodId == 'local-bypass' || prodId == 'cached-offline') {
           subscribedPkgIdx = 0;
+        }
+
+        if (subscription.subscribedPackageSnapshot != null) {
+          snapshotPkg = _SupportServicePackage(
+            title: subscription.subscribedPackageSnapshot!.title,
+            durationMinutes: subscription.subscribedPackageSnapshot!.durationMinutes,
+            sessionsPerWeek: subscription.subscribedPackageSnapshot!.sessionsPerWeek,
+            price: subscription.subscribedPackageSnapshot!.price,
+            description: subscription.subscribedPackageSnapshot!.description,
+            visible: subscription.subscribedPackageSnapshot!.visible,
+          );
+        }
+      }
+
+      final data = doc.data() ?? <String, dynamic>{};
+      final rawParsed = _parsePackages(data['servicePackages']);
+      final parsed = List<_SupportServicePackage>.from(rawParsed);
+
+      if (subscribedPkgIdx != null && snapshotPkg != null) {
+        if (subscribedPkgIdx < parsed.length) {
+          parsed[subscribedPkgIdx] = snapshotPkg;
+        } else {
+          while (parsed.length <= subscribedPkgIdx) {
+            parsed.add(const _SupportServicePackage(
+              title: 'Deleted Package',
+              durationMinutes: 0,
+              sessionsPerWeek: 0,
+              price: 0,
+              description: 'This package has been removed by the therapist.',
+              visible: false,
+            ));
+          }
+          parsed[subscribedPkgIdx] = snapshotPkg;
         }
       }
 

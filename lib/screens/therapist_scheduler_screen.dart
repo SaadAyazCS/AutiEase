@@ -16,21 +16,71 @@ class TherapistSchedulerScreen extends StatefulWidget {
 
 class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
   bool _submitting = false;
+  List<TherapyPackage> _packages = [];
+  bool _loadingPackages = true;
 
-  Future<void> _selectAndAddSlot() async {
-    final now = DateTime.now();
+  @override
+  void initState() {
+    super.initState();
+    _loadTherapistPackages();
+  }
+
+  Future<void> _loadTherapistPackages() async {
+    try {
+      final profile = await AppRepositories.support.getTherapistById(widget.therapistId);
+      if (mounted) {
+        setState(() {
+          _packages = profile?.servicePackages.where((p) => p.visible).toList() ?? [];
+          _loadingPackages = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _loadingPackages = false);
+      }
+    }
+  }
+
+  String _formatTimeRange(DateTime start, int durationMinutes) {
+    final end = start.add(Duration(minutes: durationMinutes));
+    String formatTime(DateTime dt) {
+      final hour = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+      final minute = dt.minute.toString().padLeft(2, '0');
+      final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+      return '$hour:$minute $ampm';
+    }
+    return '${formatTime(start)} - ${formatTime(end)}';
+  }
+
+  Future<void> _selectAndAddSlot({SlotRequest? prefillRequest}) async {
+    if (_loadingPackages) return;
+
+    DateTime initialDate = DateTime.now().add(const Duration(days: 1));
+    TimeOfDay initialTime = const TimeOfDay(hour: 9, minute: 0);
+    TherapyPackage? selectedPackage;
+
+    if (prefillRequest != null) {
+      initialDate = prefillRequest.preferredDateTime;
+      initialTime = TimeOfDay(hour: prefillRequest.preferredDateTime.hour, minute: prefillRequest.preferredDateTime.minute);
+      // Pre-select package if title matches
+      final found = _packages.where((p) => p.title == prefillRequest.packageTitle);
+      if (found.isNotEmpty) {
+        selectedPackage = found.first;
+      }
+    }
+
     final pickedDate = await showDatePicker(
       context: context,
-      initialDate: now.add(const Duration(days: 1)),
-      firstDate: now,
-      lastDate: now.add(const Duration(days: 90)),
+      initialDate: initialDate.isBefore(DateTime.now()) ? DateTime.now() : initialDate,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 90)),
     );
     if (pickedDate == null) return;
 
     if (!mounted) return;
     final pickedTime = await showTimePicker(
       context: context,
-      initialTime: const TimeOfDay(hour: 9, minute: 0),
+      initialTime: initialTime,
     );
     if (pickedTime == null) return;
 
@@ -51,13 +101,108 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
       return;
     }
 
+    // Open Dialog for package selection & duration verification
+    if (!mounted) return;
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) {
+        TherapyPackage? localSelectedPkg = selectedPackage;
+        final durationController = TextEditingController(text: '${localSelectedPkg?.durationMinutes ?? 60}');
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('Configure Slot Options', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Select Subscribed Package (Optional):', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<TherapyPackage>(
+                    initialValue: localSelectedPkg,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                    hint: const Text('None (General Slot)'),
+                    items: _packages.map((pkg) {
+                      return DropdownMenuItem<TherapyPackage>(
+                        value: pkg,
+                        child: Text(pkg.title, style: const TextStyle(fontSize: 13)),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      setDialogState(() {
+                        localSelectedPkg = val;
+                        if (val != null) {
+                          durationController.text = '${val.durationMinutes}';
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  const Text('Session Duration (Minutes):', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: durationController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final duration = int.tryParse(durationController.text.trim()) ?? 60;
+                    if (duration < 15 || duration > 480) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        const SnackBar(content: Text('Duration must be between 15 and 480 minutes.')),
+                      );
+                      return;
+                    }
+                    Navigator.pop(ctx, {
+                      'packageTitle': localSelectedPkg?.title,
+                      'duration': duration,
+                    });
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488), foregroundColor: Colors.white),
+                  child: const Text('Confirm & Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == null) return;
+
+    final String? packageTitle = result['packageTitle'];
+    final int duration = result['duration'];
+
     setState(() => _submitting = true);
     try {
       await AppRepositories.support.createAppointmentSlot(
         therapistId: widget.therapistId,
         dateTime: dateTime,
-        durationMinutes: 60, // default 1 hour
+        durationMinutes: duration,
+        packageTitle: packageTitle,
+        assignedToParentId: prefillRequest?.parentId,
       );
+
+      if (prefillRequest != null) {
+        await AppRepositories.support.markSlotRequestAsCreated(prefillRequest.id);
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Slot added successfully.'), backgroundColor: Color(0xFF059669)),
@@ -76,202 +221,417 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
     }
   }
 
+  Future<void> _declineRequest(SlotRequest request) async {
+    final reasonController = TextEditingController();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Decline Slot Request'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Please provide a reason to help the parent understand:', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+            const SizedBox(height: 10),
+            TextField(
+              controller: reasonController,
+              decoration: InputDecoration(
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                hintText: 'e.g., I am not available at this hour...',
+              ),
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B)))),
+          ElevatedButton(
+            onPressed: () {
+              if (reasonController.text.trim().isEmpty) {
+                ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Please enter a reason.')));
+                return;
+              }
+              Navigator.pop(ctx, true);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444), foregroundColor: Colors.white),
+            child: const Text('Decline Request'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await AppRepositories.support.declineSlotRequest(request.id, reasonController.text.trim());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Request declined successfully.'), backgroundColor: Color(0xFFEF4444)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: const Text('Manage Appointments'),
-        backgroundColor: const Color(0xFF0D9488),
-        foregroundColor: Colors.white,
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _submitting ? null : _selectAndAddSlot,
-        backgroundColor: const Color(0xFF0D9488),
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add),
-        label: const Text('Add Time Slot'),
-      ),
-      body: StreamBuilder<List<AppointmentSlot>>(
-        stream: AppRepositories.support.watchSlotsForTherapist(widget.therapistId),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-
-          final slots = snapshot.data ?? [];
-          if (slots.isEmpty) {
-            return const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.calendar_today_outlined, size: 64, color: Color(0xFFCBD5E1)),
-                  SizedBox(height: 16),
-                  Text('No slots configured yet.', style: TextStyle(color: Color(0xFF64748B), fontSize: 16)),
-                  SizedBox(height: 8),
-                  Text('Tap the + button to define your available hours.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
-                ],
-              ),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          title: const Text('Manage Appointments'),
+          backgroundColor: const Color(0xFF0D9488),
+          foregroundColor: Colors.white,
+          bottom: const TabBar(
+            labelColor: Colors.white,
+            unselectedLabelColor: Color(0xFFB2DFDB),
+            indicatorColor: Colors.white,
+            tabs: [
+              Tab(icon: Icon(Icons.schedule_rounded), text: 'Availability Slots'),
+              Tab(icon: Icon(Icons.mail_outline_rounded), text: 'Slot Requests'),
+            ],
+          ),
+        ),
+        floatingActionButton: Builder(
+          builder: (context) {
+            return FloatingActionButton.extended(
+              onPressed: _submitting ? null : () => _selectAndAddSlot(),
+              backgroundColor: const Color(0xFF0D9488),
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add),
+              label: const Text('Add Time Slot'),
             );
-          }
+          },
+        ),
+        body: TabBarView(
+          children: [
+            _buildSlotsTab(),
+            _buildRequestsTab(),
+          ],
+        ),
+      ),
+    );
+  }
 
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-            itemCount: slots.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (context, index) {
-              final slot = slots[index];
-              final dt = slot.dateTime;
-              final dateStr = '${dt.day}/${dt.month}/${dt.year}';
-              final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-              final isBooked = slot.status == 'booked';
+  Widget _buildSlotsTab() {
+    return StreamBuilder<List<AppointmentSlot>>(
+      stream: AppRepositories.support.watchSlotsForTherapist(widget.therapistId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        }
 
-              return Card(
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(
-                    color: isBooked ? const Color(0xFFE2E8F0) : const Color(0xFFD1FAE5),
-                    width: isBooked ? 1 : 1.5,
-                  ),
+        final slots = snapshot.data ?? [];
+        if (slots.isEmpty) {
+          return const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.calendar_today_outlined, size: 64, color: Color(0xFFCBD5E1)),
+                SizedBox(height: 16),
+                Text('No slots configured yet.', style: TextStyle(color: Color(0xFF64748B), fontSize: 16)),
+                SizedBox(height: 8),
+                Text('Tap the + button to define your available hours.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
+              ],
+            ),
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+          itemCount: slots.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final slot = slots[index];
+            final dt = slot.dateTime;
+            final dateStr = '${dt.day}/${dt.month}/${dt.year}';
+            final isBooked = slot.status == 'booked';
+
+            return Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(
+                  color: isBooked ? const Color(0xFFE2E8F0) : const Color(0xFFD1FAE5),
+                  width: isBooked ? 1 : 1.5,
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: isBooked ? const Color(0xFFEFF6FF) : const Color(0xFFECFDF5),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Icon(
-                              isBooked ? Icons.event_available_rounded : Icons.schedule_rounded,
-                              color: isBooked ? const Color(0xFF3B82F6) : const Color(0xFF10B981),
-                              size: 20,
-                            ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: isBooked ? const Color(0xFFEFF6FF) : const Color(0xFFECFDF5),
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '$dateStr at $timeStr',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1E293B)),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Duration: ${slot.durationMinutes} minutes',
-                                  style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                          child: Icon(
+                            isBooked ? Icons.event_available_rounded : Icons.schedule_rounded,
+                            color: isBooked ? const Color(0xFF3B82F6) : const Color(0xFF10B981),
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                dateStr,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1E293B)),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                _formatTimeRange(dt, slot.durationMinutes),
+                                style: const TextStyle(fontSize: 13, color: Color(0xFF475569), fontWeight: FontWeight.w600),
+                              ),
+                              if (slot.packageTitle != null) ...[
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    'Package: ${slot.packageTitle}',
+                                    style: const TextStyle(fontSize: 10.5, color: Color(0xFF475569), fontWeight: FontWeight.bold),
+                                  ),
                                 ),
                               ],
-                            ),
+                            ],
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: isBooked ? const Color(0xFFDBEAFE) : const Color(0xFFD1FAE5),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              slot.status.toUpperCase(),
-                              style: TextStyle(
-                                color: isBooked ? const Color(0xFF1E40AF) : const Color(0xFF065F46),
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (isBooked) ...[
-                        const SizedBox(height: 12),
-                        const Divider(),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Client: ${slot.bookedForChildName ?? 'Child Profile'}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF334155)),
                         ),
-                        if (slot.notes != null && slot.notes!.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            'Notes: ${slot.notes}',
-                            style: const TextStyle(fontSize: 12.5, color: Color(0xFF475569)),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: isBooked ? const Color(0xFFDBEAFE) : const Color(0xFFD1FAE5),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            slot.status.toUpperCase(),
+                            style: TextStyle(
+                              color: isBooked ? const Color(0xFF1E40AF) : const Color(0xFF065F46),
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (isBooked) ...[
+                      const SizedBox(height: 12),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Client: ${slot.bookedForChildName ?? 'Child Profile'}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF334155)),
+                      ),
+                      if (slot.notes != null && slot.notes!.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Notes: ${slot.notes}',
+                          style: const TextStyle(fontSize: 12.5, color: Color(0xFF475569)),
+                        ),
+                      ],
+                    ],
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        if (isBooked) ...[
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Cancel Appointment?'),
+                                  content: const Text('Are you sure you want to cancel this booked appointment slot?'),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('No')),
+                                    TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Yes')),
+                                  ],
+                                ),
+                              );
+                              if (confirm == true) {
+                                await AppRepositories.support.cancelAppointmentSlot(
+                                  slot.id,
+                                  therapistId: widget.therapistId,
+                                  parentId: slot.bookedByParentId,
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.cancel_outlined, size: 16),
+                            label: const Text('Cancel Session'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFEF4444),
+                              side: const BorderSide(color: Color(0xFFEF4444)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                        ] else ...[
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Color(0xFFEF4444)),
+                            onPressed: () async {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Delete Slot?'),
+                                  content: const Text('Are you sure you want to delete this available slot?'),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                    TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+                                  ],
+                                ),
+                              );
+                              if (confirm == true) {
+                                  await AppRepositories.support.deleteAppointmentSlot(slot.id);
+                              }
+                            },
                           ),
                         ],
                       ],
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          if (isBooked) ...[
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final confirm = await showDialog<bool>(
-                                  context: context,
-                                  builder: (ctx) => AlertDialog(
-                                    title: const Text('Cancel Appointment?'),
-                                    content: const Text('Are you sure you want to cancel this booked appointment slot?'),
-                                    actions: [
-                                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('No')),
-                                      TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Yes')),
-                                    ],
-                                  ),
-                                );
-                                if (confirm == true) {
-                                  await AppRepositories.support.cancelAppointmentSlot(
-                                    slot.id,
-                                    therapistId: widget.therapistId,
-                                    parentId: slot.bookedByParentId,
-                                  );
-                                }
-                              },
-                              icon: const Icon(Icons.cancel_outlined, size: 16),
-                              label: const Text('Cancel Session'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFFEF4444),
-                                side: const BorderSide(color: Color(0xFFEF4444)),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
-                            ),
-                          ] else ...[
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline, color: Color(0xFFEF4444)),
-                              onPressed: () async {
-                                final confirm = await showDialog<bool>(
-                                  context: context,
-                                  builder: (ctx) => AlertDialog(
-                                    title: const Text('Delete Slot?'),
-                                    content: const Text('Are you sure you want to delete this available slot?'),
-                                    actions: [
-                                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                                      TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
-                                    ],
-                                  ),
-                                );
-                                if (confirm == true) {
-                                  await AppRepositories.support.deleteAppointmentSlot(slot.id);
-                                }
-                              },
-                            ),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              );
-            },
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildRequestsTab() {
+    return StreamBuilder<List<SlotRequest>>(
+      stream: AppRepositories.support.watchSlotRequestsForTherapist(widget.therapistId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error loading requests: ${snapshot.error}'));
+        }
+
+        final requests = (snapshot.data ?? []).where((r) => r.status == 'pending').toList();
+        if (requests.isEmpty) {
+          return const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.mark_email_read_outlined, size: 64, color: Color(0xFFCBD5E1)),
+                SizedBox(height: 16),
+                Text('No pending slot requests.', style: TextStyle(color: Color(0xFF64748B), fontSize: 16)),
+              ],
+            ),
           );
-        },
-      ),
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: requests.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final req = requests[index];
+            final dt = req.preferredDateTime;
+            final dateStr = '${dt.day}/${dt.month}/${dt.year}';
+            final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+
+            return Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const CircleAvatar(
+                          backgroundColor: Color(0xFFE0F2F1),
+                          child: Icon(Icons.person_outline, color: Color(0xFF00796B)),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                req.parentName,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1E293B)),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Package: ${req.packageTitle}',
+                                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.event_note_rounded, size: 16, color: Color(0xFF64748B)),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Preferred: $dateStr at $timeStr',
+                          style: const TextStyle(fontSize: 13, color: Color(0xFF334155), fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () => _declineRequest(req),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFEF4444),
+                            side: const BorderSide(color: Color(0xFFEF4444)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: const Text('Decline'),
+                        ),
+                        const SizedBox(width: 10),
+                        ElevatedButton(
+                          onPressed: () => _selectAndAddSlot(prefillRequest: req),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0D9488),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: const Text('Approve & Create'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

@@ -29,6 +29,156 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
   final _formKey = GlobalKey<FormState>();
   AppointmentSlot? _selectedSlot;
   bool _submitting = false;
+  List<TherapyPackage> _packages = [];
+  bool _loadingPackages = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTherapistPackages();
+  }
+
+  Future<void> _loadTherapistPackages() async {
+    try {
+      final profile = await AppRepositories.support.getTherapistById(widget.therapistId);
+      if (mounted) {
+        setState(() {
+          _packages = profile?.servicePackages.where((p) => p.visible).toList() ?? [];
+          _loadingPackages = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _loadingPackages = false);
+      }
+    }
+  }
+
+  Future<void> _showRequestSlotDialog() async {
+    if (_loadingPackages) return;
+    if (_packages.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Therapist has no active packages to request.')),
+      );
+      return;
+    }
+
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 1)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 90)),
+    );
+    if (pickedDate == null) return;
+
+    if (!mounted) return;
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 10, minute: 0),
+    );
+    if (pickedTime == null) return;
+
+    final preferredDateTime = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    if (preferredDateTime.isBefore(DateTime.now())) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cannot request slots in the past.')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    final result = await showDialog<TherapyPackage>(
+      context: context,
+      builder: (ctx) {
+        TherapyPackage? selectedPkg = _packages.first;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('Select Therapy Package'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Choose the package you wish to request a slot for:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<TherapyPackage>(
+                    initialValue: selectedPkg,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                    items: _packages.map((pkg) {
+                      return DropdownMenuItem<TherapyPackage>(
+                        value: pkg,
+                        child: Text(pkg.title, style: const TextStyle(fontSize: 13)),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      setDialogState(() {
+                        selectedPkg = val;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, selectedPkg),
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488), foregroundColor: Colors.white),
+                  child: const Text('Submit Request'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == null) return;
+
+    setState(() => _submitting = true);
+    try {
+      await AppRepositories.support.createSlotRequest(
+        parentId: widget.parentId,
+        parentName: widget.childName.isNotEmpty ? '${widget.childName}\'s Parent' : 'Parent Profile',
+        therapistId: widget.therapistId,
+        packageTitle: result.title,
+        preferredDateTime: preferredDateTime,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Slot request sent to therapist successfully!'),
+            backgroundColor: Color(0xFF059669),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Request failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -44,6 +194,13 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
         title: Text('Book Session - ${widget.therapistName}'),
         backgroundColor: const Color(0xFF0D9488),
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add_alert_rounded),
+            onPressed: _showRequestSlotDialog,
+            tooltip: 'Request Custom Slot',
+          ),
+        ],
       ),
       body: StreamBuilder<List<AppointmentSlot>>(
         stream: AppRepositories.support.watchSlotsForTherapist(widget.therapistId),
@@ -259,28 +416,41 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
           }
 
           final slots = allSlots
-              .where((slot) => slot.status == 'available' && slot.dateTime.isAfter(DateTime.now()))
+              .where((slot) => slot.status == 'available' &&
+                               slot.dateTime.isAfter(DateTime.now()) &&
+                               (slot.assignedToParentId == null || slot.assignedToParentId == widget.parentId))
               .toList();
 
           if (slots.isEmpty) {
-            return const Center(
+            return Center(
               child: Padding(
-                padding: EdgeInsets.all(24.0),
+                padding: const EdgeInsets.all(24.0),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.calendar_today_outlined, size: 64, color: Color(0xFFCBD5E1)),
-                    SizedBox(height: 16),
-                    Text(
+                    const Icon(Icons.calendar_today_outlined, size: 64, color: Color(0xFFCBD5E1)),
+                    const SizedBox(height: 16),
+                    const Text(
                       'No available time slots.',
                       style: TextStyle(color: Color(0xFF64748B), fontSize: 16, fontWeight: FontWeight.bold),
                       textAlign: TextAlign.center,
                     ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Please contact the therapist directly to request them to open bookable slots.',
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Please contact the therapist directly or request a custom slot.',
                       style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
                       textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton.icon(
+                      onPressed: _showRequestSlotDialog,
+                      icon: const Icon(Icons.add_comment_rounded),
+                      label: const Text('Request Custom Slot'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0D9488),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
                     ),
                   ],
                 ),
@@ -295,9 +465,19 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    '1. Choose an Available Slot:',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        '1. Choose an Available Slot:',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                      ),
+                      TextButton.icon(
+                        onPressed: _showRequestSlotDialog,
+                        icon: const Icon(Icons.add_comment_rounded, size: 16),
+                        label: const Text('Request Custom Slot', style: TextStyle(fontSize: 12.5)),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 10),
                   ListView.separated(
@@ -352,6 +532,20 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
                                       'Duration: ${slot.durationMinutes} minutes',
                                       style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                                     ),
+                                    if (slot.packageTitle != null) ...[
+                                      const SizedBox(height: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF1F5F9),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          'Exclusive Package: ${slot.packageTitle}',
+                                          style: const TextStyle(fontSize: 10, color: Color(0xFF475569), fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),

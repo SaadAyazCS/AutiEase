@@ -117,6 +117,15 @@ exports.cleanupDeletedUserDocument = onDocumentDeleted(
       return;
     }
 
+    const deletedData = event.data?.data() || {};
+    const role = deletedData.role || 'parent';
+
+    // For admin accounts, only delete the Auth user — no therapy/child data to clean up
+    if (role === 'admin') {
+      await safeDeleteAuthUser(uid);
+      return;
+    }
+
     await cleanupUserBackendsByUid(uid, {
       deleteAuth: true,
       deleteUserDocument: false,
@@ -457,3 +466,35 @@ exports.autoExpireRestrictions = onSchedule('every 60 minutes', async () => {
 });
 
 
+exports.createSecondaryAdmin = onCall(async (request) => {
+  // Verify caller is the primary admin
+  const callerEmail = request.auth?.token?.email || '';
+  if (callerEmail !== 'admin@autiease.com') {
+    throw new HttpsError('permission-denied', 'Only the primary admin can create secondary admins.');
+  }
+
+  const { name, email, password } = request.data || {};
+  if (!name || !email || !password) {
+    throw new HttpsError('invalid-argument', 'name, email, and password are required.');
+  }
+  if (password.length < 8) {
+    throw new HttpsError('invalid-argument', 'Password must be at least 8 characters.');
+  }
+
+  // Check if email is already registered
+  try {
+    await admin.auth().getUserByEmail(email);
+    throw new HttpsError('already-exists', 'An account with this email already exists.');
+  } catch (error) {
+    if (error.code !== 'auth/user-not-found') throw error;
+  }
+
+  // Create the Auth account
+  const userRecord = await admin.auth().createUser({
+    displayName: name,
+    email,
+    password,
+  });
+
+  return { uid: userRecord.uid };
+});

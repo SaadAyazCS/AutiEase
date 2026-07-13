@@ -42,7 +42,7 @@ service cloud.firestore {
     function isPackageValid(pkg) {
       return !(pkg is map) ||
         ((!('price' in pkg) || (pkg.price >= 0 && pkg.price <= 1000000)) &&
-         (!('durationMinutes' in pkg) || (pkg.durationMinutes >= 1 && pkg.durationMinutes <= 480)) &&
+         (!('durationMinutes' in pkg) || (pkg.durationMinutes >= 15 && pkg.durationMinutes <= 480)) &&
          (!('sessionsPerWeek' in pkg) || (pkg.sessionsPerWeek >= 1 && pkg.sessionsPerWeek <= 21)));
     }
 
@@ -80,7 +80,8 @@ service cloud.firestore {
       allow create, update: if signedIn() && (
         request.auth.token.email == 'admin@autiease.com' || isAdmin()
       );
-      allow delete: if signedIn() && request.auth.uid == userId;
+      // Users can delete their own account; admin can delete secondary admin accounts
+      allow delete: if signedIn() && (request.auth.uid == userId || isAdmin());
     }
 
     match /child_profiles/{childId} {
@@ -298,6 +299,8 @@ service cloud.firestore {
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid &&
         request.resource.data.feedback.size() <= 500;
       allow read: if isAdmin();
+      // Admin can update isReadByAdmin flag
+      allow update: if isAdmin();
       allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
@@ -312,6 +315,7 @@ service cloud.firestore {
       allow create: if isParent() && request.resource.data.parentId == request.auth.uid &&
         (!('feedback' in request.resource.data) || request.resource.data.feedback.size() <= 300) &&
         (!('privateFeedback' in request.resource.data) || request.resource.data.privateFeedback.size() <= 300);
+      // Admin can update isReadByAdmin flag; parent can update their own review identity fields
       allow update: if isAdmin() || (signedIn() && resource.data.parentId == request.auth.uid &&
                                      request.resource.data.parentId == resource.data.parentId &&
                                      request.resource.data.therapistId == resource.data.therapistId);
@@ -433,13 +437,16 @@ service cloud.firestore {
     match /appointment_slots/{slotId} {
       allow read: if signedIn();
       allow create: if isTherapist() && request.resource.data.therapistId == request.auth.uid;
-      allow delete: if isTherapist() && resource.data.therapistId == request.auth.uid;
-      allow update: if signedIn() &&
+      allow delete: if (isTherapist() && resource.data.therapistId == request.auth.uid) || isAdmin();
+      allow update: if isAdmin() || (signedIn() &&
         request.resource.data.therapistId == resource.data.therapistId && (
           (isTherapist() && resource.data.therapistId == request.auth.uid) ||
           (isParent() &&
            request.resource.data.dateTime == resource.data.dateTime &&
-           request.resource.data.durationMinutes == resource.data.durationMinutes && (
+           request.resource.data.durationMinutes == resource.data.durationMinutes &&
+           // If slot has assignedToParentId, only that parent can book it
+           (resource.data.get('assignedToParentId', null) == null ||
+            resource.data.assignedToParentId == request.auth.uid) && (
              // Case 1: Booking an available slot
              (resource.data.status == 'available' &&
               request.resource.data.status == 'booked' &&
@@ -456,7 +463,26 @@ service cloud.firestore {
                 request.resource.data.bookedByParentId == request.auth.uid
               ))
            ))
-        );
+        ));
+    }
+
+    // Slot requests: parents request a specific therapy slot from their therapist
+    match /slot_requests/{requestId} {
+      allow read: if signedIn() && (
+        resource.data.parentId == request.auth.uid ||
+        resource.data.therapistId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isParent() && request.resource.data.parentId == request.auth.uid;
+      allow update: if (isTherapist() && resource.data.therapistId == request.auth.uid) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Admin manual payout ledger for suspended/banned therapist wallets
+    match /admin_payout_ledger/{payoutId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false;
     }
   }
 }

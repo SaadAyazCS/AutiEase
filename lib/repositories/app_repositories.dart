@@ -221,6 +221,7 @@ abstract class SupportRepository {
     required String childName,
     required String title,
     required String body,
+    String? slotId,
   });
   Stream<List<ClinicalNote>> watchClinicalNotesForChild(String childId);
   Stream<List<ClinicalNote>> watchClinicalNotesForTherapist(String therapistId);
@@ -231,8 +232,26 @@ abstract class SupportRepository {
     required String therapistId,
     required DateTime dateTime,
     required int durationMinutes,
+    String? packageTitle,
+    String? assignedToParentId,
   });
   Stream<List<AppointmentSlot>> watchSlotsForTherapist(String therapistId);
+  Stream<List<AppointmentSlot>> watchSlotsForParent(String parentId);
+  Future<void> markSessionCompleted(String slotId);
+
+  // Slot Requests
+  Future<void> createSlotRequest({
+    required String parentId,
+    required String parentName,
+    required String therapistId,
+    required String packageTitle,
+    required DateTime preferredDateTime,
+  });
+  Stream<List<SlotRequest>> watchSlotRequestsForTherapist(String therapistId);
+  Stream<List<SlotRequest>> watchSlotRequestsForParent(String parentId);
+  Future<void> acknowledgeSlotRequest(String requestId);
+  Future<void> declineSlotRequest(String requestId, String reason);
+  Future<void> markSlotRequestAsCreated(String requestId);
   Future<void> bookAppointmentSlot({
     required String slotId,
     required String parentId,
@@ -382,6 +401,31 @@ abstract class AdminRepository {
   /// List therapists filtered by moderation status badge.
   /// [badge] values: 'all', 'verified', 'warned', 'restricted', 'suspended', 'banned'
   Future<List<TherapistProfile>> listTherapistsByModerationStatus(String badge);
+
+  /// Mark all unread feedback and reviews as read by admin.
+  Future<void> markAllFeedbackAsRead();
+
+  /// Perform admin manual payout for a suspended/banned therapist's frozen wallet.
+  Future<void> adminPayoutAndResetWallet({
+    required String therapistId,
+    required double amount,
+    required String transactionReference,
+    required String receiptBase64,
+    required String adminNote,
+  });
+
+  /// Create a secondary admin account.
+  Future<void> createSecondaryAdmin({
+    required String name,
+    required String email,
+    required String password,
+  });
+
+  /// Delete a secondary admin account.
+  Future<void> deleteSecondaryAdmin(String adminUid);
+
+  /// List all secondary admin accounts.
+  Future<List<UserProfile>> listSecondaryAdmins();
 }
 
 abstract class BillingRepository {
@@ -2646,6 +2690,7 @@ class FirebaseSupportRepository implements SupportRepository {
     required String childName,
     required String title,
     required String body,
+    String? slotId,
   }) async {
     final noteRef = _firestore.collection(FirestoreCollections.clinicalNotes).doc();
     final note = ClinicalNote(
@@ -2660,7 +2705,17 @@ class FirebaseSupportRepository implements SupportRepository {
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
-    await noteRef.set(note.toMap());
+    
+    final batch = _firestore.batch();
+    batch.set(noteRef, note.toMap());
+    if (slotId != null && slotId.isNotEmpty) {
+      final slotRef = _firestore.collection(FirestoreCollections.appointmentSlots).doc(slotId);
+      batch.update(slotRef, {
+        'sessionCompleted': true,
+        'clinicalNote': body,
+      });
+    }
+    await batch.commit();
   }
 
   @override
@@ -2698,6 +2753,8 @@ class FirebaseSupportRepository implements SupportRepository {
     required String therapistId,
     required DateTime dateTime,
     required int durationMinutes,
+    String? packageTitle,
+    String? assignedToParentId,
   }) async {
     final slotRef = _firestore.collection(FirestoreCollections.appointmentSlots).doc();
     final slot = AppointmentSlot(
@@ -2707,8 +2764,106 @@ class FirebaseSupportRepository implements SupportRepository {
       durationMinutes: durationMinutes,
       status: 'available',
       createdAt: DateTime.now(),
+      packageTitle: packageTitle,
+      assignedToParentId: assignedToParentId,
     );
     await slotRef.set(slot.toMap());
+  }
+
+
+  @override
+  Stream<List<AppointmentSlot>> watchSlotsForParent(String parentId) {
+    return _firestore
+        .collection(FirestoreCollections.appointmentSlots)
+        .snapshots()
+        .map((snap) {
+          return snap.docs
+              .map((doc) => AppointmentSlot.fromMap(doc.id, doc.data()))
+              .where((slot) => slot.bookedByParentId == parentId || slot.assignedToParentId == parentId)
+              .toList();
+        });
+  }
+
+  @override
+  Future<void> markSessionCompleted(String slotId) async {
+    await _firestore
+        .collection(FirestoreCollections.appointmentSlots)
+        .doc(slotId)
+        .update({'sessionCompleted': true});
+  }
+
+  // Slot Requests
+  @override
+  Future<void> createSlotRequest({
+    required String parentId,
+    required String parentName,
+    required String therapistId,
+    required String packageTitle,
+    required DateTime preferredDateTime,
+  }) async {
+    final docRef = _firestore.collection('slot_requests').doc();
+    final request = SlotRequest(
+      id: docRef.id,
+      parentId: parentId,
+      parentName: parentName,
+      therapistId: therapistId,
+      packageTitle: packageTitle,
+      preferredDateTime: preferredDateTime,
+      status: 'pending',
+      createdAt: DateTime.now(),
+    );
+    await docRef.set(request.toMap());
+  }
+
+  @override
+  Stream<List<SlotRequest>> watchSlotRequestsForTherapist(String therapistId) {
+    return _firestore
+        .collection('slot_requests')
+        .where('therapistId', isEqualTo: therapistId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((doc) => SlotRequest.fromMap(doc.id, doc.data()))
+            .toList());
+  }
+
+  @override
+  Stream<List<SlotRequest>> watchSlotRequestsForParent(String parentId) {
+    return _firestore
+        .collection('slot_requests')
+        .where('parentId', isEqualTo: parentId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((doc) => SlotRequest.fromMap(doc.id, doc.data()))
+            .toList());
+  }
+
+  @override
+  Future<void> acknowledgeSlotRequest(String requestId) async {
+    await _firestore
+        .collection('slot_requests')
+        .doc(requestId)
+        .update({'status': 'approved'});
+  }
+
+  @override
+  Future<void> declineSlotRequest(String requestId, String reason) async {
+    await _firestore
+        .collection('slot_requests')
+        .doc(requestId)
+        .update({
+          'status': 'declined',
+          'declineReason': reason,
+        });
+  }
+
+  @override
+  Future<void> markSlotRequestAsCreated(String requestId) async {
+    await _firestore
+        .collection('slot_requests')
+        .doc(requestId)
+        .update({'status': 'approved'});
   }
 
   @override
@@ -3512,6 +3667,19 @@ class FirebaseBillingRepository implements BillingRepository {
     );
     await _updateUserEntitlements(userId);
     if (active) {
+      try {
+        final profileDoc = await _firestore.collection(FirestoreCollections.therapistProfiles).doc(normalizedTherapistId).get();
+        if (profileDoc.exists && profileDoc.data() != null) {
+          final profile = TherapistProfile.fromMap(profileDoc.id, profileDoc.data()!);
+          final pkg = profile.servicePackages[packageIndex];
+          final docId = _subscriptionDocId(userId, normalizedTherapistId);
+          await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set({
+            'subscribedPackageSnapshot': pkg.toMap(),
+          }, SetOptions(merge: true));
+        }
+      } catch (e) {
+        debugPrint('Failed to save subscribed package snapshot: $e');
+      }
       return true;
     }
     final latest = await getSubscriptionForTherapist(normalizedTherapistId);
@@ -3971,8 +4139,7 @@ class FirebaseAdminRepository implements AdminRepository {
     int approved = 0;
     int rejected = 0;
     int suspended = 0;
-    double totalRating = 0.0;
-    int ratedCount = 0;
+    int banned = 0;
 
     for (final doc in therapistsSnap.docs) {
       final status = (doc.data()['verificationStatus'] ?? 'pending').toString();
@@ -3982,14 +4149,22 @@ class FirebaseAdminRepository implements AdminRepository {
         rejected++;
       } else if (status == 'suspended') {
         suspended++;
+      } else if (status == 'banned') {
+        banned++; // Fixed: banned therapists no longer count as pending
       } else {
         pending++;
       }
+    }
 
-      final rating = doc.data()['rating'];
-      if (rating is num && rating > 0) {
-        totalRating += rating.toDouble();
-        ratedCount++;
+    // Count suspended and banned parents
+    int suspendedParents = 0;
+    int bannedParents = 0;
+    for (final doc in parentsSnap.docs) {
+      final status = (doc.data()['status'] ?? 'active').toString();
+      if (status == 'suspended') {
+        suspendedParents++;
+      } else if (status == 'banned') {
+        bannedParents++;
       }
     }
 
@@ -4015,8 +4190,10 @@ class FirebaseAdminRepository implements AdminRepository {
       'approvedTherapists': approved,
       'rejectedTherapists': rejected,
       'suspendedTherapists': suspended,
+      'bannedTherapists': banned,
+      'suspendedParents': suspendedParents,
+      'bannedParents': bannedParents,
       'activeSubscriptions': subsSnap.docs.length,
-      'averageTherapistRating': ratedCount > 0 ? (totalRating / ratedCount) : 0.0,
       'totalReports': reportsSnap.docs.length,
       'pendingReports': pendingReports,
       'totalFeedback': feedbackSnap.docs.length + reviewsSnap.docs.length,
@@ -4230,36 +4407,96 @@ class FirebaseAdminRepository implements AdminRepository {
     final feedbackSnap = await _firestore.collection(FirestoreCollections.feedback).get();
     final reviewsSnap = await _firestore.collection('therapist_reviews').get();
 
+    // Batch fetch all users for name/email/role resolution
+    final usersSnap = await _firestore.collection(FirestoreCollections.users).get();
+    final therapistSnap = await _firestore.collection(FirestoreCollections.therapistProfiles).get();
+    final Map<String, Map<String, dynamic>> userLookup = {};
+    for (final doc in usersSnap.docs) {
+      final data = doc.data();
+      final firstName = (data['firstName'] ?? '').toString();
+      final lastName = (data['lastName'] ?? '').toString();
+      final fullName = data['fullName']?.toString() ?? '$firstName $lastName'.trim();
+      userLookup[doc.id] = {
+        'name': fullName.isNotEmpty ? fullName : (data['email'] ?? 'Unknown User'),
+        'email': data['email'] ?? '',
+        'role': data['role'] ?? 'parent',
+      };
+    }
+    final Map<String, String> therapistNameLookup = {};
+    for (final doc in therapistSnap.docs) {
+      therapistNameLookup[doc.id] = (doc.data()['displayName'] ?? 'Unknown Therapist').toString();
+    }
+
     final list = <Map<String, dynamic>>[];
 
     for (final doc in feedbackSnap.docs) {
       final data = doc.data();
+      final uid = (data['userId'] ?? '').toString();
+      final resolved = userLookup[uid];
       list.add({
         'id': doc.id,
         'type': 'app_feedback',
         'title': 'App Feedback',
-        'user': data['userId'] ?? data['email'] ?? 'User',
+        'userId': uid,
+        'userName': resolved?['name'] ?? data['email'] ?? uid,
+        'userEmail': resolved?['email'] ?? data['email'] ?? '',
+        'userRole': resolved?['role'] ?? data['role'] ?? 'parent',
         'body': data['body'] ?? data['feedback'] ?? '',
-        'rating': intFrom(data['rating'], 0),
+        'isReadByAdmin': data['isReadByAdmin'] ?? false,
         'timestamp': dateTimeFromFirestore(data['createdAt']) ?? DateTime.now(),
       });
     }
 
     for (final doc in reviewsSnap.docs) {
       final data = doc.data();
+      final uid = (data['parentId'] ?? '').toString();
+      final therapistId = (data['therapistId'] ?? '').toString();
+      final resolved = userLookup[uid];
       list.add({
         'id': doc.id,
         'type': 'therapist_review',
         'title': 'Therapist Review',
-        'user': data['parentName'] ?? 'Parent',
-        'body': 'For therapist ID ${data['therapistId']}: ${data['feedback']}',
-        'rating': intFrom(data['rating'], 0),
+        'userId': uid,
+        'userName': resolved?['name'] ?? data['parentName'] ?? 'Parent',
+        'userEmail': resolved?['email'] ?? '',
+        'userRole': 'parent',
+        'therapistId': therapistId,
+        'therapistName': therapistNameLookup[therapistId] ?? 'Unknown Therapist',
+        'body': data['feedback'] ?? '',
+        'isReadByAdmin': data['isReadByAdmin'] ?? false,
         'timestamp': dateTimeFromFirestore(data['createdAt']) ?? DateTime.now(),
       });
     }
 
     list.sort((a, b) => (b['timestamp'] as DateTime).compareTo(a['timestamp'] as DateTime));
     return list;
+  }
+
+  @override
+  Future<void> markAllFeedbackAsRead() async {
+    try {
+      final feedbackSnap = await _firestore.collection(FirestoreCollections.feedback)
+          .where('isReadByAdmin', isEqualTo: false).get();
+      if (feedbackSnap.docs.isNotEmpty) {
+        final batch = _firestore.batch();
+        for (final doc in feedbackSnap.docs) {
+          batch.update(doc.reference, {'isReadByAdmin': true});
+        }
+        await batch.commit();
+      }
+
+      final reviewsSnap = await _firestore.collection('therapist_reviews')
+          .where('isReadByAdmin', isEqualTo: false).get();
+      if (reviewsSnap.docs.isNotEmpty) {
+        final batch2 = _firestore.batch();
+        for (final doc in reviewsSnap.docs) {
+          batch2.update(doc.reference, {'isReadByAdmin': true});
+        }
+        await batch2.commit();
+      }
+    } catch (e) {
+      debugPrint('markAllFeedbackAsRead: $e');
+    }
   }
 
   @override
@@ -4397,6 +4634,139 @@ class FirebaseAdminRepository implements AdminRepository {
         debugPrint('resolveWithdrawalRequest: failed to notify therapist: $e');
       }
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Admin Manual Payout & Secondary Admin Management
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  @override
+  Future<void> adminPayoutAndResetWallet({
+    required String therapistId,
+    required double amount,
+    required String transactionReference,
+    required String receiptBase64,
+    required String adminNote,
+  }) async {
+    final adminId = _auth.currentUser?.uid ?? '';
+    final adminEmail = _auth.currentUser?.email ?? '';
+
+    // 1. Record payout in admin_payout_ledger
+    await _firestore.collection('admin_payout_ledger').add({
+      'therapistId': therapistId,
+      'amount': amount,
+      'transactionReference': transactionReference,
+      'receiptBase64': receiptBase64,
+      'adminNote': adminNote,
+      'adminId': adminId,
+      'adminEmail': adminEmail,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    // 2. Reset therapist wallet balance to 0
+    await _firestore.collection(FirestoreCollections.therapistProfiles).doc(therapistId).update({
+      'walletBalance': 0.0,
+      'totalPaidOut': FieldValue.increment(amount),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    // 3. Record audit log
+    await _firestore.collection('admin_audit_logs').add({
+      'adminUid': adminId,
+      'adminEmail': adminEmail,
+      'targetUid': therapistId,
+      'actionType': 'admin_manual_payout',
+      'details': 'Manual payout of Rs.${amount.toStringAsFixed(2)} | Ref: $transactionReference | Note: $adminNote',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    // 4. Notify therapist
+    await _firestore.collection('notifications').add({
+      'userId': therapistId,
+      'title': '✅ Wallet Payout Processed',
+      'message': 'An administrator has manually processed a payout of Rs.${amount.toStringAsFixed(2)} from your wallet. '
+          'Transaction Reference: $transactionReference. '
+          '${adminNote.isNotEmpty ? 'Note: $adminNote.' : ''} '
+          'Your wallet balance has been reset. Please contact support at autieasefyp@gmail.com for any queries.',
+      'category': 'wallet',
+      'isRead': false,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
+  Future<void> createSecondaryAdmin({
+    required String name,
+    required String email,
+    required String password,
+  }) async {
+    // Create via Cloud Function to avoid sign-out of current admin session
+    try {
+      final functions = FirebaseFunctions.instance;
+      final result = await functions.httpsCallable('createSecondaryAdmin').call({
+        'name': name,
+        'email': email,
+        'password': password,
+      });
+      final uid = (result.data as Map?)?['uid']?.toString() ?? '';
+      if (uid.isEmpty) throw StateError('Cloud Function did not return a UID');
+
+      // Write user doc with role: admin
+      await _firestore.collection(FirestoreCollections.users).doc(uid).set({
+        'uid': uid,
+        'email': email,
+        'firstName': name,
+        'lastName': '',
+        'fullName': name,
+        'role': 'admin',
+        'status': 'active',
+        'isPrimaryAdmin': false,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Audit log
+      final adminEmail = _auth.currentUser?.email ?? '';
+      await _firestore.collection('admin_audit_logs').add({
+        'adminUid': _auth.currentUser?.uid ?? '',
+        'adminEmail': adminEmail,
+        'targetUid': uid,
+        'actionType': 'create_secondary_admin',
+        'details': 'Created secondary admin account: $name ($email)',
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('createSecondaryAdmin: $e');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> deleteSecondaryAdmin(String adminUid) async {
+    final adminEmail = _auth.currentUser?.email ?? '';
+    // Deleting the user document will trigger cleanupDeletedUserDocument
+    // which calls disableUserAccount and cascades cleanup.
+    await _firestore.collection(FirestoreCollections.users).doc(adminUid).delete();
+
+    // Audit log
+    await _firestore.collection('admin_audit_logs').add({
+      'adminUid': _auth.currentUser?.uid ?? '',
+      'adminEmail': adminEmail,
+      'targetUid': adminUid,
+      'actionType': 'delete_secondary_admin',
+      'details': 'Deleted secondary admin account (UID: $adminUid)',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
+  Future<List<UserProfile>> listSecondaryAdmins() async {
+    final snap = await _firestore
+        .collection(FirestoreCollections.users)
+        .where('role', isEqualTo: 'admin')
+        .where('isPrimaryAdmin', isEqualTo: false)
+        .get();
+    return snap.docs.map((doc) => UserProfile.fromMap(doc.id, doc.data())).toList();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -4772,7 +5142,7 @@ class FirebaseAdminRepository implements AdminRepository {
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
-    // 2. If therapist, update therapist profile
+    // 2. If therapist, update therapist profile + freeze wallet + hide packages + auto-reject withdrawals
     if (targetRole == 'therapist') {
       await _firestore.collection(FirestoreCollections.therapistProfiles).doc(targetUserId).set({
         'verificationStatus': verifStatus,
@@ -4780,8 +5150,45 @@ class FirebaseAdminRepository implements AdminRepository {
         'isActive': false,
         'isAcceptingClients': false,
         'adminFeedback': reason,
+        'walletFrozen': true,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+
+      // Hide all packages (mark visible: false so parents can't subscribe to them)
+      try {
+        final therapistProfileDoc = await _firestore.collection(FirestoreCollections.therapistProfiles).doc(targetUserId).get();
+        final packages = (therapistProfileDoc.data()?['servicePackages'] as List?)?.map((p) {
+          if (p is Map) {
+            return {...Map<String, dynamic>.from(p), 'visible': false};
+          }
+          return p;
+        }).toList();
+        if (packages != null && packages.isNotEmpty) {
+          await _firestore.collection(FirestoreCollections.therapistProfiles).doc(targetUserId).update({
+            'servicePackages': packages,
+          });
+        }
+      } catch (e) {
+        debugPrint('_applyGlobalAction: failed to hide packages: $e');
+      }
+
+      // Auto-reject pending withdrawal requests
+      try {
+        final pendingWithdrawals = await _firestore
+            .collection('withdrawal_requests')
+            .where('therapistId', isEqualTo: targetUserId)
+            .where('status', isEqualTo: 'pending')
+            .get();
+        for (final doc in pendingWithdrawals.docs) {
+          await doc.reference.update({
+            'status': 'rejected',
+            'adminNotes': 'Auto-rejected: account $newStatus. Wallet has been frozen. Contact support at autieasefyp@gmail.com.',
+            'resolvedAt': FieldValue.serverTimestamp(),
+          });
+        }
+      } catch (e) {
+        debugPrint('_applyGlobalAction: failed to auto-reject withdrawals: $e');
+      }
     }
 
     // 3. Disable Firebase Auth account via Cloud Function (force sign-out all devices)
@@ -5241,8 +5648,29 @@ class FirebaseAdminRepository implements AdminRepository {
             'isAcceptingClients': true,
             'moderationStatus': 'verified',
             'hasActiveRestrictions': false,
+            'walletFrozen': false,
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
+
+          // Restore package visibility (set visible: true)
+          try {
+            final therapistProfileDoc = await _firestore.collection(FirestoreCollections.therapistProfiles).doc(targetUserId).get();
+            final packages = (therapistProfileDoc.data()?['servicePackages'] as List?)?.map((p) {
+              if (p is Map) {
+                final mp = Map<String, dynamic>.from(p);
+                mp.remove('visible'); // remove visible:false to restore default (visible)
+                return mp;
+              }
+              return p;
+            }).toList();
+            if (packages != null && packages.isNotEmpty) {
+              await _firestore.collection(FirestoreCollections.therapistProfiles).doc(targetUserId).update({
+                'servicePackages': packages,
+              });
+            }
+          } catch (e) {
+            debugPrint('removeModerationAction: failed to restore packages: $e');
+          }
         }
 
         // Notify the user based on whether they were restricted vs suspended/banned

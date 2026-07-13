@@ -2117,6 +2117,8 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
   late TherapistProfile _profile;
   bool _submittingReappeal = false;
   bool _submittingAcknowledgment = false;
+  StreamSubscription<List<AppointmentSlot>>? _slotsSub;
+  bool _showingNoteDialog = false;
 
   @override
   void initState() {
@@ -2125,6 +2127,13 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
     _isActive = _profile.isActive;
     _isAcceptingClients = _profile.isAcceptingClients;
     _refreshProfile();
+    _startSessionCompletionCheck();
+  }
+
+  @override
+  void dispose() {
+    _slotsSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -2358,6 +2367,130 @@ class _TherapistDashboardScreenState extends State<TherapistDashboardScreen> {
     } finally {
       if (mounted) setState(() => _updatingAccepting = false);
     }
+  }
+
+  void _startSessionCompletionCheck() {
+    _slotsSub = AppRepositories.support.watchSlotsForTherapist(_profile.id).listen((slots) {
+      if (!mounted || _showingNoteDialog) return;
+      
+      final now = DateTime.now();
+      for (final slot in slots) {
+        if (slot.status == 'booked' && !slot.sessionCompleted) {
+          final endTime = slot.dateTime.add(Duration(minutes: slot.durationMinutes));
+          if (now.isAfter(endTime)) {
+            // Trigger note dialog
+            _triggerNoteDialog(slot);
+            break;
+          }
+        }
+      }
+    });
+  }
+
+  Future<void> _triggerNoteDialog(AppointmentSlot slot) async {
+    _showingNoteDialog = true;
+    final titleCtrl = TextEditingController(text: 'Session Progress Note');
+    final bodyCtrl = TextEditingController();
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.assignment_turned_in_rounded, color: Color(0xFF0D9488)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Complete Session for ${slot.bookedForChildName ?? 'Child'}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'The session has ended. Please enter your clinical progress note to mark it complete.',
+                  style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                ),
+                const SizedBox(height: 14),
+                const Text('Note Title *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: titleCtrl,
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text('Clinical Progress Note *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: bodyCtrl,
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    hintText: 'e.g., Child engaged well, practiced speech templates...',
+                    contentPadding: const EdgeInsets.all(10),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                AppRepositories.support.markSessionCompleted(slot.id);
+                Navigator.pop(ctx);
+              },
+              child: const Text('Skip Note', style: TextStyle(color: Color(0xFF64748B))),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final title = titleCtrl.text.trim();
+                final body = bodyCtrl.text.trim();
+                if (title.isEmpty || body.isEmpty) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('Please fill in both fields.')),
+                  );
+                  return;
+                }
+                
+                try {
+                  await AppRepositories.support.createClinicalNote(
+                    therapistId: slot.therapistId,
+                    parentId: slot.bookedByParentId ?? '',
+                    childId: slot.bookedForChildId ?? '',
+                    therapistName: _profile.displayName,
+                    childName: slot.bookedForChildName ?? 'Child',
+                    title: title,
+                    body: body,
+                    slotId: slot.id,
+                  );
+                  if (ctx.mounted) Navigator.pop(ctx);
+                } catch (e) {
+                  if (ctx.mounted) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      SnackBar(content: Text('Failed: $e')),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488), foregroundColor: Colors.white),
+              child: const Text('Save Note & Complete'),
+            ),
+          ],
+        );
+      },
+    );
+    _showingNoteDialog = false;
   }
 
   @override
@@ -7264,8 +7397,8 @@ class _PackageEditorState extends State<_PackageEditor> {
       return;
     }
 
-    if (parsedDuration == null || parsedDuration <= 0 || parsedDuration > 480) {
-      _showError('Please enter a valid session duration (between 1 and 480 minutes).');
+    if (parsedDuration == null || parsedDuration < 15 || parsedDuration > 480) {
+      _showError('Please enter a valid session duration (between 15 and 480 minutes).');
       return;
     }
 
@@ -7284,17 +7417,66 @@ class _PackageEditorState extends State<_PackageEditor> {
       return;
     }
 
-    Navigator.pop(
-      context,
-      TherapyPackage(
-        title: title,
-        durationMinutes: parsedDuration,
-        sessionsPerWeek: parsedSessions,
-        price: parsedPrice,
-        description: description,
-        visible: widget.initial?.visible ?? true,
-      ),
-    );
+    if (widget.initial != null) {
+      showDialog<bool>(
+        context: context,
+        builder: (ctx) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+                SizedBox(width: 8),
+                Text('Warning: Package Edit', style: TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+            content: const Text(
+              'Modifying package details will not retroactively change existing parent subscription snapshots. '
+              'Any currently active parents will continue under the specifications they subscribed to. '
+              'Are you sure you want to proceed with editing this package?',
+              style: TextStyle(fontSize: 14),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF11B5CF), foregroundColor: Colors.white),
+                child: const Text('Proceed'),
+              ),
+            ],
+          );
+        },
+      ).then((confirmed) {
+        if (confirmed == true && mounted) {
+          Navigator.pop(
+            context,
+            TherapyPackage(
+              title: title,
+              durationMinutes: parsedDuration,
+              sessionsPerWeek: parsedSessions,
+              price: parsedPrice,
+              description: description,
+              visible: widget.initial?.visible ?? true,
+            ),
+          );
+        }
+      });
+    } else {
+      Navigator.pop(
+        context,
+        TherapyPackage(
+          title: title,
+          durationMinutes: parsedDuration,
+          sessionsPerWeek: parsedSessions,
+          price: parsedPrice,
+          description: description,
+          visible: widget.initial?.visible ?? true,
+        ),
+      );
+    }
   }
 
   @override

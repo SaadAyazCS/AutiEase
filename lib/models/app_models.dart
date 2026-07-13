@@ -1852,6 +1852,7 @@ class UserSubscription {
     required this.status,
     required this.cancelAtPeriodEnd,
     this.currentPeriodEnd,
+    this.subscribedPackageSnapshot,
   });
 
   final String id;
@@ -1861,10 +1862,12 @@ class UserSubscription {
   final String status;
   final bool cancelAtPeriodEnd;
   final DateTime? currentPeriodEnd;
+  final TherapyPackage? subscribedPackageSnapshot;
 
   bool get isActive => status == 'active' || status == 'trialing' || status == 'grace_period';
 
   factory UserSubscription.fromMap(String id, Map<String, dynamic> data) {
+    final pkgData = data['subscribedPackageSnapshot'];
     return UserSubscription(
       id: id,
       userId: (data['userId'] ?? '').toString(),
@@ -1873,7 +1876,22 @@ class UserSubscription {
       status: (data['status'] ?? 'inactive').toString(),
       cancelAtPeriodEnd: data['cancelAtPeriodEnd'] == true,
       currentPeriodEnd: dateTimeFromFirestore(data['currentPeriodEnd']),
+      subscribedPackageSnapshot: pkgData != null && pkgData is Map<String, dynamic>
+          ? TherapyPackage.fromMap(pkgData)
+          : null,
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'userId': userId,
+      'therapistId': therapistId,
+      'productId': productId,
+      'status': status,
+      'cancelAtPeriodEnd': cancelAtPeriodEnd,
+      'currentPeriodEnd': currentPeriodEnd != null ? Timestamp.fromDate(currentPeriodEnd!) : null,
+      'subscribedPackageSnapshot': subscribedPackageSnapshot?.toMap(),
+    };
   }
 }
 
@@ -2009,6 +2027,10 @@ class AppointmentSlot {
     this.bookedForChildName,
     this.notes,
     required this.createdAt,
+    this.packageTitle,
+    this.assignedToParentId,
+    this.sessionCompleted = false,
+    this.clinicalNote,
   });
 
   final String id;
@@ -2021,6 +2043,10 @@ class AppointmentSlot {
   final String? bookedForChildName;
   final String? notes;
   final DateTime createdAt;
+  final String? packageTitle;
+  final String? assignedToParentId;
+  final bool sessionCompleted;
+  final String? clinicalNote;
 
   factory AppointmentSlot.fromMap(String id, Map<String, dynamic> data) {
     return AppointmentSlot(
@@ -2038,6 +2064,10 @@ class AppointmentSlot {
       createdAt: data['createdAt'] != null
           ? (data['createdAt'] as Timestamp).toDate().toLocal()
           : DateTime.now(),
+      packageTitle: data['packageTitle']?.toString(),
+      assignedToParentId: data['assignedToParentId']?.toString(),
+      sessionCompleted: data['sessionCompleted'] == true,
+      clinicalNote: data['clinicalNote']?.toString(),
     );
   }
 
@@ -2051,6 +2081,65 @@ class AppointmentSlot {
       'bookedForChildId': bookedForChildId,
       'bookedForChildName': bookedForChildName,
       'notes': notes,
+      'createdAt': FieldValue.serverTimestamp(),
+      'packageTitle': packageTitle,
+      'assignedToParentId': assignedToParentId,
+      'sessionCompleted': sessionCompleted,
+      'clinicalNote': clinicalNote,
+    };
+  }
+}
+
+class SlotRequest {
+  const SlotRequest({
+    required this.id,
+    required this.parentId,
+    required this.parentName,
+    required this.therapistId,
+    required this.packageTitle,
+    required this.preferredDateTime,
+    required this.status, // 'pending', 'approved', 'declined'
+    this.declineReason,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String parentId;
+  final String parentName;
+  final String therapistId;
+  final String packageTitle;
+  final DateTime preferredDateTime;
+  final String status;
+  final String? declineReason;
+  final DateTime createdAt;
+
+  factory SlotRequest.fromMap(String id, Map<String, dynamic> data) {
+    return SlotRequest(
+      id: id,
+      parentId: (data['parentId'] ?? '').toString(),
+      parentName: (data['parentName'] ?? '').toString(),
+      therapistId: (data['therapistId'] ?? '').toString(),
+      packageTitle: (data['packageTitle'] ?? '').toString(),
+      preferredDateTime: data['preferredDateTime'] != null
+          ? (data['preferredDateTime'] as Timestamp).toDate().toLocal()
+          : DateTime.now(),
+      status: (data['status'] ?? 'pending').toString(),
+      declineReason: data['declineReason']?.toString(),
+      createdAt: data['createdAt'] != null
+          ? (data['createdAt'] as Timestamp).toDate().toLocal()
+          : DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'parentId': parentId,
+      'parentName': parentName,
+      'therapistId': therapistId,
+      'packageTitle': packageTitle,
+      'preferredDateTime': Timestamp.fromDate(preferredDateTime),
+      'status': status,
+      'declineReason': declineReason,
       'createdAt': FieldValue.serverTimestamp(),
     };
   }

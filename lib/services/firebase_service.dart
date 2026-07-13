@@ -783,20 +783,14 @@ class FirebaseService {
         await _auth.signOut();
         return {
           'success': false,
-          'message': 'Your account has been suspended by the administration due to a '
-              'violation of platform policies. '
-              'If you believe this action was taken in error, please contact our '
-              'Support Team at autieasefyp@gmail.com for further assistance.',
+          'message': 'Your account has been suspended. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.',
         };
       }
       if (status == 'banned') {
         await _auth.signOut();
         return {
           'success': false,
-          'message': 'Your account has been permanently banned due to serious '
-              'violations of platform policies. '
-              'If you believe this action was taken in error, please contact our '
-              'Support Team at autieasefyp@gmail.com.',
+          'message': 'Your account has been banned. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.',
         };
       }
 

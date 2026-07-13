@@ -1465,9 +1465,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                 _buildProfileDetailRow('Verification Status', 'Verified account'),
                 if (_peerUserProfile != null && _peerUserProfile!.email.isNotEmpty)
                   _buildProfileDetailRow('Email', _peerUserProfile!.email),
-                if (_peerUserProfile != null && _peerUserProfile!.phone.isNotEmpty)
-                  _buildProfileDetailRow('Phone', _peerUserProfile!.phone),
-                
+
                 const SizedBox(height: 10),
                 const Divider(),
                 const SizedBox(height: 10),

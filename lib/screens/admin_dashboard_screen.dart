@@ -27,7 +27,10 @@ class AdminDashboardScreen extends StatefulWidget {
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final List<String> _tabs = ['Overview', 'Verification', 'Reports', 'Subscriptions', 'Parents', 'Therapists', 'Feedback', 'Audit Logs', 'Withdrawals'];
+  final List<String> _tabs = ['Overview', 'Verification', 'Reports', 'Subscriptions', 'Parents', 'Therapists', 'Feedback', 'Audit Logs', 'Withdrawals', 'Admins'];
+  // Note: 'Admins' tab is only shown visually to the primary admin (admin@autiease.com)
+  static const String _primaryAdminEmail = 'admin@autiease.com';
+  bool _isPrimaryAdmin = false;
   bool _loading = false;
   Map<String, dynamic> _stats = {};
   
@@ -43,6 +46,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   StreamSubscription<QuerySnapshot>? _withdrawalsSubscription;
   int _pendingReportsCount = 0;
   int _pendingWithdrawalsCount = 0;
+  int _unreadFeedbackCount = 0;
+  StreamSubscription<QuerySnapshot>? _feedbackSubscription;
+  StreamSubscription<QuerySnapshot>? _feedbackReviewsSubscription;
 
   // Subscriptions search/filter state
   final TextEditingController _subSearchController = TextEditingController();
@@ -58,7 +64,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: _tabs.length, vsync: this);
+    _tabController = TabController(length: _isPrimaryAdminCheck() ? _tabs.length : _tabs.length - 1, vsync: this);
     _loadStats();
 
     // Subscribe to reports stream to dynamically update badge count in real-time
@@ -105,6 +111,43 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
         .collection('subscriptions')
         .snapshots()
         .listen((_) => _silentReloadStats());
+
+    // Determine if current user is primary admin
+    final currentEmail = FirebaseAuth.instance.currentUser?.email ?? '';
+    _isPrimaryAdmin = currentEmail == _primaryAdminEmail;
+
+    // Subscribe to unread feedback count for badge
+    _feedbackSubscription = FirebaseFirestore.instance
+        .collection('feedback')
+        .where('isReadByAdmin', isEqualTo: false)
+        .snapshots()
+        .listen((snap) {
+      if (mounted) setState(() => _updateFeedbackBadge(snap.docs.length, null));
+    });
+    _feedbackReviewsSubscription = FirebaseFirestore.instance
+        .collection('therapist_reviews')
+        .where('isReadByAdmin', isEqualTo: false)
+        .snapshots()
+        .listen((snap) {
+      if (mounted) setState(() => _updateFeedbackBadge(null, snap.docs.length));
+    });
+
+    // Mark feedback as read when admin visits the Feedback tab
+    _tabController.addListener(() {
+      final feedbackTabIndex = _tabs.indexOf('Feedback');
+      if (_tabController.index == feedbackTabIndex && !_tabController.indexIsChanging) {
+        AppRepositories.admin.markAllFeedbackAsRead();
+        setState(() => _unreadFeedbackCount = 0);
+      }
+    });
+  }
+
+  int _feedbackCount = 0;
+  int _feedbackReviewsCount = 0;
+  void _updateFeedbackBadge(int? feedbackCount, int? reviewsCount) {
+    if (feedbackCount != null) _feedbackCount = feedbackCount;
+    if (reviewsCount != null) _feedbackReviewsCount = reviewsCount;
+    _unreadFeedbackCount = _feedbackCount + _feedbackReviewsCount;
   }
 
   @override
@@ -116,6 +159,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     _usersSubscription?.cancel();
     _subscriptionsSubscription?.cancel();
     _withdrawalsSubscription?.cancel();
+    _feedbackSubscription?.cancel();
+    _feedbackReviewsSubscription?.cancel();
     super.dispose();
   }
 
@@ -294,7 +339,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             labelColor: Colors.white,
             unselectedLabelColor: const Color(0xFF94A3B8), // slate 400
             indicatorColor: const Color(0xFF38BDF8),
-            tabs: _tabs.map((name) => _buildTabTitle(name)).toList(),
+            tabs: _getVisibleTabs().map((name) => _buildTabTitle(name)).toList(),
           ),
         ),
         body: _loading
@@ -311,10 +356,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   _buildFeedbackTab(),
                   _buildAuditLogsTab(),
                   _buildWithdrawalsTab(),
+                  if (_isPrimaryAdmin) _buildAdminsTab(),
                 ],
               ),
       ),
     );
+  }
+
+  bool _isPrimaryAdminCheck() {
+    final email = FirebaseAuth.instance.currentUser?.email ?? '';
+    return email == _primaryAdminEmail;
+  }
+
+  List<String> _getVisibleTabs() {
+    if (_isPrimaryAdmin) return _tabs;
+    return _tabs.where((t) => t != 'Admins').toList();
   }
 
   Widget _buildOverviewCard(String title, String value, IconData icon, Color color) {
@@ -449,8 +505,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               _buildOverviewCard('Verified Therapists', '${_stats['approvedTherapists'] ?? 0}', Icons.verified_outlined, const Color(0xFF10B981)),
               _buildOverviewCard('Pending Verifications', '${_stats['pendingTherapists'] ?? 0}', Icons.hourglass_empty, const Color(0xFFF59E0B)),
               _buildOverviewCard('Suspended Therapists', '${_stats['suspendedTherapists'] ?? 0}', Icons.block_outlined, const Color(0xFFEF4444)),
+              _buildOverviewCard('Banned Therapists', '${_stats['bannedTherapists'] ?? 0}', Icons.person_off_outlined, const Color(0xFF991B1B)),
+              _buildOverviewCard('Suspended Parents', '${_stats['suspendedParents'] ?? 0}', Icons.person_remove_outlined, const Color(0xFFEA580C)),
+              _buildOverviewCard('Banned Parents', '${_stats['bannedParents'] ?? 0}', Icons.no_accounts_outlined, const Color(0xFF475569)),
               _buildOverviewCard('Subscriptions', '${_stats['activeSubscriptions'] ?? 0}', Icons.card_membership, const Color(0xFF8B5CF6)),
-              _buildOverviewCard('Avg Rating', '${double.tryParse(_stats['averageTherapistRating']?.toString() ?? '0.0')?.toStringAsFixed(1) ?? "0.0"} ★', Icons.star, const Color(0xFFF59E0B)),
               _buildOverviewCard('Total Reports', '${_stats['totalReports'] ?? 0}', Icons.gavel, const Color(0xFFEF4444)),
               _buildOverviewCard('Reviews & Feedback', '${_stats['totalFeedback'] ?? 0}', Icons.feedback_outlined, const Color(0xFF0D9488)),
             ],
@@ -473,6 +531,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     } else if (name == 'Withdrawals') {
       count = _pendingWithdrawalsCount;
       badgeColor = const Color(0xFF3B82F6); // Blue
+    } else if (name == 'Feedback') {
+      count = _unreadFeedbackCount;
+      badgeColor = const Color(0xFF0D9488); // Teal
     }
 
     if (count == 0) {
@@ -2922,7 +2983,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   }
 
   Widget _buildFeedbackTab() {
-
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: AppRepositories.admin.listAllFeedbackAndReviews(),
       builder: (context, snapshot) {
@@ -2932,25 +2992,215 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
         final list = snapshot.data ?? [];
         if (list.isEmpty) {
           return const Center(
-            child: Text('No application feedback or reviews yet.', style: TextStyle(color: Color(0xFF64748B))),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.feedback_outlined, size: 56, color: Color(0xFFCBD5E1)),
+                SizedBox(height: 12),
+                Text('No feedback or reviews yet.', style: TextStyle(color: Color(0xFF64748B), fontSize: 15)),
+              ],
+            ),
           );
         }
 
         return ListView.separated(
           padding: const EdgeInsets.all(16),
           itemCount: list.length,
-          separatorBuilder: (context, index) => const SizedBox(height: 12),
+          separatorBuilder: (context, index) => const SizedBox(height: 10),
           itemBuilder: (context, index) {
             final fb = list[index];
             final isAppFeedback = fb['type'] == 'app_feedback';
+            final isUnread = !(fb['isReadByAdmin'] ?? true);
             final date = fb['timestamp'] as DateTime;
+            final userName = fb['userName']?.toString() ?? 'Unknown';
+            final userRole = fb['userRole']?.toString() ?? 'parent';
+            final body = fb['body']?.toString() ?? '';
+            final therapistName = fb['therapistName']?.toString();
 
-            return Container(
-              padding: const EdgeInsets.all(16),
+            final roleColor = userRole == 'therapist'
+                ? const Color(0xFF7C3AED)
+                : const Color(0xFF2563EB);
+            final typeColor = isAppFeedback ? const Color(0xFF0284C7) : const Color(0xFF0D9488);
+
+            return GestureDetector(
+              onTap: () => _showFeedbackDetailDialog(fb),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isUnread ? const Color(0xFFF0FDF4) : Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isUnread ? const Color(0xFF86EFAC) : const Color(0xFFE2E8F0),
+                    width: isUnread ? 1.5 : 1.0,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 6,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    // Avatar
+                    Stack(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: roleColor.withValues(alpha: 0.12),
+                          ),
+                          child: Center(
+                            child: Text(
+                              userName.isNotEmpty ? userName[0].toUpperCase() : '?',
+                              style: TextStyle(
+                                color: roleColor,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (isUnread)
+                          Positioned(
+                            top: 0,
+                            right: 0,
+                            child: Container(
+                              width: 10,
+                              height: 10,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF22C55E),
+                                shape: BoxShape.circle,
+                                boxShadow: [BoxShadow(color: Colors.white, blurRadius: 2, spreadRadius: 1)],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(width: 12),
+                    // Content
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  userName,
+                                  style: TextStyle(
+                                    fontWeight: isUnread ? FontWeight.w700 : FontWeight.w600,
+                                    fontSize: 13.5,
+                                    color: const Color(0xFF1E293B),
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              // Role badge
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: roleColor.withValues(alpha: 0.10),
+                                  borderRadius: BorderRadius.circular(5),
+                                ),
+                                child: Text(
+                                  userRole.toUpperCase(),
+                                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: roleColor),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: typeColor.withValues(alpha: 0.10),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  isAppFeedback ? 'App Feedback' : 'Therapist Review',
+                                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: typeColor),
+                                ),
+                              ),
+                              if (!isAppFeedback && therapistName != null) ...[
+                                const SizedBox(width: 5),
+                                Expanded(
+                                  child: Text(
+                                    '→ $therapistName',
+                                    style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            body,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF475569), height: 1.35),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Date
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _getRelativeTime(date),
+                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10),
+                        ),
+                        const SizedBox(height: 4),
+                        const Icon(Icons.chevron_right_rounded, color: Color(0xFFCBD5E1), size: 18),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showFeedbackDetailDialog(Map<String, dynamic> fb) {
+    final isAppFeedback = fb['type'] == 'app_feedback';
+    final userName = fb['userName']?.toString() ?? 'Unknown';
+    final userEmail = fb['userEmail']?.toString() ?? '';
+    final userRole = fb['userRole']?.toString() ?? 'parent';
+    final body = fb['body']?.toString() ?? '';
+    final therapistName = fb['therapistName']?.toString();
+    final date = fb['timestamp'] as DateTime;
+    final typeColor = isAppFeedback ? const Color(0xFF0284C7) : const Color(0xFF0D9488);
+
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Gradient header
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [typeColor, typeColor.withValues(alpha: 0.7)],
+                ),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2958,58 +3208,150 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        width: 48,
+                        height: 48,
                         decoration: BoxDecoration(
-                          color: isAppFeedback ? Colors.blue.shade50 : Colors.teal.shade50,
-                          borderRadius: BorderRadius.circular(6),
+                          shape: BoxShape.circle,
+                          color: Colors.white.withValues(alpha: 0.2),
                         ),
-                        child: Text(
-                          fb['title'].toString().toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: isAppFeedback ? Colors.blue.shade900 : Colors.teal.shade900,
+                        child: Center(
+                          child: Text(
+                            userName.isNotEmpty ? userName[0].toUpperCase() : '?',
+                            style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
                           ),
                         ),
                       ),
-                      const Spacer(),
-                      Text(
-                        '${date.day}/${date.month}/${date.year}',
-                        style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              userName,
+                              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                            if (userEmail.isNotEmpty)
+                              Text(
+                                userEmail,
+                                style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 11),
+                              ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          userRole.toUpperCase(),
+                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 10),
                   Row(
                     children: [
-                      Text(
-                        'By: ${fb['user']}',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                      Icon(
+                        isAppFeedback ? Icons.app_shortcut_outlined : Icons.rate_review_outlined,
+                        color: Colors.white.withValues(alpha: 0.8),
+                        size: 14,
                       ),
-                      const Spacer(),
-                      if (fb['rating'] > 0)
-                        Row(
-                          children: List.generate(5, (starIdx) {
-                            return Icon(
-                              starIdx < fb['rating'] ? Icons.star : Icons.star_border,
-                              color: Colors.amber,
-                              size: 14,
-                            );
-                          }),
+                      const SizedBox(width: 5),
+                      Text(
+                        isAppFeedback ? 'App Feedback' : 'Therapist Review',
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 12),
+                      ),
+                      if (!isAppFeedback && therapistName != null) ...[
+                        Text(
+                          ' → $therapistName',
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12),
                         ),
+                      ],
+                      const Spacer(),
+                      Text(
+                        '${date.day}/${date.month}/${date.year}',
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 11),
+                      ),
                     ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    fb['body'].toString(),
-                    style: const TextStyle(fontSize: 13, color: Color(0xFF374151), height: 1.4),
                   ),
                 ],
               ),
-            );
-          },
-        );
-      },
+            ),
+            // Body
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Message',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Text(
+                      body.isNotEmpty ? body : '(No message)',
+                      style: const TextStyle(fontSize: 13.5, color: Color(0xFF374151), height: 1.5),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close_rounded, size: 16),
+                          label: const Text('Close'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF64748B),
+                            side: const BorderSide(color: Color(0xFFE2E8F0)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ),
+                      if (userEmail.isNotEmpty) ...[
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: () async {
+                              final uri = Uri(
+                                scheme: 'mailto',
+                                path: userEmail,
+                                queryParameters: {'subject': 'Regarding your AutiEase feedback'},
+                              );
+                              if (await canLaunchUrl(uri)) {
+                                await launchUrl(uri);
+                              }
+                            },
+                            icon: const Icon(Icons.mail_outline_rounded, size: 16),
+                            label: const Text('Message'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: typeColor,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -3706,6 +4048,76 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       return const SizedBox.shrink();
                     },
                   ),
+                  // ── Wallet & Payout (only for Suspended / Banned) ──
+                  if (therapist.verificationStatus == 'suspended' || therapist.verificationStatus == 'banned') ...[
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Frozen Wallet & Payout',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                    ),
+                    const Divider(),
+                    FutureBuilder<Map<String, dynamic>>(
+                      future: AppRepositories.billing.getTherapistWallet(therapist.id),
+                      builder: (context, walletSnap) {
+                        if (walletSnap.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        final wallet = walletSnap.data ?? {'walletBalance': 0.0};
+                        final balance = (wallet['walletBalance'] as num?)?.toDouble() ?? 0.0;
+
+                        return Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF2F2),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFFCA5A5)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Frozen Balance:',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF991B1B)),
+                                  ),
+                                  Text(
+                                    formatPrice(balance),
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF991B1B)),
+                                  ),
+                                ],
+                              ),
+                              if (balance > 0) ...[
+                                const SizedBox(height: 10),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: FilledButton.icon(
+                                    onPressed: () {
+                                      _showPayoutDialog(context, therapist.id, balance);
+                                    },
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: const Color(0xFFDC2626),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                    ),
+                                    icon: const Icon(Icons.payment_rounded, size: 16),
+                                    label: const Text('Payout & Reset Wallet'),
+                                  ),
+                                ),
+                              ] else ...[
+                                const SizedBox(height: 6),
+                                const Text(
+                                    'Wallet balance is empty.',
+                                    style: TextStyle(fontSize: 11, color: Color(0xFF7F1D1D), fontStyle: FontStyle.italic),
+                                ),
+                              ],
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -4285,6 +4697,74 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         ),
                       ],
 
+                      // ── Wallet & Payout (only for Suspended / Banned) ──
+                      if (therapist.verificationStatus == 'suspended' || therapist.verificationStatus == 'banned') ...[
+                        const SizedBox(height: 20),
+                        _dialogSectionHeader(Icons.account_balance_wallet_outlined, 'Frozen Wallet & Payout'),
+                        const SizedBox(height: 10),
+                        FutureBuilder<Map<String, dynamic>>(
+                          future: AppRepositories.billing.getTherapistWallet(therapist.id),
+                          builder: (context, walletSnap) {
+                            if (walletSnap.connectionState == ConnectionState.waiting) {
+                              return const Center(child: CircularProgressIndicator());
+                            }
+                            final wallet = walletSnap.data ?? {'walletBalance': 0.0};
+                            final balance = (wallet['walletBalance'] as num?)?.toDouble() ?? 0.0;
+
+                            return Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEF2F2),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFFFCA5A5)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text(
+                                        'Frozen Balance:',
+                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF991B1B)),
+                                      ),
+                                      Text(
+                                        formatPrice(balance),
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF991B1B)),
+                                      ),
+                                    ],
+                                  ),
+                                  if (balance > 0) ...[
+                                    const SizedBox(height: 12),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: FilledButton.icon(
+                                        onPressed: () {
+                                          _showPayoutDialog(context, therapist.id, balance);
+                                        },
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: const Color(0xFFDC2626),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        ),
+                                        icon: const Icon(Icons.payment_rounded, size: 18),
+                                        label: const Text('Payout & Reset Wallet'),
+                                      ),
+                                    ),
+                                  ] else ...[
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'Wallet balance is empty.',
+                                      style: TextStyle(fontSize: 12, color: Color(0xFF7F1D1D), fontStyle: FontStyle.italic),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+
                       // ── Moderation Management ──────────────────────
                       const SizedBox(height: 20),
                       _dialogSectionHeader(Icons.gavel_rounded, 'Moderation Management'),
@@ -4325,6 +4805,223 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       },
     );
   }
+
+  void _showPayoutDialog(BuildContext context, String therapistId, double balance) {
+    final refController = TextEditingController();
+    final noteController = TextEditingController();
+    String? imageBase64;
+    String? imageName;
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.payment_rounded, color: Color(0xFFDC2626)),
+                  SizedBox(width: 10),
+                  Text(
+                    'Manual Payout Details',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'This action will record a manual payout and reset the therapist\'s wallet balance to 0 in the database.',
+                      style: TextStyle(fontSize: 12.5, color: Color(0xFF475569)),
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Amount to Payout:',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
+                          ),
+                          Text(
+                            formatPrice(balance),
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F766E)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Transaction Reference *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: refController,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        hintText: 'e.g., Bank Transfer Ref, Receipt ID...',
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Receipt Image *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 8),
+                    if (imageBase64 != null) ...[
+                      Container(
+                        height: 120,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.memory(
+                            base64Decode(imageBase64!),
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        imageName ?? 'Receipt attached',
+                        style: const TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.w500),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ] else
+                      Container(
+                        width: double.infinity,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          border: Border.all(color: const Color(0xFFCBD5E1), style: BorderStyle.solid),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'No receipt image uploaded',
+                            style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: isSaving ? null : () async {
+                        final picker = ImagePicker();
+                        final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+                        if (image == null) return;
+                        final bytes = await image.readAsBytes();
+                        setDialogState(() {
+                          imageBase64 = base64Encode(bytes);
+                          imageName = image.name;
+                        });
+                      },
+                      icon: const Icon(Icons.upload_file_rounded),
+                      label: const Text('Select Receipt Image'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(40),
+                        side: const BorderSide(color: Color(0xFF10B981)),
+                        foregroundColor: const Color(0xFF10B981),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Admin Note (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: noteController,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        hintText: 'e.g., paid out via bank account transfer...',
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                      maxLines: 2,
+                    ),
+                    if (isSaving) ...[
+                      const SizedBox(height: 16),
+                      const Center(
+                        child: CircularProgressIndicator(color: Color(0xFFDC2626)),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving ? null : () => Navigator.pop(ctx),
+                  child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+                ),
+                ElevatedButton(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          final ref = refController.text.trim();
+                          if (ref.isEmpty || imageBase64 == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Please enter a Transaction Reference and select a Receipt Image.'),
+                                backgroundColor: Color(0xFFDC2626),
+                              ),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() {
+                            isSaving = true;
+                          });
+
+                          try {
+                            await AppRepositories.admin.adminPayoutAndResetWallet(
+                              therapistId: therapistId,
+                              amount: balance,
+                              transactionReference: ref,
+                              receiptBase64: imageBase64!,
+                              adminNote: noteController.text.trim(),
+                            );
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            if (context.mounted) Navigator.pop(context); // Close therapist details dialog too
+                            
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Manual payout registered. Wallet balance has been reset to 0.'),
+                                backgroundColor: Color(0xFF059669),
+                              ),
+                            );
+                          } catch (e) {
+                            setDialogState(() {
+                              isSaving = false;
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Payout error: $e'),
+                                backgroundColor: const Color(0xFFDC2626),
+                              ),
+                            );
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFDC2626),
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Process Payout'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
 
   Widget _dialogSectionHeader(IconData icon, String title) {
     return Row(
@@ -5677,6 +6374,333 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       ),
     );
   }
+
+  Widget _buildAdminsTab() {
+    return FutureBuilder<List<UserProfile>>(
+      future: AppRepositories.admin.listSecondaryAdmins(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final list = snapshot.data ?? [];
+
+        return Scaffold(
+          backgroundColor: const Color(0xFFF8FAFC),
+          floatingActionButton: FloatingActionButton.extended(
+            onPressed: () => _showAddAdminDialog(context),
+            backgroundColor: const Color(0xFF1E293B),
+            icon: const Icon(Icons.add_moderator_rounded, color: Colors.white),
+            label: const Text('Add Admin', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+          body: list.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.admin_panel_settings_outlined, size: 56, color: Color(0xFFCBD5E1)),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'No secondary administrators added yet.',
+                        style: TextStyle(color: Color(0xFF64748B), fontSize: 15),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Click "Add Admin" to create one.',
+                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: list.length,
+                  separatorBuilder: (context, index) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final admin = list[index];
+                    final date = admin.createdAt;
+
+                    return Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 22,
+                            backgroundColor: const Color(0xFFF1F5F9),
+                            child: Text(
+                              admin.firstName.isNotEmpty ? admin.firstName[0].toUpperCase() : 'A',
+                              style: const TextStyle(
+                                color: Color(0xFF475569),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  admin.fullName,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14.5,
+                                    color: Color(0xFF1E293B),
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  admin.email,
+                                  style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                                ),
+                                if (date != null) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Added on: ${date.day}/${date.month}/${date.year}',
+                                    style: const TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8)),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444)),
+                            onPressed: () => _confirmDeleteAdmin(context, admin),
+                            tooltip: 'Delete Admin Account',
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        );
+      },
+    );
+  }
+
+  void _showAddAdminDialog(BuildContext context) {
+    final nameController = TextEditingController();
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.add_moderator_rounded, color: Color(0xFF1E293B)),
+                  SizedBox(width: 10),
+                  Text(
+                    'Add Secondary Admin',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Create a secondary admin account. They can moderate, resolve reports, and inspect logs, but cannot manage other admins.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Full Name *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: nameController,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        hintText: 'e.g., John Doe',
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Email Address *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        hintText: 'admin2@autiease.com',
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Password *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: passwordController,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        hintText: 'At least 8 characters...',
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                    if (isSaving) ...[
+                      const SizedBox(height: 16),
+                      const Center(
+                        child: CircularProgressIndicator(color: Color(0xFF1E293B)),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving ? null : () => Navigator.pop(ctx),
+                  child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+                ),
+                ElevatedButton(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          final name = nameController.text.trim();
+                          final email = emailController.text.trim().toLowerCase();
+                          final password = passwordController.text;
+
+                          if (name.isEmpty || email.isEmpty || password.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Please fill in all fields.'),
+                                backgroundColor: Color(0xFFDC2626),
+                              ),
+                            );
+                            return;
+                          }
+
+                          if (password.length < 8) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Password must be at least 8 characters long.'),
+                                backgroundColor: Color(0xFFDC2626),
+                              ),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() {
+                            isSaving = true;
+                          });
+
+                          try {
+                            await AppRepositories.admin.createSecondaryAdmin(
+                              name: name,
+                              email: email,
+                              password: password,
+                            );
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            setState(() {}); // reload admins list tab
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Secondary administrator created successfully.'),
+                                backgroundColor: Color(0xFF059669),
+                              ),
+                            );
+                          } catch (e) {
+                            setDialogState(() {
+                              isSaving = false;
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Failed to create admin: $e'),
+                                backgroundColor: const Color(0xFFDC2626),
+                              ),
+                            );
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1E293B),
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Create Admin'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmDeleteAdmin(BuildContext context, UserProfile admin) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626)),
+              SizedBox(width: 10),
+              Text(
+                'Delete Admin Account',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ],
+          ),
+          content: Text(
+            'Are you sure you want to delete ${admin.fullName} (${admin.email})?\n\n'
+            'This will permanently delete this administrator from both Authentication and the database. This action is irreversible.',
+            style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDC2626), foregroundColor: Colors.white),
+              child: const Text('Delete Permanently'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await AppRepositories.admin.deleteSecondaryAdmin(admin.uid);
+      setState(() {});
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Admin account successfully deleted.'),
+          backgroundColor: Color(0xFF059669),
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Delete failed: $e'),
+          backgroundColor: const Color(0xFFDC2626),
+        ),
+      );
+    }
+  }
 }
 
 class _AdminMessageSender extends StatefulWidget {
@@ -6375,5 +7399,9 @@ class _ModerationTimeline extends StatelessWidget {
     );
   }
 }
+
+
+
+
 
 
