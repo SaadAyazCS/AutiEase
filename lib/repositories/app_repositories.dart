@@ -2654,7 +2654,7 @@ class FirebaseSupportRepository implements SupportRepository {
       } else {
         if (category == 'messages') {
           enabled = prefs['therapistsUpdate'] ?? prefs['pushNotifications'] ?? true;
-        } else if (category == 'activities') {
+        } else if (category == 'activities' || category == 'scheduler') {
           enabled = prefs['routineReminders'] ?? prefs['dailyReminders'] ?? true;
         } else if (category == 'progress') {
           enabled = prefs['levelProgressNotification'] ?? prefs['progressUpdates'] ?? true;

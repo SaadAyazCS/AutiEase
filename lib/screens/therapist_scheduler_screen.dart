@@ -338,7 +338,7 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
         userId: request.parentId,
         title: '❌ Custom Slot Request Declined',
         message: 'Therapist $therapistName has declined your request for a custom slot. Reason: $reason',
-        category: 'messages',
+        category: 'scheduler',
       );
 
       if (mounted) {

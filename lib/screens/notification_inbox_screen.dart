@@ -147,6 +147,8 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
         return Icons.verified_user_rounded;
       case 'reports':
         return Icons.flag_rounded;
+      case 'scheduler':
+        return Icons.calendar_month_rounded;
       case 'system':
       default:
         return Icons.notifications_active_rounded;
@@ -169,6 +171,8 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
         return const Color(0xFF06B6D4); // cyan 500
       case 'reports':
         return const Color(0xFFEF4444); // red 500
+      case 'scheduler':
+        return const Color(0xFF0D9488); // teal 600
       case 'system':
       default:
         return const Color(0xFF64748B); // slate 500
@@ -185,7 +189,7 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
       } else if (category == 'subscriptions') {
         return item.category == 'subscription';
       } else if (category == 'activities') {
-        return item.category == 'activities' || item.category == 'progress';
+        return item.category == 'activities' || item.category == 'progress' || item.category == 'scheduler';
       } else if (category == 'system') {
         return item.category == 'system' || item.category == 'verification' || item.category == 'reviews';
       } else if (category == 'reports') {
