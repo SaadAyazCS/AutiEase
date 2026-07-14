@@ -1567,13 +1567,19 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
       await batch.commit();
 
       if (mounted) {
-        Navigator.pop(context); // Pop loading indicator
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Chat successfully deleted.'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
+        setState(() {
+          _hiddenTherapistIds.add(thread.therapistId);
+        });
+        await _persistTherapistState();
+        if (mounted) {
+          Navigator.pop(context); // Pop loading indicator
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Chat successfully deleted.'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {

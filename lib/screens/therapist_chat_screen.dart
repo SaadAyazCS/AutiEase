@@ -453,6 +453,12 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   }
 
   bool _canSendMessage(TherapistThread thread) {
+    final isPeerSuspendedOrBanned = 
+        _peerUserProfile?.status == 'suspended' || 
+        _peerUserProfile?.status == 'banned' || 
+        _peerTherapistProfile?.verificationStatus == 'suspended' || 
+        _peerTherapistProfile?.verificationStatus == 'banned';
+    if (isPeerSuspendedOrBanned) return false;
     if (_activeRestriction != null && _activeRestriction!.isActive) return false;
     if (widget.readOnly) return false;
     if (thread.status == 'locked' || thread.status == 'reported') return false;
@@ -2597,6 +2603,11 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
   @override
   Widget build(BuildContext context) {
+    final isPeerSuspendedOrBanned = 
+        _peerUserProfile?.status == 'suspended' || 
+        _peerUserProfile?.status == 'banned' || 
+        _peerTherapistProfile?.verificationStatus == 'suspended' || 
+        _peerTherapistProfile?.verificationStatus == 'banned';
     final peerRole = widget.senderRole == 'parent' ? 'Therapist' : 'Parent';
     final photoUrlBase64 = widget.senderRole == 'parent' 
         ? (_peerTherapistProfile?.photoUrlBase64.isNotEmpty == true 
@@ -3182,6 +3193,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                   blockInfo: _blockInfo,
                                   canSendFinal: canSendFinal,
                                   canReplyOnce: canReplyOnce,
+                                  isPeerSuspendedOrBanned: isPeerSuspendedOrBanned,
                                   onFinalMessage: (body) async {
                                     final messenger = ScaffoldMessenger.of(context);
                                     try {
@@ -3214,7 +3226,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                       }
                                     }
                                   },
-                                  onRenewSubscription: widget.senderRole == 'parent' && !thread.isBlocked ? () async {
+                                  onRenewSubscription: widget.senderRole == 'parent' && !thread.isBlocked && !isPeerSuspendedOrBanned ? () async {
                                     final messenger = ScaffoldMessenger.of(context);
                                     _activeCheckoutTherapistId = widget.thread.therapistId;
                                     _isCheckoutCancelled = false;
@@ -4539,6 +4551,7 @@ class _BlockedInputArea extends StatefulWidget {
     required this.onFinalMessage,
     required this.onReplyOnce,
     this.onRenewSubscription,
+    this.isPeerSuspendedOrBanned = false,
   });
 
   final TherapistThread thread;
@@ -4549,6 +4562,7 @@ class _BlockedInputArea extends StatefulWidget {
   final Future<void> Function(String body) onFinalMessage;
   final Future<void> Function(String body) onReplyOnce;
   final VoidCallback? onRenewSubscription;
+  final bool isPeerSuspendedOrBanned;
 
   @override
   State<_BlockedInputArea> createState() => _BlockedInputAreaState();
