@@ -5116,6 +5116,26 @@ class _TherapistProfileSettingsScreenState
       return s;
     }).where((s) => s.isNotEmpty).toList();
 
+    // Check if therapist has deselected/removed any specialization that has an associated package
+    final oldSpecs = widget.profile.specializations;
+    final removedSpecs = oldSpecs.where((os) => !finalSpecs.any((ns) => ns.trim().toLowerCase() == os.trim().toLowerCase())).toList();
+    for (final removedSpec in removedSpecs) {
+      final isAssociated = widget.initialPackages.any((pkg) {
+        final cleanTitle = pkg.title.trim().toLowerCase();
+        final cleanSpec = removedSpec.trim().toLowerCase();
+        return cleanTitle.contains(cleanSpec) || cleanSpec.contains(cleanTitle);
+      });
+      if (isAssociated) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('To remove "$removedSpec", you must first remove the package associated with it in Service Packages.'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+        return;
+      }
+    }
+
     // First section is valid, proceed to pricing
     final updated = await Navigator.push<List<TherapyPackage>>(
       context,
