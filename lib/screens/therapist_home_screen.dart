@@ -4026,7 +4026,7 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
     return '$hour:$minute $suffix';
   }
 
-  void _showTherapistTransactionModal(BuildContext context, Map<String, dynamic> tx) {
+  Future<void> _showTherapistTransactionModal(BuildContext context, Map<String, dynamic> tx) async {
     final isEarning = tx['type'] == 'subscription';
     // For earnings, prefer netAmount (the amount credited to wallet)
     final grossAmount = double.tryParse((tx['grossAmount'] ?? 0.0).toString()) ?? 0.0;
@@ -4045,7 +4045,29 @@ class _TherapistWalletSectionState extends State<_TherapistWalletSection> {
     final status = (tx['status'] ?? 'pending').toString().toUpperCase();
     final details = (tx['accountDetails'] ?? '').toString();
     final method = _getPaymentMethodName((tx['paymentMethod'] ?? '').toString());
-    final parentName = (tx['parentName'] ?? '').toString();
+    
+    String parentName = (tx['parentName'] ?? '').toString();
+    final parentId = tx['userId']?.toString() ?? '';
+    if (isEarning && parentId.isNotEmpty) {
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator(color: Color(0xFF0D9488))),
+      );
+      try {
+        final profile = await AppRepositories.users.getUserProfile(parentId);
+        if (profile != null && profile.fullName.isNotEmpty) {
+          parentName = profile.fullName;
+        }
+      } catch (e) {
+        debugPrint('Failed to resolve parent name in transaction modal: $e');
+      }
+      if (context.mounted) {
+        Navigator.pop(context);
+      }
+    }
+
+    if (!context.mounted) return;
 
     showDialog<void>(
       context: context,

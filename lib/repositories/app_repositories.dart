@@ -3640,6 +3640,21 @@ class FirebaseBillingRepository implements BillingRepository {
       return true;
     }
 
+    final docId = _subscriptionDocId(userId, normalizedTherapistId);
+    try {
+      final doc = await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).get();
+      if (doc.exists && doc.data() != null) {
+        final isActive = doc.data()?['isActive'] == true;
+        if (isActive) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('backup_sub_$docId', jsonEncode(doc.data()));
+          debugPrint('Backed up active subscription $docId before plan switch');
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to backup active subscription: $e');
+    }
+
     if (isCancelledCheck != null && isCancelledCheck()) {
       return false;
     }
@@ -3679,12 +3694,17 @@ class FirebaseBillingRepository implements BillingRepository {
     );
     await _updateUserEntitlements(userId);
     if (active) {
+      final docId = _subscriptionDocId(userId, normalizedTherapistId);
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('backup_sub_$docId');
+      } catch (_) {}
+      
       try {
         final profileDoc = await _firestore.collection(FirestoreCollections.therapistProfiles).doc(normalizedTherapistId).get();
         if (profileDoc.exists && profileDoc.data() != null) {
           final profile = TherapistProfile.fromMap(profileDoc.id, profileDoc.data()!);
           final pkg = profile.servicePackages[packageIndex];
-          final docId = _subscriptionDocId(userId, normalizedTherapistId);
           await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set({
             'subscribedPackageSnapshot': pkg.toMap(),
           }, SetOptions(merge: true));
@@ -3704,6 +3724,17 @@ class FirebaseBillingRepository implements BillingRepository {
     if (userId == null) return;
     final docId = _subscriptionDocId(userId, therapistId);
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final backupStr = prefs.getString('backup_sub_$docId');
+      
+      if (backupStr != null) {
+        final backupData = jsonDecode(backupStr) as Map<String, dynamic>;
+        await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set(backupData);
+        await prefs.remove('backup_sub_$docId');
+        debugPrint('Successfully restored backup active subscription $docId on user cancellation request');
+        return;
+      }
+
       final doc = await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).get();
       if (doc.exists && doc.data() != null) {
         final status = (doc.data()?['status'] ?? '').toString().trim().toLowerCase();
@@ -3714,7 +3745,7 @@ class FirebaseBillingRepository implements BillingRepository {
         }
       }
     } catch (e) {
-      debugPrint('Failed to delete pending subscription: $e');
+      debugPrint('Failed to delete pending/restore backup subscription: $e');
     }
   }
 
