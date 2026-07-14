@@ -3006,6 +3006,11 @@ class FirebaseSupportRepository implements SupportRepository {
       if (slotDoc.exists) {
         final data = slotDoc.data();
         if (data != null) {
+          final status = data['status']?.toString();
+          if (status != 'booked') {
+            debugPrint('cancelAppointmentSlot: Slot $slotId is not booked (status: $status). Early exit.');
+            return;
+          }
           if (dbParentId == null || dbParentId.isEmpty) {
             dbParentId = data['bookedByParentId']?.toString();
           }
@@ -3013,8 +3018,12 @@ class FirebaseSupportRepository implements SupportRepository {
             dbTherapistId = data['therapistId']?.toString();
           }
         }
+      } else {
+        return;
       }
-    } catch (_) {}
+    } catch (_) {
+      return;
+    }
 
     // 2. Perform database update
     await _firestore.collection(FirestoreCollections.appointmentSlots).doc(slotId).update({

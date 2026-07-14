@@ -586,9 +586,9 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        if (isBooked) ...[
+                        if (isBooked)
                           OutlinedButton.icon(
-                            onPressed: () async {
+                            onPressed: _submitting ? null : () async {
                               final confirm = await showDialog<bool>(
                                 context: context,
                                 builder: (ctx) => AlertDialog(
@@ -601,11 +601,21 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
                                 ),
                               );
                               if (confirm == true) {
-                                await AppRepositories.support.cancelAppointmentSlot(
-                                  slot.id,
-                                  therapistId: widget.therapistId,
-                                  parentId: slot.bookedByParentId,
-                                );
+                                if (mounted) {
+                                  setState(() => _submitting = true);
+                                }
+                                try {
+                                  await AppRepositories.support.cancelAppointmentSlot(
+                                    slot.id,
+                                    therapistId: widget.therapistId,
+                                    parentId: slot.bookedByParentId,
+                                  );
+                                } catch (_) {
+                                } finally {
+                                  if (mounted) {
+                                    setState(() => _submitting = false);
+                                  }
+                                }
                               }
                             },
                             icon: const Icon(Icons.cancel_outlined, size: 16),
@@ -615,11 +625,11 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
                               side: const BorderSide(color: Color(0xFFEF4444)),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             ),
-                          ),
-                        ] else ...[
+                          )
+                        else
                           IconButton(
                             icon: const Icon(Icons.delete_outline, color: Color(0xFFEF4444)),
-                            onPressed: () async {
+                            onPressed: _submitting ? null : () async {
                               final confirm = await showDialog<bool>(
                                 context: context,
                                 builder: (ctx) => AlertDialog(
@@ -632,11 +642,20 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
                                 ),
                               );
                               if (confirm == true) {
+                                if (mounted) {
+                                  setState(() => _submitting = true);
+                                }
+                                try {
                                   await AppRepositories.support.deleteAppointmentSlot(slot.id);
+                                } catch (_) {
+                                } finally {
+                                  if (mounted) {
+                                    setState(() => _submitting = false);
+                                  }
+                                }
                               }
                             },
                           ),
-                        ],
                       ],
                     ),
                   ],
