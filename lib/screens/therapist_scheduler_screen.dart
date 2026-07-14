@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 
@@ -120,37 +121,56 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
                 children: [
                   const Text('Select Subscribed Package (Optional):', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
                   const SizedBox(height: 6),
-                  DropdownButtonFormField<TherapyPackage>(
-                    initialValue: localSelectedPkg,
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  if (prefillRequest != null) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Text(
+                        prefillRequest.packageTitle,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+                      ),
                     ),
-                    hint: const Text('None (General Slot)'),
-                    items: _packages.map((pkg) {
-                      return DropdownMenuItem<TherapyPackage>(
-                        value: pkg,
-                        child: Text(pkg.title, style: const TextStyle(fontSize: 13)),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      setDialogState(() {
-                        localSelectedPkg = val;
-                        if (val != null) {
-                          durationController.text = '${val.durationMinutes}';
-                        }
-                      });
-                    },
-                  ),
+                  ] else ...[
+                    DropdownButtonFormField<TherapyPackage>(
+                      initialValue: localSelectedPkg,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      ),
+                      hint: const Text('None (General Slot)'),
+                      items: _packages.map((pkg) {
+                        return DropdownMenuItem<TherapyPackage>(
+                          value: pkg,
+                          child: Text(pkg.title, style: const TextStyle(fontSize: 13)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        setDialogState(() {
+                          localSelectedPkg = val;
+                          if (val != null) {
+                            durationController.text = '${val.durationMinutes}';
+                          }
+                        });
+                      },
+                    ),
+                  ],
                   const SizedBox(height: 14),
                   const Text('Session Duration (Minutes):', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
                   const SizedBox(height: 6),
                   TextField(
                     controller: durationController,
                     keyboardType: TextInputType.number,
+                    enabled: prefillRequest == null,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      fillColor: prefillRequest != null ? const Color(0xFFF1F5F9) : null,
+                      filled: prefillRequest != null,
                     ),
                   ),
                 ],
@@ -170,7 +190,7 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
                       return;
                     }
                     Navigator.pop(ctx, {
-                      'packageTitle': localSelectedPkg?.title,
+                      'packageTitle': prefillRequest != null ? prefillRequest.packageTitle : localSelectedPkg?.title,
                       'duration': duration,
                     });
                   },
@@ -201,6 +221,17 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
 
       if (prefillRequest != null) {
         await AppRepositories.support.markSlotRequestAsCreated(prefillRequest.id);
+        
+        // Write notification to Firestore for the requesting parent
+        await FirebaseFirestore.instance.collection('notifications').add({
+          'userId': prefillRequest.parentId,
+          'title': '✅ Custom Slot Request Approved',
+          'message': 'Your custom slot request for "${prefillRequest.packageTitle}" has been approved and created for ${prefillRequest.preferredDateTime.day}/${prefillRequest.preferredDateTime.month}/${prefillRequest.preferredDateTime.year} at ${prefillRequest.preferredDateTime.hour.toString().padLeft(2, '0')}:${prefillRequest.preferredDateTime.minute.toString().padLeft(2, '0')}. You can now book this slot.',
+          'category': 'scheduler',
+          'isRead': false,
+          'timestamp': FieldValue.serverTimestamp(),
+          'navigationTarget': {'route': 'ProfessionalSupport'},
+        });
       }
 
       if (mounted) {
@@ -399,17 +430,35 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
                                 _formatTimeRange(dt, slot.durationMinutes),
                                 style: const TextStyle(fontSize: 13, color: Color(0xFF475569), fontWeight: FontWeight.w600),
                               ),
-                              if (slot.packageTitle != null) ...[
-                                const SizedBox(height: 4),
+                              const SizedBox(height: 4),
+                              if (slot.assignedToParentId != null) ...[
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFFF1F5F9),
+                                    color: const Color(0xFFCCFBF1),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Text(
-                                    'Package: ${slot.packageTitle}',
-                                    style: const TextStyle(fontSize: 10.5, color: Color(0xFF475569), fontWeight: FontWeight.bold),
+                                    '✨ Requested: ${slot.packageTitle ?? "General Slot"}',
+                                    style: const TextStyle(fontSize: 10.5, color: Color(0xFF0F766E), fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ] else ...[
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: slot.packageTitle != null ? const Color(0xFFF1F5F9) : const Color(0xFFFEF3C7),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    slot.packageTitle != null
+                                        ? 'Package: ${slot.packageTitle}'
+                                        : 'General Slot',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      color: slot.packageTitle != null ? const Color(0xFF475569) : const Color(0xFFB45309),
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                               ],

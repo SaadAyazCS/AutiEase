@@ -31,11 +31,24 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
   bool _submitting = false;
   List<TherapyPackage> _packages = [];
   bool _loadingPackages = true;
+  UserProfile? _parentProfile;
 
   @override
   void initState() {
     super.initState();
     _loadTherapistPackages();
+    _loadParentProfile();
+  }
+
+  Future<void> _loadParentProfile() async {
+    try {
+      final profile = await AppRepositories.users.getUserProfile(widget.parentId);
+      if (mounted) {
+        setState(() {
+          _parentProfile = profile;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadTherapistPackages() async {
@@ -95,68 +108,130 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
       return;
     }
 
-    if (!mounted) return;
-    final result = await showDialog<TherapyPackage>(
-      context: context,
-      builder: (ctx) {
-        TherapyPackage? selectedPkg = _packages.first;
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: const Text('Select Therapy Package'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Choose the package you wish to request a slot for:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<TherapyPackage>(
-                    initialValue: selectedPkg,
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    ),
-                    items: _packages.map((pkg) {
-                      return DropdownMenuItem<TherapyPackage>(
-                        value: pkg,
-                        child: Text(pkg.title, style: const TextStyle(fontSize: 13)),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      setDialogState(() {
-                        selectedPkg = val;
-                      });
-                    },
+    // Fetch subscription first
+    setState(() => _submitting = true);
+    final sub = await AppRepositories.billing.getSubscriptionForTherapist(widget.therapistId);
+    setState(() => _submitting = false);
+
+    final TherapyPackage? activePackage = sub?.subscribedPackageSnapshot;
+    TherapyPackage? chosenPackage;
+
+    if (activePackage != null) {
+      if (!mounted) return;
+      final confirmPkg = await showDialog<bool>(
+        context: context,
+        builder: (ctx) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('Confirm Package Slot Request', style: TextStyle(fontWeight: FontWeight.bold)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('You are requesting a custom slot for your subscribed package:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+                  child: Text(
+                    activePackage.title,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                  ),
                 ),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx, selectedPkg),
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488), foregroundColor: Colors.white),
-                  child: const Text('Submit Request'),
+                const SizedBox(height: 6),
+                Text(
+                  'Duration: ${activePackage.durationMinutes} mins | Sessions: ${activePackage.sessionsPerWeek}/week',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
                 ),
               ],
-            );
-          },
-        );
-      },
-    );
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488), foregroundColor: Colors.white),
+                child: const Text('Submit Request'),
+              ),
+            ],
+          );
+        },
+      );
+      if (confirmPkg == true) {
+        chosenPackage = activePackage;
+      }
+    } else {
+      if (!mounted) return;
+      chosenPackage = await showDialog<TherapyPackage>(
+        context: context,
+        builder: (ctx) {
+          TherapyPackage? selectedPkg = _packages.first;
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: const Text('Select Therapy Package'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Choose the package you wish to request a slot for:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<TherapyPackage>(
+                      initialValue: selectedPkg,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      ),
+                      items: _packages.map((pkg) {
+                        return DropdownMenuItem<TherapyPackage>(
+                          value: pkg,
+                          child: Text(pkg.title, style: const TextStyle(fontSize: 13)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        setDialogState(() {
+                          selectedPkg = val;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx, selectedPkg),
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488), foregroundColor: Colors.white),
+                    child: const Text('Submit Request'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    }
 
-    if (result == null) return;
+    if (chosenPackage == null) return;
 
     setState(() => _submitting = true);
     try {
+      final parentName = _parentProfile?.fullName ?? (widget.childName.isNotEmpty ? '${widget.childName}\'s Parent' : 'Parent Profile');
       await AppRepositories.support.createSlotRequest(
         parentId: widget.parentId,
-        parentName: widget.childName.isNotEmpty ? '${widget.childName}\'s Parent' : 'Parent Profile',
+        parentName: parentName,
         therapistId: widget.therapistId,
-        packageTitle: result.title,
+        packageTitle: chosenPackage.title,
         preferredDateTime: preferredDateTime,
       );
       if (mounted) {
@@ -465,8 +540,11 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 4,
                     children: [
                       const Text(
                         '1. Choose an Available Slot:',
@@ -501,18 +579,32 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                           decoration: BoxDecoration(
-                            color: isSelected ? const Color(0xFFE0F2FE) : Colors.white,
+                            color: isSelected
+                                ? const Color(0xFFE0F2FE)
+                                : (slot.assignedToParentId == widget.parentId
+                                    ? const Color(0xFFF0FDFA)
+                                    : Colors.white),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: isSelected ? const Color(0xFF0284C7) : const Color(0xFFE2E8F0),
-                              width: isSelected ? 2 : 1,
+                              color: isSelected
+                                  ? const Color(0xFF0284C7)
+                                  : (slot.assignedToParentId == widget.parentId
+                                      ? const Color(0xFF0D9488)
+                                      : const Color(0xFFE2E8F0)),
+                              width: isSelected
+                                  ? 2
+                                  : (slot.assignedToParentId == widget.parentId ? 1.5 : 1),
                             ),
                           ),
                           child: Row(
                             children: [
                               Icon(
                                 isSelected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
-                                color: isSelected ? const Color(0xFF0284C7) : const Color(0xFF94A3B8),
+                                color: isSelected
+                                    ? const Color(0xFF0284C7)
+                                    : (slot.assignedToParentId == widget.parentId
+                                        ? const Color(0xFF0D9488)
+                                        : const Color(0xFF94A3B8)),
                               ),
                               const SizedBox(width: 14),
                               Expanded(
@@ -524,7 +616,11 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 14.5,
-                                        color: isSelected ? const Color(0xFF0369A1) : const Color(0xFF1E293B),
+                                        color: isSelected
+                                            ? const Color(0xFF0369A1)
+                                            : (slot.assignedToParentId == widget.parentId
+                                                ? const Color(0xFF0F766E)
+                                                : const Color(0xFF1E293B)),
                                       ),
                                     ),
                                     const SizedBox(height: 2),
@@ -532,17 +628,35 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
                                       'Duration: ${slot.durationMinutes} minutes',
                                       style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                                     ),
-                                    if (slot.packageTitle != null) ...[
-                                      const SizedBox(height: 4),
+                                    const SizedBox(height: 4),
+                                    if (slot.assignedToParentId == widget.parentId) ...[
                                       Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFFF1F5F9),
+                                          color: const Color(0xFFCCFBF1),
                                           borderRadius: BorderRadius.circular(6),
                                         ),
                                         child: Text(
-                                          'Exclusive Package: ${slot.packageTitle}',
-                                          style: const TextStyle(fontSize: 10, color: Color(0xFF475569), fontWeight: FontWeight.bold),
+                                          '✨ Requested Slot: ${slot.packageTitle ?? "General"}',
+                                          style: const TextStyle(fontSize: 10, color: Color(0xFF0F766E), fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    ] else ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: slot.packageTitle != null ? const Color(0xFFF1F5F9) : const Color(0xFFFEF3C7),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          slot.packageTitle != null
+                                              ? 'Exclusive Package: ${slot.packageTitle}'
+                                              : 'General Slot',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: slot.packageTitle != null ? const Color(0xFF475569) : const Color(0xFFB45309),
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
                                     ],

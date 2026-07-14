@@ -7427,7 +7427,9 @@ class _PackageEditorState extends State<_PackageEditor> {
               children: [
                 Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
                 SizedBox(width: 8),
-                Text('Warning: Package Edit', style: TextStyle(fontWeight: FontWeight.bold)),
+                Expanded(
+                  child: Text('Warning: Package Edit', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
               ],
             ),
             content: const Text(

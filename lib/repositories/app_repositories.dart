@@ -5251,6 +5251,29 @@ class FirebaseAdminRepository implements AdminRepository {
     final Set<String> affectedUserIds = {};
     await batchCancelSubscriptionsForUser(userId: targetUserId, reason: reason);
 
+    // Cancel pending slot requests
+    try {
+      final parentRequests = await _firestore
+          .collection('slot_requests')
+          .where('parentId', isEqualTo: targetUserId)
+          .where('status', isEqualTo: 'pending')
+          .get();
+      final therapistRequests = await _firestore
+          .collection('slot_requests')
+          .where('therapistId', isEqualTo: targetUserId)
+          .where('status', isEqualTo: 'pending')
+          .get();
+      for (final doc in [...parentRequests.docs, ...therapistRequests.docs]) {
+        await doc.reference.update({
+          'status': 'cancelled',
+          'declineReason': 'cancelled due to admin moderation: $reason',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (e) {
+      debugPrint('_applyGlobalAction: failed to cancel slot requests: $e');
+    }
+
     // Collect affected other-party IDs for bulk notifications
     if (targetRole == 'therapist') {
       final subsSnap = await _firestore
@@ -5878,8 +5901,15 @@ class FirebaseAdminRepository implements AdminRepository {
         .where('status', isEqualTo: 'booked')
         .where('dateTime', isGreaterThan: now)
         .get();
+    // Also cancel future available slots for the therapist (if the therapist is banned/suspended)
+    final availableSlots = await _firestore
+        .collection(FirestoreCollections.appointmentSlots)
+        .where('therapistId', isEqualTo: userId)
+        .where('status', isEqualTo: 'available')
+        .where('dateTime', isGreaterThan: now)
+        .get();
 
-    for (final slot in [...asParent.docs, ...asTherapist.docs]) {
+    for (final slot in [...asParent.docs, ...asTherapist.docs, ...availableSlots.docs]) {
       await slot.reference.update({
         'status': 'cancelled',
         'cancellationReason': 'admin_moderation: $reason',

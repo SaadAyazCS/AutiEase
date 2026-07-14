@@ -3985,19 +3985,20 @@ class _ParentSubscriptionsHistoryScreenState
     }
 
     final visiblePackages = therapist.servicePackages.where((p) => p.visible).toList();
-    TherapyPackage? selectedPackage;
-    if (sub.productId.startsWith('auto_${therapist.id}_')) {
-      final parts = sub.productId.split('_');
-      if (parts.length >= 3) {
-        final idx = int.tryParse(parts.last) ?? 0;
-        if (idx >= 0 && idx < visiblePackages.length) {
-          selectedPackage = visiblePackages[idx];
+    TherapyPackage? selectedPackage = sub.subscribedPackageSnapshot;
+    if (selectedPackage == null) {
+      if (sub.productId.startsWith('auto_${therapist.id}_')) {
+        final parts = sub.productId.split('_');
+        if (parts.length >= 3) {
+          final idx = int.tryParse(parts.last) ?? 0;
+          if (idx >= 0 && idx < visiblePackages.length) {
+            selectedPackage = visiblePackages[idx];
+          }
         }
       }
-    }
-
-    if (selectedPackage == null && visiblePackages.isNotEmpty) {
-      selectedPackage = visiblePackages.first;
+      if (selectedPackage == null && visiblePackages.isNotEmpty) {
+        selectedPackage = visiblePackages.first;
+      }
     }
 
     final priceLabel = selectedPackage != null

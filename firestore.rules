@@ -103,7 +103,7 @@ service cloud.firestore {
     }
 
     match /child_assignments/{childId} {
-      allow read: if (isParent() && resource.data.parentId == request.auth.uid) || isTherapist();
+      allow read: if (isParent() && resource.data.parentId == request.auth.uid) || isTherapist() || isAdmin();
       allow create: if isParent() && request.resource.data.parentId == request.auth.uid &&
         (!('childName' in request.resource.data) || request.resource.data.childName.size() <= 50);
       allow update: if isParent() && request.resource.data.parentId == request.auth.uid &&
@@ -195,7 +195,7 @@ service cloud.firestore {
     }
 
     match /therapist_threads/{threadId} {
-      allow read: if isThreadParticipant(resource.data);
+      allow read: if isThreadParticipant(resource.data) || isAdmin();
       allow create: if isParent() &&
         request.resource.data.parentId == request.auth.uid &&
         ownsChild(request.resource.data.childId);
@@ -219,7 +219,7 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow read: if isThreadParticipant(
           get(/databases/$(database)/documents/therapist_threads/$(threadId)).data
-        );
+        ) || isAdmin();
         allow create: if (
             isThreadParticipant(get(/databases/$(database)/documents/therapist_threads/$(threadId)).data) ||
             isThreadParticipant(getAfter(/databases/$(database)/documents/therapist_threads/$(threadId)).data)

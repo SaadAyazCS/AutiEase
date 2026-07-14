@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/app_colors.dart';
 import '../utils/responsive.dart';
 import '../widgets/wave_background.dart';
 import '../services/firebase_service.dart';
 import '../widgets/custom_widgets.dart';
 import 'login_screen.dart';
+import 'admin_dashboard_screen.dart';
+import '../navigation/session_navigation.dart';
 
 class EmailVerificationScreen extends StatefulWidget {
   final String email;
@@ -39,6 +43,25 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
       CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
     );
     _animationController.forward();
+    _checkAdminBypass();
+  }
+
+  Future<void> _checkAdminBypass() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final email = user.email?.toLowerCase().trim() ?? '';
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final role = doc.data()?['role']?.toString();
+      if (email.contains('admin') || role == 'admin') {
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            fadeSessionRoute(const AdminDashboardScreen()),
+            (route) => false,
+          );
+        }
+      }
+    }
   }
 
   @override

@@ -201,10 +201,18 @@ class FirebaseService {
     if (user == null) {
       return;
     }
-    await _users.doc(user.uid).set({
-      'status': 'verified',
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    final doc = await _users.doc(user.uid).get();
+    final currentStatus = doc.data()?['status']?.toString();
+    if (currentStatus == 'suspended' || currentStatus == 'banned' || currentStatus == 'restricted') {
+      await _users.doc(user.uid).update({
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } else {
+      await _users.doc(user.uid).set({
+        'status': 'verified',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
   }
 
   Future<bool> _isCurrentUserEmailVerified() async {
@@ -776,8 +784,22 @@ class FirebaseService {
       );
 
       final userDoc = await _users.doc(user.uid).get();
-      final data = userDoc.data() ?? <String, dynamic>{};
+      if (!userDoc.exists) {
+        if (!isAdminEmail) {
+          try {
+            await user.delete();
+          } catch (e) {
+            debugPrint('Failed to delete deleted auth user client-side: $e');
+          }
+          await _auth.signOut();
+          return {
+            'success': false,
+            'message': 'This account has been deleted by the administrator.',
+          };
+        }
+      }
 
+      final data = userDoc.data() ?? <String, dynamic>{};
       final userRole = (data['role'] ?? '').toString();
       final isAdminUser = isAdminEmail || userRole == 'admin';
 
@@ -976,6 +998,24 @@ class FirebaseService {
       }
 
       final doc = await _users.doc(user.uid).get();
+      if (doc.exists) {
+        final status = (doc.data()?['status'] ?? '').toString();
+        if (status == 'suspended') {
+          await _auth.signOut();
+          return {
+            'success': false,
+            'message': 'Your account has been suspended. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.',
+          };
+        }
+        if (status == 'banned') {
+          await _auth.signOut();
+          return {
+            'success': false,
+            'message': 'Your account has been banned. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.',
+          };
+        }
+      }
+
       if (!doc.exists) {
         await _users.doc(user.uid).set({
           'uid': user.uid,
@@ -1001,13 +1041,18 @@ class FirebaseService {
           'updatedAt': FieldValue.serverTimestamp(),
         });
       } else {
+        final existingStatus = doc.data()?['status']?.toString();
+        final shouldPreserveStatus = existingStatus == 'suspended' ||
+            existingStatus == 'banned' ||
+            existingStatus == 'restricted';
+
         await _users.doc(user.uid).set({
           'email': _normalizeEmail(user.email ?? ''),
           'firstName': user.displayName?.split(' ').first ?? '',
           'lastName': user.displayName?.split(' ').skip(1).join(' ') ?? '',
           'fullName': user.displayName ?? '',
           'photoUrl': user.photoURL ?? '',
-          'status': 'verified',
+          if (!shouldPreserveStatus) 'status': 'verified',
           'authProvider': 'google',
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
