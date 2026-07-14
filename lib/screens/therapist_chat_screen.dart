@@ -3231,7 +3231,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                           return PopScope(
                                             canPop: false,
                                             onPopInvokedWithResult: (didPop, _) {
-                                              // Handled programmatically or via Cancel button
+                                              // Handled programmatically or via Close button
                                             },
                                             child: AlertDialog(
                                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -3256,7 +3256,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                     'Instructions:\n'
                                                     '• After a successful payment, you will be automatically redirected back to the app and your subscription will be activated.\n'
                                                     '• If you cancel the payment or return without completing the transaction, you will be redirected back to the app\'s home screen and no subscription will be created.\n'
-                                                    '• If you do not wish to continue, you can tap Cancel below to stop the process before the checkout page opens.',
+                                                    '• If you do not wish to continue, you can tap Close below to stop the process before the checkout page opens.',
                                                     style: TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.4),
                                                     textAlign: TextAlign.left,
                                                   ),
@@ -3268,12 +3268,10 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                     setState(() {
                                                       _isCheckoutCancelled = true;
                                                     });
-                                                    if (dialogContext != null) {
-                                                      Navigator.pop(dialogContext!);
-                                                    }
+                                                    Navigator.pop(dialogCtx);
                                                   },
                                                   style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
-                                                  child: const Text('Cancel'),
+                                                  child: const Text('Close'),
                                                 ),
                                               ],
                                             ),

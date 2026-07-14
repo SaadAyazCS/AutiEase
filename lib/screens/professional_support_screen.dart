@@ -651,7 +651,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
     _activeCheckoutTherapistId = therapist.id;
     _isCheckoutCancelled = false;
 
-    // Show a dismissible checkout dialog with a Cancel button
+    // Show a dismissible checkout dialog with a Close button
     BuildContext? dialogContext;
     if (mounted) {
       showDialog<void>(
@@ -660,9 +660,9 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
         builder: (BuildContext dialogCtx) {
           dialogContext = dialogCtx;
           return PopScope(
-            canPop: false, // Prevent accidental dismiss — only Cancel button or payment result should close
+            canPop: false, // Prevent accidental dismiss — only Close button or payment result should close
             onPopInvokedWithResult: (didPop, _) {
-              // Handled programmatically or via Cancel button
+              // Handled programmatically or via Close button
             },
             child: AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -687,7 +687,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                     'Instructions:\n'
                     '• After a successful payment, you will be automatically redirected back to the app and your subscription will be activated.\n'
                     '• If you cancel the payment or return without completing the transaction, you will be redirected back to the app\'s home screen and no subscription will be created.\n'
-                    '• If you do not wish to continue, you can tap Cancel below to stop the process before the checkout page opens.',
+                    '• If you do not wish to continue, you can tap Close below to stop the process before the checkout page opens.',
                     style: TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.4),
                     textAlign: TextAlign.left,
                   ),
@@ -699,12 +699,10 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
                     setState(() {
                       _isCheckoutCancelled = true;
                     });
-                    if (dialogContext != null) {
-                      Navigator.pop(dialogContext!);
-                    }
+                    Navigator.pop(dialogCtx);
                   },
                   style: TextButton.styleFrom(foregroundColor: AppColors.errorRed),
-                  child: const Text('Cancel'),
+                  child: const Text('Close'),
                 ),
               ],
             ),
@@ -2285,11 +2283,9 @@ class SupportTherapistDetailsScreenState
     });
 
     try {
-      // 1. Cancel existing subscription silently (keep and lock chats to preserve history)
-      await AppRepositories.billing.cancelSubscriptionInStore(
-        widget.therapist.id,
-        keepAndLockChats: true,
-      );
+      // 1. We no longer cancel the subscription upfront before redirection. If the user cancels the redirection
+      // or closes the dialog, the existing active subscription should not be modified, and other packages remain locked.
+      // If the purchase is successful, the subscription document is overwritten by the new active purchase.
 
       // 2. Open checkout for the new package via widget.onSubscribe
       if (mounted) {
