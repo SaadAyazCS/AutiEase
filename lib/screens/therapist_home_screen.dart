@@ -5033,33 +5033,6 @@ class _TherapistProfileSettingsScreenState
     super.dispose();
   }
 
-  bool _isPackageAssociatedWithSpecialization(String pkgTitle, String spec) {
-    final cleanTitle = pkgTitle.trim().toLowerCase();
-    final cleanSpec = spec.trim().toLowerCase();
-    if (cleanTitle.contains(cleanSpec) || cleanSpec.contains(cleanTitle)) {
-      return true;
-    }
-    final regExp = RegExp(r'\(([^)]+)\)');
-    final match = regExp.firstMatch(cleanSpec);
-    if (match != null) {
-      final abbreviation = match.group(1)!.trim().toLowerCase();
-      if (cleanTitle.contains(abbreviation)) {
-        return true;
-      }
-    }
-    final words = cleanSpec
-        .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), ' ')
-        .split(RegExp(r'\s+'))
-        .where((w) => w.length >= 3 && w != 'and' && w != 'for' && w != 'with')
-        .toList();
-    for (final word in words) {
-      if (cleanTitle.contains(word)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   Future<void> _openPricing() async {
     // Validate first section before allowing navigation to pricing
     if (_first.text.trim().isEmpty) {
@@ -5143,30 +5116,11 @@ class _TherapistProfileSettingsScreenState
       return s;
     }).where((s) => s.isNotEmpty).toList();
 
-    // Check if therapist has deselected/removed any specialization that has an associated package
-    final oldSpecs = widget.profile.specializations;
-    final removedSpecs = oldSpecs.where((os) => !finalSpecs.any((ns) => ns.trim().toLowerCase() == os.trim().toLowerCase())).toList();
-    for (final removedSpec in removedSpecs) {
-      final isAssociated = widget.initialPackages.any((pkg) {
-        return _isPackageAssociatedWithSpecialization(pkg.title, removedSpec);
-      });
-      if (isAssociated) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('To remove "$removedSpec", you must first remove the package associated with it in Service Packages.'),
-            backgroundColor: const Color(0xFFEF4444),
-          ),
-        );
-        return;
-      }
-    }
-
     if (finalSpecs.length < widget.initialPackages.length) {
-      final firstRemoved = removedSpecs.isNotEmpty ? removedSpecs.first : 'this specialization';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('To remove "$firstRemoved", you must first remove the package associated with it in Service Packages.'),
-          backgroundColor: const Color(0xFFEF4444),
+        const SnackBar(
+          content: Text('To remove specialization, firstly remove the package associated with it then you can remove specialization.'),
+          backgroundColor: Color(0xFFEF4444),
         ),
       );
       return;
