@@ -18,6 +18,22 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
   bool _submitting = false;
   List<TherapyPackage> _packages = [];
   bool _loadingPackages = true;
+  final Map<String, String> _parentNamesCache = {};
+
+  Future<String> _getParentName(String parentId) async {
+    if (parentId.isEmpty) return 'Parent';
+    if (_parentNamesCache.containsKey(parentId)) {
+      return _parentNamesCache[parentId]!;
+    }
+    try {
+      final profile = await AppRepositories.users.getUserProfile(parentId);
+      final name = profile?.fullName ?? 'Parent';
+      _parentNamesCache[parentId] = name;
+      return name;
+    } catch (_) {
+      return 'Parent';
+    }
+  }
 
   @override
   void initState() {
@@ -570,9 +586,15 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
                       const SizedBox(height: 12),
                       const Divider(),
                       const SizedBox(height: 8),
-                      Text(
-                        'Client: ${slot.bookedForChildName ?? 'Child Profile'}',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF334155)),
+                      FutureBuilder<String>(
+                        future: _getParentName(slot.bookedByParentId ?? ''),
+                        builder: (context, snap) {
+                          final parentName = snap.data ?? 'Loading...';
+                          return Text(
+                            'Client: $parentName',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF334155)),
+                          );
+                        },
                       ),
                       if (slot.notes != null && slot.notes!.isNotEmpty) ...[
                         const SizedBox(height: 4),
