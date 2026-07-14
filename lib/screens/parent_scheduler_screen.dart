@@ -32,12 +32,53 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
   List<TherapyPackage> _packages = [];
   bool _loadingPackages = true;
   UserProfile? _parentProfile;
+  UserSubscription? _activeSubscription;
+  bool _loadingSubscription = true;
 
   @override
   void initState() {
     super.initState();
-    _loadTherapistPackages();
+    _loadTherapistPackages().then((_) {
+      _loadActiveSubscription();
+    });
     _loadParentProfile();
+  }
+
+  Future<void> _loadActiveSubscription() async {
+    try {
+      final sub = await AppRepositories.billing.getSubscriptionForTherapist(widget.therapistId);
+      if (mounted) {
+        setState(() {
+          _activeSubscription = sub;
+          _loadingSubscription = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _loadingSubscription = false);
+      }
+    }
+  }
+
+  String? _getActivePackageTitle(UserSubscription? sub) {
+    if (sub == null || !sub.isActive) return null;
+    if (sub.subscribedPackageSnapshot != null) {
+      return sub.subscribedPackageSnapshot!.title;
+    }
+    final prodId = sub.productId;
+    if (prodId.startsWith('auto_${widget.therapistId}_')) {
+      final parts = prodId.split('_');
+      if (parts.length >= 3) {
+        final idx = int.tryParse(parts.last);
+        if (idx != null && idx >= 0 && idx < _packages.length) {
+          return _packages[idx].title;
+        }
+      }
+    }
+    if (_packages.isNotEmpty) {
+      return _packages.first.title;
+    }
+    return null;
   }
 
   Future<void> _loadParentProfile() async {
@@ -255,7 +296,7 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
       body: StreamBuilder<List<AppointmentSlot>>(
         stream: AppRepositories.support.watchSlotsForTherapist(widget.therapistId),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState == ConnectionState.waiting || _loadingSubscription || _loadingPackages) {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
@@ -465,10 +506,28 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
             );
           }
 
+          final activePkgTitle = _getActivePackageTitle(_activeSubscription);
+          
           final slots = allSlots
-              .where((slot) => slot.status == 'available' &&
-                               slot.dateTime.isAfter(DateTime.now()) &&
-                               (slot.assignedToParentId == null || slot.assignedToParentId == widget.parentId))
+              .where((slot) {
+                // 1. Basic availability checks
+                if (slot.status != 'available') return false;
+                if (!slot.dateTime.isAfter(DateTime.now())) return false;
+                if (slot.assignedToParentId != null && slot.assignedToParentId != widget.parentId) return false;
+                
+                // 2. Package matching checks (only filter if parent has an active subscription)
+                if (activePkgTitle != null) {
+                  final slotPkgTitle = slot.packageTitle;
+                  if (slotPkgTitle != null && slotPkgTitle.trim().isNotEmpty) {
+                    // It is a package-specific slot, so it must match the parent's subscribed package title
+                    return slotPkgTitle.trim().toLowerCase() == activePkgTitle.trim().toLowerCase();
+                  }
+                  // General slots (where slot.packageTitle is null or empty) are always visible
+                  return true;
+                }
+                
+                return true;
+              })
               .toList();
 
           if (slots.isEmpty) {
