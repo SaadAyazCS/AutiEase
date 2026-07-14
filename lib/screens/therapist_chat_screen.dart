@@ -3301,7 +3301,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                           });
                                         }
                                       if (_isCheckoutCancelled) {
-                                        AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
+                                        await AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
                                         if (mounted) {
                                           if (_isPaymentFailed) {
                                             messenger.showSnackBar(
@@ -3331,7 +3331,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                           );
                                         }
                                       } else {
-                                        AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
+                                        await AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
                                         if (mounted) {
                                           messenger.showSnackBar(
                                             const SnackBar(
@@ -3354,7 +3354,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                            }
                                          });
                                        }
-                                      AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
+                                      await AppRepositories.billing.deletePendingSubscription(widget.thread.therapistId);
                                       if (mounted) {
                                         messenger.showSnackBar(
                                           SnackBar(

@@ -732,7 +732,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
 
       if (_isCheckoutCancelled) {
         // User dismissed — clean up the pending subscription silently
-        AppRepositories.billing.deletePendingSubscription(therapist.id);
+        await AppRepositories.billing.deletePendingSubscription(therapist.id);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -782,7 +782,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
         return true;
       } else {
         // Payment timed out or failed — clean up pending record so user can retry
-        AppRepositories.billing.deletePendingSubscription(therapist.id);
+        await AppRepositories.billing.deletePendingSubscription(therapist.id);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -807,7 +807,7 @@ class _ProfessionalSupportScreenState extends State<ProfessionalSupportScreen> w
         });
       }
       // Clean up any pending subscription created before the error
-      AppRepositories.billing.deletePendingSubscription(therapist.id);
+      await AppRepositories.billing.deletePendingSubscription(therapist.id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
