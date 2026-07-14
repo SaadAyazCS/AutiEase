@@ -808,14 +808,18 @@ class FirebaseService {
         await _auth.signOut();
         return {
           'success': false,
-          'message': 'Your account has been suspended. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.',
+          'message': userRole == 'therapist'
+              ? 'Your account has been suspended. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.'
+              : 'Your account has been suspended. Please contact support at autieasefyp@gmail.com if you think this is a mistake.',
         };
       }
       if (status == 'banned') {
         await _auth.signOut();
         return {
           'success': false,
-          'message': 'Your account has been banned. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.',
+          'message': userRole == 'therapist'
+              ? 'Your account has been banned. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.'
+              : 'Your account has been banned. Please contact support at autieasefyp@gmail.com if you think this is a mistake.',
         };
       }
 
@@ -1000,18 +1004,23 @@ class FirebaseService {
       final doc = await _users.doc(user.uid).get();
       if (doc.exists) {
         final status = (doc.data()?['status'] ?? '').toString();
+        final userRole = (doc.data()?['role'] ?? '').toString();
         if (status == 'suspended') {
           await _auth.signOut();
           return {
             'success': false,
-            'message': 'Your account has been suspended. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.',
+            'message': userRole == 'therapist'
+                ? 'Your account has been suspended. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.'
+                : 'Your account has been suspended. Please contact support at autieasefyp@gmail.com if you think this is a mistake.',
           };
         }
         if (status == 'banned') {
           await _auth.signOut();
           return {
             'success': false,
-            'message': 'Your account has been banned. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.',
+            'message': userRole == 'therapist'
+                ? 'Your account has been banned. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.'
+                : 'Your account has been banned. Please contact support at autieasefyp@gmail.com if you think this is a mistake.',
           };
         }
       }
