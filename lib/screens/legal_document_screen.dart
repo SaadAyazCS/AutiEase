@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../models/app_models.dart';
-import '../repositories/app_repositories.dart';
 import '../widgets/figma_module_scaffold.dart';
 
 class LegalDocumentScreen extends StatelessWidget {
@@ -42,74 +40,55 @@ class LegalDocumentScreen extends StatelessWidget {
     return FigmaModuleScaffold(
       title: documentId == 'privacy-policy' ? 'Privacy Policy' : 'Terms & Conditions',
       onBack: () => Navigator.pop(context),
-      child: FutureBuilder<LegalDocument?>(
-        future: AppRepositories.content.getLegalDocument(audience, documentId),
-        builder: (context, snapshot) {
-          // Only use Firestore data if it has a body that is substantially
-          // longer than our hardcoded version (meaning admin updated it).
-          final doc = snapshot.data;
-          final firestoreBodyLonger = doc != null &&
-              doc.body.trim().length > canonicalBody.length + 200;
-
-          final String title = firestoreBodyLonger
-              ? doc.title.trim().isNotEmpty
-                  ? doc.title.trim()
-                  : canonicalTitle
-              : canonicalTitle;
-          final String body =
-              firestoreBodyLonger ? doc.body : canonicalBody;
-
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(8, 6, 8, 170),
-            children: [
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(22),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
-                      blurRadius: 10,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(8, 6, 8, 170),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 10,
+                  offset: const Offset(0, 6),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF16243F),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Version 1.0 — July 2026',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFF526482),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      body,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        height: 1.6,
-                        color: Color(0xFF1B2A45),
-                      ),
-                    ),
-                  ],
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  canonicalTitle,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF16243F),
+                  ),
                 ),
-              ),
-            ],
-          );
-        },
+                const SizedBox(height: 8),
+                const Text(
+                  'Version 1.0 — July 2026',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF526482),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  canonicalBody,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    height: 1.6,
+                    color: Color(0xFF1B2A45),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
