@@ -114,119 +114,86 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
     setState(() => _submitting = false);
 
     final TherapyPackage? activePackage = sub?.subscribedPackageSnapshot;
+    if (activePackage == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You can only request custom slots for packages you are currently subscribed to.'),
+            backgroundColor: Color(0xFFDC2626),
+          ),
+        );
+      }
+      return;
+    }
+
     TherapyPackage? chosenPackage;
 
-    if (activePackage != null) {
-      if (!mounted) return;
-      final confirmPkg = await showDialog<bool>(
-        context: context,
-        builder: (ctx) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text('Confirm Package Slot Request', style: TextStyle(fontWeight: FontWeight.bold)),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('You are requesting a custom slot for your subscribed package:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Text(
-                    activePackage.title,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
-                  ),
+    if (!mounted) return;
+    final confirmPkg = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Confirm Package Slot Request', style: TextStyle(fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('You are requesting a custom slot for your subscribed package:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'Duration: ${activePackage.durationMinutes} mins | Sessions: ${activePackage.sessionsPerWeek}/week',
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
+                child: Text(
+                  activePackage.title,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
                 ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
               ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488), foregroundColor: Colors.white),
-                child: const Text('Submit Request'),
+              const SizedBox(height: 6),
+              Text(
+                'Duration: ${activePackage.durationMinutes} mins | Sessions: ${activePackage.sessionsPerWeek}/week',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
               ),
             ],
-          );
-        },
-      );
-      if (confirmPkg == true) {
-        chosenPackage = activePackage;
-      }
-    } else {
-      if (!mounted) return;
-      chosenPackage = await showDialog<TherapyPackage>(
-        context: context,
-        builder: (ctx) {
-          TherapyPackage? selectedPkg = _packages.first;
-          return StatefulBuilder(
-            builder: (context, setDialogState) {
-              return AlertDialog(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                title: const Text('Select Therapy Package'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Choose the package you wish to request a slot for:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<TherapyPackage>(
-                      initialValue: selectedPkg,
-                      decoration: InputDecoration(
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      ),
-                      items: _packages.map((pkg) {
-                        return DropdownMenuItem<TherapyPackage>(
-                          value: pkg,
-                          child: Text(pkg.title, style: const TextStyle(fontSize: 13)),
-                        );
-                      }).toList(),
-                      onChanged: (val) {
-                        setDialogState(() {
-                          selectedPkg = val;
-                        });
-                      },
-                    ),
-                  ],
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
-                  ),
-                  ElevatedButton(
-                    onPressed: () => Navigator.pop(ctx, selectedPkg),
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488), foregroundColor: Colors.white),
-                    child: const Text('Submit Request'),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      );
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488), foregroundColor: Colors.white),
+              child: const Text('Submit Request'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmPkg == true) {
+      chosenPackage = activePackage;
     }
 
     if (chosenPackage == null) return;
 
     setState(() => _submitting = true);
     try {
-      final parentName = _parentProfile?.fullName ?? (widget.childName.isNotEmpty ? '${widget.childName}\'s Parent' : 'Parent Profile');
+      if (_parentProfile == null) {
+        try {
+          _parentProfile = await AppRepositories.users.getUserProfile(widget.parentId);
+        } catch (_) {}
+      }
+      final parentName = (_parentProfile?.fullName.isNotEmpty == true)
+          ? _parentProfile!.fullName
+          : (FirebaseAuth.instance.currentUser?.displayName?.isNotEmpty == true
+              ? FirebaseAuth.instance.currentUser!.displayName!
+              : (widget.childName.isNotEmpty ? '${widget.childName}\'s Parent' : 'Parent Profile'));
       await AppRepositories.support.createSlotRequest(
         parentId: widget.parentId,
         parentName: parentName,

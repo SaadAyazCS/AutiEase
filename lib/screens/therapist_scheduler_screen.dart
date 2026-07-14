@@ -107,8 +107,20 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) {
-        TherapyPackage? localSelectedPkg = selectedPackage;
-        final durationController = TextEditingController(text: '${localSelectedPkg?.durationMinutes ?? 60}');
+        final matchingPkg = prefillRequest != null
+            ? _packages.firstWhere(
+                (p) => p.title.trim().toLowerCase() == prefillRequest.packageTitle.trim().toLowerCase(),
+                orElse: () => TherapyPackage(
+                  title: prefillRequest.packageTitle,
+                  price: 0,
+                  durationMinutes: 60,
+                  sessionsPerWeek: 1,
+                  description: '',
+                ),
+              )
+            : selectedPackage;
+        TherapyPackage? localSelectedPkg = prefillRequest != null ? matchingPkg : selectedPackage;
+        final durationController = TextEditingController(text: '${matchingPkg?.durationMinutes ?? 60}');
 
         return StatefulBuilder(
           builder: (context, setDialogState) {
@@ -143,17 +155,25 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
                         contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                       ),
                       hint: const Text('None (General Slot)'),
-                      items: _packages.map((pkg) {
-                        return DropdownMenuItem<TherapyPackage>(
-                          value: pkg,
-                          child: Text(pkg.title, style: const TextStyle(fontSize: 13)),
-                        );
-                      }).toList(),
+                      items: [
+                        const DropdownMenuItem<TherapyPackage>(
+                          value: null,
+                          child: Text('General Slot (No Package)', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                        ),
+                        ..._packages.map((pkg) {
+                          return DropdownMenuItem<TherapyPackage>(
+                            value: pkg,
+                            child: Text(pkg.title, style: const TextStyle(fontSize: 13)),
+                          );
+                        }),
+                      ],
                       onChanged: (val) {
                         setDialogState(() {
                           localSelectedPkg = val;
                           if (val != null) {
                             durationController.text = '${val.durationMinutes}';
+                          } else {
+                            durationController.text = '60';
                           }
                         });
                       },
@@ -232,6 +252,18 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
           'timestamp': FieldValue.serverTimestamp(),
           'navigationTarget': {'route': 'ProfessionalSupport'},
         });
+
+        // Send active push/system notification
+        try {
+          await AppRepositories.support.sendNotification(
+            userId: prefillRequest.parentId,
+            title: 'Custom Slot Request Approved',
+            message: 'Your slot request for "${prefillRequest.packageTitle}" has been approved and created.',
+            category: 'messages',
+          );
+        } catch (e) {
+          debugPrint('Error sending push notification for slot approval: $e');
+        }
       }
 
       if (mounted) {

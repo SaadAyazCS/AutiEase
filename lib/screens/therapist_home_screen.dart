@@ -694,6 +694,36 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
     if (uid == null) {
       return;
     }
+
+    final oldTitles = _packages.map((p) => p.title.trim().toLowerCase()).toSet();
+    final newTitles = packages.map((p) => p.title.trim().toLowerCase()).toSet();
+    final deletedTitles = oldTitles.difference(newTitles);
+
+    if (deletedTitles.isNotEmpty) {
+      try {
+        final slotsSnapshot = await FirebaseFirestore.instance
+            .collection('appointment_slots')
+            .where('therapistId', isEqualTo: uid)
+            .where('status', isEqualTo: 'available')
+            .get();
+
+        final batch = FirebaseFirestore.instance.batch();
+        bool hasDeletions = false;
+        for (final doc in slotsSnapshot.docs) {
+          final slotData = doc.data();
+          final slotPkgTitle = (slotData['packageTitle'] ?? '').toString().trim().toLowerCase();
+          if (slotPkgTitle.isNotEmpty && deletedTitles.contains(slotPkgTitle)) {
+            batch.delete(doc.reference);
+            hasDeletions = true;
+          }
+        }
+        if (hasDeletions) {
+          await batch.commit();
+        }
+      } catch (e) {
+        debugPrint('Error deleting slots for deleted packages: $e');
+      }
+    }
     final firstName = profile.displayName.trim().split(' ').first;
     final lastNameParts = profile.displayName.trim().split(' ')..removeAt(0);
     final lastName = lastNameParts.join(' ').trim();
