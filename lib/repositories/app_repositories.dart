@@ -1957,6 +1957,7 @@ class FirebaseSupportRepository implements SupportRepository {
     );
     await reviewRef.set({
       ...review.toMap(),
+      'isReadByAdmin': false,
       'createdAt': FieldValue.serverTimestamp(),
     });
 

@@ -1171,6 +1171,7 @@ class FirebaseService {
       'name': name,
       'email': email,
       'feedback': feedback,
+      'isReadByAdmin': false,
       'createdAt': FieldValue.serverTimestamp(),
     });
   }

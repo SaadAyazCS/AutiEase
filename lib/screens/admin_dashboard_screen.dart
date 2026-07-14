@@ -119,17 +119,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     // Subscribe to unread feedback count for badge
     _feedbackSubscription = FirebaseFirestore.instance
         .collection('feedback')
-        .where('isReadByAdmin', isEqualTo: false)
         .snapshots()
         .listen((snap) {
-      if (mounted) setState(() => _updateFeedbackBadge(snap.docs.length, null));
+      final unreadCount = snap.docs.where((doc) => doc.data()['isReadByAdmin'] != true).length;
+      if (mounted) setState(() => _updateFeedbackBadge(unreadCount, null));
     });
     _feedbackReviewsSubscription = FirebaseFirestore.instance
         .collection('therapist_reviews')
-        .where('isReadByAdmin', isEqualTo: false)
         .snapshots()
         .listen((snap) {
-      if (mounted) setState(() => _updateFeedbackBadge(null, snap.docs.length));
+      final unreadCount = snap.docs.where((doc) => doc.data()['isReadByAdmin'] != true).length;
+      if (mounted) setState(() => _updateFeedbackBadge(null, unreadCount));
     });
 
     // Mark feedback as read when admin visits the Feedback tab
