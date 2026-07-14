@@ -810,7 +810,7 @@ class FirebaseService {
           'success': false,
           'message': userRole == 'therapist'
               ? 'Your account has been suspended. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.'
-              : 'Your account has been suspended. Please contact support at autieasefyp@gmail.com if you think this is a mistake.',
+              : 'Your account has been suspended. Please contact support at autieasefyp@gmail.com if you think this is a mistake or for further assistance.',
         };
       }
       if (status == 'banned') {
@@ -819,7 +819,7 @@ class FirebaseService {
           'success': false,
           'message': userRole == 'therapist'
               ? 'Your account has been banned. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.'
-              : 'Your account has been banned. Please contact support at autieasefyp@gmail.com if you think this is a mistake.',
+              : 'Your account has been banned. Please contact support at autieasefyp@gmail.com if you think this is a mistake or for further assistance.',
         };
       }
 
@@ -1011,7 +1011,7 @@ class FirebaseService {
             'success': false,
             'message': userRole == 'therapist'
                 ? 'Your account has been suspended. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.'
-                : 'Your account has been suspended. Please contact support at autieasefyp@gmail.com if you think this is a mistake.',
+                : 'Your account has been suspended. Please contact support at autieasefyp@gmail.com if you think this is a mistake or for further assistance.',
           };
         }
         if (status == 'banned') {
@@ -1020,7 +1020,7 @@ class FirebaseService {
             'success': false,
             'message': userRole == 'therapist'
                 ? 'Your account has been banned. If there is any money in your wallet, it has been frozen. Please contact support at autieasefyp@gmail.com for further assistance.'
-                : 'Your account has been banned. Please contact support at autieasefyp@gmail.com if you think this is a mistake.',
+                : 'Your account has been banned. Please contact support at autieasefyp@gmail.com if you think this is a mistake or for further assistance.',
           };
         }
       }
