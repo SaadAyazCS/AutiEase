@@ -3323,46 +3323,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             // Bottom Action buttons
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close_rounded, size: 16),
-                      label: const Text('Close'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF64748B),
-                        side: const BorderSide(color: Color(0xFFE2E8F0)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                    ),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded, size: 16),
+                  label: const Text('Close'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF64748B),
+                    side: const BorderSide(color: Color(0xFFE2E8F0)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
-                  if (userEmail.isNotEmpty) ...[
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () async {
-                          final uri = Uri(
-                            scheme: 'mailto',
-                            path: userEmail,
-                            queryParameters: {'subject': 'Regarding your AutiEase feedback'},
-                          );
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(uri);
-                          }
-                        },
-                        icon: const Icon(Icons.mail_outline_rounded, size: 16),
-                        label: const Text('Email'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: typeColor,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
+                ),
               ),
             ),
           ],
