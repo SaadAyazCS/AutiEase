@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 
@@ -249,28 +248,13 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
 
         final msg = 'Your custom slot request for "${prefillRequest.packageTitle}" has been approved by Therapist $therapistName. Please look into the scheduler section where your custom slot is highlighted in teal. You can now tap to book it.';
 
-        // Write notification to Firestore for the requesting parent
-        await FirebaseFirestore.instance.collection('notifications').add({
-          'userId': prefillRequest.parentId,
-          'title': '✅ Custom Slot Request Approved',
-          'message': msg,
-          'category': 'scheduler',
-          'isRead': false,
-          'timestamp': FieldValue.serverTimestamp(),
-          'navigationTarget': {
-            'route': 'ParentScheduler',
-            'therapistId': widget.therapistId,
-            'therapistName': therapistName,
-          },
-        });
-
-        // Send active push/system notification
+        // Send notification (writes to Firestore and triggers push/system notification)
         try {
           await AppRepositories.support.sendNotification(
             userId: prefillRequest.parentId,
-            title: 'Custom Slot Request Approved',
+            title: '✅ Custom Slot Request Approved',
             message: msg,
-            category: 'messages',
+            category: 'scheduler',
             navigationTarget: {
               'route': 'ParentScheduler',
               'therapistId': widget.therapistId,
@@ -278,7 +262,7 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
             },
           );
         } catch (e) {
-          debugPrint('Error sending push notification for slot approval: $e');
+          debugPrint('Error sending notification for slot approval: $e');
         }
       }
 
@@ -350,20 +334,9 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
 
       final reason = reasonController.text.trim();
       await AppRepositories.support.declineSlotRequest(request.id, reason);
-
-      // Write notification to Firestore for the requesting parent
-      await FirebaseFirestore.instance.collection('notifications').add({
-        'userId': request.parentId,
-        'title': '❌ Custom Slot Request Declined',
-        'message': 'Therapist $therapistName has declined your request for a custom slot. Reason: $reason',
-        'category': 'messages',
-        'timestamp': FieldValue.serverTimestamp(),
-        'isRead': false,
-      });
-
       await AppRepositories.support.sendNotification(
         userId: request.parentId,
-        title: 'Custom Slot Request Declined',
+        title: '❌ Custom Slot Request Declined',
         message: 'Therapist $therapistName has declined your request for a custom slot. Reason: $reason',
         category: 'messages',
       );
