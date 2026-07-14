@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -4700,24 +4701,32 @@ class FirebaseAdminRepository implements AdminRepository {
     required String email,
     required String password,
   }) async {
-    // Create via Cloud Function to avoid sign-out of current admin session
+    // Create via a temporary secondary FirebaseApp instance to avoid signing out the current admin session.
+    // This allows creating new accounts directly from the client without requiring a Blaze plan for Cloud Functions.
+    FirebaseApp? tempApp;
     try {
-      final functions = FirebaseFunctions.instance;
-      final result = await functions.httpsCallable('createSecondaryAdmin').call({
-        'name': name,
-        'email': email,
-        'password': password,
-      });
-      final uid = (result.data as Map?)?['uid']?.toString() ?? '';
-      if (uid.isEmpty) throw StateError('Cloud Function did not return a UID');
+      final appName = 'TempSecondaryAdminApp_${DateTime.now().millisecondsSinceEpoch}';
+      tempApp = await Firebase.initializeApp(
+        name: appName,
+        options: Firebase.app().options,
+      );
+      
+      final tempAuth = FirebaseAuth.instanceFor(app: tempApp);
+      final creds = await tempAuth.createUserWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
+      
+      final uid = creds.user?.uid ?? '';
+      if (uid.isEmpty) throw StateError('Firebase Auth registration did not return a UID');
 
-      // Write user doc with role: admin
+      // Write user doc with role: admin using the main Firestore instance
       await _firestore.collection(FirestoreCollections.users).doc(uid).set({
         'uid': uid,
-        'email': email,
-        'firstName': name,
+        'email': email.trim(),
+        'firstName': name.trim(),
         'lastName': '',
-        'fullName': name,
+        'fullName': name.trim(),
         'role': 'admin',
         'status': 'active',
         'isPrimaryAdmin': false,
@@ -4736,8 +4745,16 @@ class FirebaseAdminRepository implements AdminRepository {
         'timestamp': FieldValue.serverTimestamp(),
       });
     } catch (e) {
-      debugPrint('createSecondaryAdmin: $e');
+      debugPrint('createSecondaryAdmin client-side failed: $e');
       rethrow;
+    } finally {
+      if (tempApp != null) {
+        try {
+          await tempApp.delete();
+        } catch (e) {
+          debugPrint('Failed to delete temporary secondary app: $e');
+        }
+      }
     }
   }
 

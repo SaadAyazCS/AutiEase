@@ -10,15 +10,23 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return signedIn() && userDoc().role == 'admin';
+      return signedIn() && (
+        request.auth.token.email == 'admin@autiease.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         userDoc().role == 'admin')
+      );
     }
 
     function isParent() {
-      return signedIn() && userDoc().role == 'parent';
+      return signedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        userDoc().role == 'parent';
     }
 
     function isTherapist() {
-      return signedIn() && userDoc().role == 'therapist';
+      return signedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        userDoc().role == 'therapist';
     }
 
     // ownsChild: used for reads and writes where child_profiles already exist
