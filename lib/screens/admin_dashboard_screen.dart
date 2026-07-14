@@ -132,14 +132,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       if (mounted) setState(() => _updateFeedbackBadge(null, unreadCount));
     });
 
-    // Mark feedback as read when admin visits the Feedback tab
-    _tabController.addListener(() {
-      final feedbackTabIndex = _tabs.indexOf('Feedback');
-      if (_tabController.index == feedbackTabIndex && !_tabController.indexIsChanging) {
-        AppRepositories.admin.markAllFeedbackAsRead();
-        setState(() => _unreadFeedbackCount = 0);
-      }
-    });
   }
 
   int _feedbackCount = 0;
@@ -3010,7 +3002,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           itemBuilder: (context, index) {
             final fb = list[index];
             final isAppFeedback = fb['type'] == 'app_feedback';
-            final isUnread = !(fb['isReadByAdmin'] ?? true);
+            final isUnread = fb['isReadByAdmin'] != true;
             final date = fb['timestamp'] as DateTime;
             final userName = fb['userName']?.toString() ?? 'Unknown';
             final userRole = fb['userRole']?.toString() ?? 'parent';
@@ -3177,6 +3169,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   }
 
   void _showFeedbackDetailDialog(Map<String, dynamic> fb) {
+    final docId = fb['id']?.toString() ?? '';
+    final type = fb['type']?.toString() ?? '';
+    if (docId.isNotEmpty && type.isNotEmpty) {
+      final collectionName = type == 'app_feedback' ? 'feedback' : 'therapist_reviews';
+      FirebaseFirestore.instance
+          .collection(collectionName)
+          .doc(docId)
+          .update({'isReadByAdmin': true}).then((_) {
+        if (mounted) {
+          setState(() {});
+        }
+      }).catchError((_) {});
+    }
+
     final isAppFeedback = fb['type'] == 'app_feedback';
     final userName = fb['userName']?.toString() ?? 'Unknown';
     final userEmail = fb['userEmail']?.toString() ?? '';
