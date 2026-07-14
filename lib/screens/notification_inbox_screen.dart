@@ -8,6 +8,7 @@ import '../navigation/child_mode_lock_controller.dart';
 import '../widgets/child_mode_lock_widgets.dart';
 import 'notification_settings_screen.dart';
 import 'therapist_chat_screen.dart';
+import 'parent_scheduler_screen.dart';
 
 class NotificationInboxScreen extends StatefulWidget {
   const NotificationInboxScreen({super.key});
@@ -228,6 +229,38 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> with 
               ),
             ),
           );
+        }
+      } catch (_) {}
+    } else if (route == 'ParentScheduler' && target['therapistId'] != null) {
+      final therapistId = target['therapistId'].toString();
+      final therapistName = target['therapistName']?.toString() ?? 'Therapist';
+      final parentId = item.userId;
+      
+      try {
+        final children = await AppRepositories.users.getChildrenForParent(parentId);
+        if (children.isNotEmpty && mounted) {
+          final firstChild = children.first;
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ParentSchedulerScreen(
+                therapistId: therapistId,
+                therapistName: therapistName,
+                parentId: parentId,
+                childId: firstChild.id,
+                childName: firstChild.name,
+              ),
+            ),
+          );
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Please create a child profile first from the settings section.'),
+                backgroundColor: Color(0xFFEF4444),
+              ),
+            );
+          }
         }
       } catch (_) {}
     }

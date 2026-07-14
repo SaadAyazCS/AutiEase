@@ -242,15 +242,26 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
       if (prefillRequest != null) {
         await AppRepositories.support.markSlotRequestAsCreated(prefillRequest.id);
         
+        final therapistProfile = await AppRepositories.support.getTherapistById(widget.therapistId);
+        final therapistName = therapistProfile?.displayName.isNotEmpty == true
+            ? therapistProfile!.displayName
+            : 'Therapist';
+
+        final msg = 'Your custom slot request for "${prefillRequest.packageTitle}" has been approved by Therapist $therapistName. Please look into the scheduler section where your custom slot is highlighted in teal. You can now tap to book it.';
+
         // Write notification to Firestore for the requesting parent
         await FirebaseFirestore.instance.collection('notifications').add({
           'userId': prefillRequest.parentId,
           'title': '✅ Custom Slot Request Approved',
-          'message': 'Your custom slot request for "${prefillRequest.packageTitle}" has been approved and created for ${prefillRequest.preferredDateTime.day}/${prefillRequest.preferredDateTime.month}/${prefillRequest.preferredDateTime.year} at ${prefillRequest.preferredDateTime.hour.toString().padLeft(2, '0')}:${prefillRequest.preferredDateTime.minute.toString().padLeft(2, '0')}. You can now book this slot.',
+          'message': msg,
           'category': 'scheduler',
           'isRead': false,
           'timestamp': FieldValue.serverTimestamp(),
-          'navigationTarget': {'route': 'ProfessionalSupport'},
+          'navigationTarget': {
+            'route': 'ParentScheduler',
+            'therapistId': widget.therapistId,
+            'therapistName': therapistName,
+          },
         });
 
         // Send active push/system notification
@@ -258,8 +269,13 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
           await AppRepositories.support.sendNotification(
             userId: prefillRequest.parentId,
             title: 'Custom Slot Request Approved',
-            message: 'Your slot request for "${prefillRequest.packageTitle}" has been approved and created.',
+            message: msg,
             category: 'messages',
+            navigationTarget: {
+              'route': 'ParentScheduler',
+              'therapistId': widget.therapistId,
+              'therapistName': therapistName,
+            },
           );
         } catch (e) {
           debugPrint('Error sending push notification for slot approval: $e');
