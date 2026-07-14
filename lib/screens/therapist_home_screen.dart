@@ -5399,6 +5399,15 @@ class _TherapistProfileSettingsScreenState
       if (mounted) {
         Navigator.pop(context, true);
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceAll('Bad state: ', '').replaceAll('StateError: ', '')),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _saving = false);
