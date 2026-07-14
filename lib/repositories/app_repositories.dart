@@ -3305,6 +3305,58 @@ class FirebaseBillingRepository implements BillingRepository {
     return userId;
   }
 
+  Map<String, dynamic> _makeMapEncodable(Map<String, dynamic> map) {
+    return map.map((key, value) {
+      if (value is Timestamp) {
+        return MapEntry(key, {'_type': 'Timestamp', 'value': value.millisecondsSinceEpoch});
+      } else if (value is DateTime) {
+        return MapEntry(key, {'_type': 'DateTime', 'value': value.millisecondsSinceEpoch});
+      } else if (value is Map<String, dynamic>) {
+        return MapEntry(key, _makeMapEncodable(value));
+      } else if (value is List) {
+        final encodableList = value.map((item) {
+          if (item is Timestamp) {
+            return {'_type': 'Timestamp', 'value': item.millisecondsSinceEpoch};
+          } else if (item is DateTime) {
+            return {'_type': 'DateTime', 'value': item.millisecondsSinceEpoch};
+          } else if (item is Map<String, dynamic>) {
+            return _makeMapEncodable(item);
+          }
+          return item;
+        }).toList();
+        return MapEntry(key, encodableList);
+      }
+      return MapEntry(key, value);
+    });
+  }
+
+  Map<String, dynamic> _restoreEncodableMap(Map<String, dynamic> map) {
+    return map.map((key, value) {
+      if (value is Map<String, dynamic>) {
+        if (value['_type'] == 'Timestamp') {
+          return MapEntry(key, Timestamp.fromMillisecondsSinceEpoch(value['value'] as int));
+        } else if (value['_type'] == 'DateTime') {
+          return MapEntry(key, DateTime.fromMillisecondsSinceEpoch(value['value'] as int));
+        }
+        return MapEntry(key, _restoreEncodableMap(value));
+      } else if (value is List) {
+        final restoredList = value.map((item) {
+          if (item is Map<String, dynamic>) {
+            if (item['_type'] == 'Timestamp') {
+              return Timestamp.fromMillisecondsSinceEpoch(item['value'] as int);
+            } else if (item['_type'] == 'DateTime') {
+              return DateTime.fromMillisecondsSinceEpoch(item['value'] as int);
+            }
+            return _restoreEncodableMap(item);
+          }
+          return item;
+        }).toList();
+        return MapEntry(key, restoredList);
+      }
+      return MapEntry(key, value);
+    });
+  }
+
   Future<String> _resolveProductIdForTherapist(String therapistId, {int packageIndex = 0}) async {
     final therapistSnapshot = await _firestore
         .collection(FirestoreCollections.therapistProfiles)
@@ -3647,7 +3699,7 @@ class FirebaseBillingRepository implements BillingRepository {
         final isActive = doc.data()?['isActive'] == true;
         if (isActive) {
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('backup_sub_$docId', jsonEncode(doc.data()));
+          await prefs.setString('backup_sub_$docId', jsonEncode(_makeMapEncodable(doc.data()!)));
           debugPrint('Backed up active subscription $docId before plan switch');
         }
       }
@@ -3729,7 +3781,7 @@ class FirebaseBillingRepository implements BillingRepository {
       
       if (backupStr != null) {
         final backupData = jsonDecode(backupStr) as Map<String, dynamic>;
-        await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set(backupData);
+        await _firestore.collection(FirestoreCollections.subscriptions).doc(docId).set(_restoreEncodableMap(backupData));
         await prefs.remove('backup_sub_$docId');
         debugPrint('Successfully restored backup active subscription $docId on user cancellation request');
         return;
