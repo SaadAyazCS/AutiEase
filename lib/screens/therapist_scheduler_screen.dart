@@ -246,13 +246,13 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
             ? therapistProfile!.displayName
             : 'Therapist';
 
-        final msg = 'Your custom slot request for "${prefillRequest.packageTitle}" has been approved by Therapist $therapistName. Please look into the scheduler section where your custom slot is highlighted in teal. You can now tap to book it.';
+        final msg = 'Therapist $therapistName has approved your request and created the custom slot for "${prefillRequest.packageTitle}". Please look into the scheduler section where your custom slot is highlighted in teal. You can now tap to book it.';
 
         // Send notification (writes to Firestore and triggers push/system notification)
         try {
           await AppRepositories.support.sendNotification(
             userId: prefillRequest.parentId,
-            title: '✅ Custom Slot Request Approved',
+            title: '✅ Custom Slot Created',
             message: msg,
             category: 'scheduler',
             navigationTarget: {
