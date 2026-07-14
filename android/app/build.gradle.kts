@@ -26,7 +26,7 @@ android {
 
     packaging {
         jniLibs {
-            keepDebugSymbols.add("**/*.so")
+            doNotStrip("**/*.so")
         }
     }
 
@@ -72,6 +72,11 @@ android {
             }
             isMinifyEnabled = false
             isShrinkResources = false
+            packaging {
+                jniLibs {
+                    doNotStrip("**/*.so")
+                }
+            }
         }
     }
 }
