@@ -24,6 +24,12 @@ android {
     compileSdk = 36
     ndkVersion = "28.2.13676358"
 
+    packaging {
+        jniLibs {
+            keepDebugSymbols.add("**/*.so")
+        }
+    }
+
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
