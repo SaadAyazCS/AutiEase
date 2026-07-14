@@ -24,11 +24,7 @@ android {
     compileSdk = 36
     ndkVersion = "28.2.13676358"
 
-    packaging {
-        jniLibs {
-            doNotStrip("**/*.so")
-        }
-    }
+
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
@@ -72,11 +68,7 @@ android {
             }
             isMinifyEnabled = false
             isShrinkResources = false
-            packaging {
-                jniLibs {
-                    doNotStrip("**/*.so")
-                }
-            }
+
         }
     }
 }
@@ -91,10 +83,4 @@ dependencies {
 
 flutter {
     source = "../.."
-}
-
-tasks.configureEach {
-    if (name.contains("strip", ignoreCase = true) && name.contains("symbols", ignoreCase = true)) {
-        setEnabled(false)
-    }
 }
