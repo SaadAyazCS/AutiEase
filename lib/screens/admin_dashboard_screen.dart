@@ -4990,22 +4990,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                             if (ctx.mounted) Navigator.pop(ctx);
                             if (context.mounted) Navigator.pop(context); // Close therapist details dialog too
                             
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Manual payout registered. Wallet balance has been reset to 0.'),
-                                backgroundColor: Color(0xFF059669),
-                              ),
-                            );
+                             if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Manual payout registered. Wallet balance has been reset to 0.'),
+                                  backgroundColor: Color(0xFF059669),
+                                ),
+                              );
+                            }
                           } catch (e) {
                             setDialogState(() {
                               isSaving = false;
                             });
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Payout error: $e'),
-                                backgroundColor: const Color(0xFFDC2626),
-                              ),
-                            );
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Payout error: $e'),
+                                  backgroundColor: const Color(0xFFDC2626),
+                                ),
+                              );
+                            }
                           }
                         },
                   style: ElevatedButton.styleFrom(
@@ -6611,23 +6615,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                               password: password,
                             );
                             if (ctx.mounted) Navigator.pop(ctx);
-                            setState(() {}); // reload admins list tab
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Secondary administrator created successfully.'),
-                                backgroundColor: Color(0xFF059669),
-                              ),
-                            );
+                             setState(() {}); // reload admins list tab
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Secondary administrator created successfully.'),
+                                  backgroundColor: Color(0xFF059669),
+                                ),
+                              );
+                            }
                           } catch (e) {
                             setDialogState(() {
                               isSaving = false;
                             });
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Failed to create admin: $e'),
-                                backgroundColor: const Color(0xFFDC2626),
-                              ),
-                            );
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Failed to create admin: $e'),
+                                  backgroundColor: const Color(0xFFDC2626),
+                                ),
+                              );
+                            }
                           }
                         },
                   style: ElevatedButton.styleFrom(
@@ -6645,6 +6653,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   }
 
   Future<void> _confirmDeleteAdmin(BuildContext context, UserProfile admin) async {
+    final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) {
@@ -6681,8 +6690,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     );
 
     if (confirmed != true) return;
-
-    final messenger = ScaffoldMessenger.of(context);
     try {
       await AppRepositories.admin.deleteSecondaryAdmin(admin.uid);
       setState(() {});
