@@ -1317,7 +1317,43 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 color: Colors.transparent,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(12),
-                  onTap: () => _showProfileUpdateReviewDialog(doc.id, oldProfile, newProfile, changedFields),
+                  onTap: () async {
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (ctx) => const Center(
+                        child: CircularProgressIndicator(color: Color(0xFF11B5CF)),
+                      ),
+                    );
+                    try {
+                      final oldMediaSnap = await doc.reference.collection('media').doc('old').get();
+                      final newMediaSnap = await doc.reference.collection('media').doc('new').get();
+
+                      final oldMedia = oldMediaSnap.data() ?? {};
+                      final newMedia = newMediaSnap.data() ?? {};
+
+                      final oldWithMedia = oldProfile.copyWith(
+                        photoUrlBase64: oldMedia['photoUrlBase64']?.toString() ?? '',
+                        certificateBase64: oldMedia['certificateBase64']?.toString() ?? '',
+                      );
+                      final newWithMedia = newProfile.copyWith(
+                        photoUrlBase64: newMedia['photoUrlBase64']?.toString() ?? '',
+                        certificateBase64: newMedia['certificateBase64']?.toString() ?? '',
+                      );
+
+                      if (context.mounted) {
+                        Navigator.pop(context); // Pop loading dialog
+                        _showProfileUpdateReviewDialog(doc.id, oldWithMedia, newWithMedia, changedFields);
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        Navigator.pop(context); // Pop loading dialog
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to load profile update media: $e')),
+                        );
+                      }
+                    }
+                  },
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Row(

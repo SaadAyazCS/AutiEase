@@ -5383,21 +5383,35 @@ class _TherapistProfileSettingsScreenState
             .limit(1)
             .get();
 
+        final mainOldProfile = widget.profile.toMap()..remove('photoUrlBase64')..remove('certificateBase64');
+        final mainNewProfile = updated.toMap()..remove('photoUrlBase64')..remove('certificateBase64');
+
         final updateData = {
           'therapistId': widget.profile.id,
           'displayName': updated.displayName,
           'timestamp': FieldValue.serverTimestamp(),
           'status': 'pending_acknowledgment',
           'changedFields': updatedUnacknowledgedChangesFields,
-          'oldProfile': widget.profile.toMap(),
-          'newProfile': updated.toMap(),
+          'oldProfile': mainOldProfile,
+          'newProfile': mainNewProfile,
         };
 
+        DocumentReference updateDocRef;
         if (querySnap.docs.isNotEmpty) {
-          await querySnap.docs.first.reference.set(updateData, SetOptions(merge: true));
+          updateDocRef = querySnap.docs.first.reference;
+          await updateDocRef.set(updateData, SetOptions(merge: true));
         } else {
-          await FirebaseFirestore.instance.collection('therapist_profile_updates').add(updateData);
+          updateDocRef = await FirebaseFirestore.instance.collection('therapist_profile_updates').add(updateData);
         }
+
+        await updateDocRef.collection('media').doc('old').set({
+          'photoUrlBase64': widget.profile.photoUrlBase64,
+          'certificateBase64': widget.profile.certificateBase64,
+        });
+        await updateDocRef.collection('media').doc('new').set({
+          'photoUrlBase64': updated.photoUrlBase64,
+          'certificateBase64': updated.certificateBase64,
+        });
       }
 
       if (mounted) {

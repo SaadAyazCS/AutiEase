@@ -150,6 +150,11 @@ service cloud.firestore {
         isAdmin()
       );
       allow delete: if isAdmin();
+
+      match /media/{mediaId} {
+        allow read: if signedIn();
+        allow write: if signedIn();
+      }
     }
 
     match /content_categories/{document=**} {
