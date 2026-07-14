@@ -3284,72 +3284,84 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 ],
               ),
             ),
-            // Body
+            // Scrollable body containing Message and Send Message field
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Message',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Text(
+                        body.isNotEmpty ? body : '(No message)',
+                        style: const TextStyle(fontSize: 13.5, color: Color(0xFF374151), height: 1.5),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    _dialogSectionHeader(Icons.send_rounded, 'Send Message'),
+                    const SizedBox(height: 10),
+                    _AdminMessageSender(
+                      recipientId: fb['userId'] ?? '',
+                      recipientType: userRole.trim().toLowerCase() == 'therapist' ? 'Therapist' : 'Parent',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // Bottom Action buttons
             Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              child: Row(
                 children: [
-                  const Text(
-                    'Message',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                    ),
-                    child: Text(
-                      body.isNotEmpty ? body : '(No message)',
-                      style: const TextStyle(fontSize: 13.5, color: Color(0xFF374151), height: 1.5),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded, size: 16),
+                      label: const Text('Close'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF64748B),
+                        side: const BorderSide(color: Color(0xFFE2E8F0)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close_rounded, size: 16),
-                          label: const Text('Close'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF64748B),
-                            side: const BorderSide(color: Color(0xFFE2E8F0)),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
+                  if (userEmail.isNotEmpty) ...[
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () async {
+                          final uri = Uri(
+                            scheme: 'mailto',
+                            path: userEmail,
+                            queryParameters: {'subject': 'Regarding your AutiEase feedback'},
+                          );
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri);
+                          }
+                        },
+                        icon: const Icon(Icons.mail_outline_rounded, size: 16),
+                        label: const Text('Email'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: typeColor,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
                       ),
-                      if (userEmail.isNotEmpty) ...[
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: () async {
-                              final uri = Uri(
-                                scheme: 'mailto',
-                                path: userEmail,
-                                queryParameters: {'subject': 'Regarding your AutiEase feedback'},
-                              );
-                              if (await canLaunchUrl(uri)) {
-                                await launchUrl(uri);
-                              }
-                            },
-                            icon: const Icon(Icons.mail_outline_rounded, size: 16),
-                            label: const Text('Message'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: typeColor,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+                    ),
+                  ],
                 ],
               ),
             ),
