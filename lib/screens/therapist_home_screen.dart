@@ -5161,6 +5161,17 @@ class _TherapistProfileSettingsScreenState
       }
     }
 
+    if (finalSpecs.length < widget.initialPackages.length) {
+      final firstRemoved = removedSpecs.isNotEmpty ? removedSpecs.first : 'this specialization';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('To remove "$firstRemoved", you must first remove the package associated with it in Service Packages.'),
+          backgroundColor: const Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
+
     // First section is valid, proceed to pricing
     final updated = await Navigator.push<List<TherapyPackage>>(
       context,
