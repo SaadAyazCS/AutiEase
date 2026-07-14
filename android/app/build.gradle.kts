@@ -92,3 +92,9 @@ dependencies {
 flutter {
     source = "../.."
 }
+
+tasks.configureEach {
+    if (name.contains("strip", ignoreCase = true) && name.contains("symbols", ignoreCase = true)) {
+        setEnabled(false)
+    }
+}
