@@ -554,6 +554,15 @@ class FirebaseAuthRepository implements AuthRepository {
 
     final profile = UserProfile.fromMap(doc.id, doc.data()!);
 
+    // ── Block banned / suspended users on session resume ─────────────
+    // This is the primary enforcement: even if the Cloud Function to
+    // disable Auth failed, the user is signed out here on every app open.
+    if (profile.status == 'banned' || profile.status == 'suspended') {
+      await _auth.signOut();
+      return const AppSession(state: AppSessionState.unauthenticated);
+    }
+    // ──────────────────────────────────────────────────────────────────
+
     // ── Auto-promote predefined admin emails ──────────────────────────
     // If the user's email matches a predefined admin email, automatically
     // set their Firestore role to 'admin' so they don't need manual setup.
@@ -578,9 +587,10 @@ class FirebaseAuthRepository implements AuthRepository {
       );
     }
 
-    final isAdminEmail = _adminEmails.contains(email);
+    // Skip email verification for all admin-role users (primary + secondary)
+    final isAdminUser = _adminEmails.contains(email) || profile.role == 'admin';
 
-    if (!isAdminEmail && requiresEmailVerification(
+    if (!isAdminUser && requiresEmailVerification(
       isGoogleUser: isGoogleUser,
       isEmailVerified: user.emailVerified,
     )) {

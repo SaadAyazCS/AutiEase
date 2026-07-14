@@ -770,13 +770,16 @@ class FirebaseService {
         return {'success': false, 'message': 'Login failed'};
       }
 
-      // Skip email verification for predefined admin emails
+      // Skip email verification for all admin users (primary email OR admin role)
       final isAdminEmail = _adminCredentials.containsKey(
         user.email?.toLowerCase().trim() ?? '',
       );
 
       final userDoc = await _users.doc(user.uid).get();
       final data = userDoc.data() ?? <String, dynamic>{};
+
+      final userRole = (data['role'] ?? '').toString();
+      final isAdminUser = isAdminEmail || userRole == 'admin';
 
       final status = (data['status'] ?? '').toString();
       if (status == 'suspended') {
@@ -794,7 +797,7 @@ class FirebaseService {
         };
       }
 
-      if (!isAdminEmail) {
+      if (!isAdminUser) {
         final isVerified = await _isCurrentUserEmailVerified();
         final isGoogleUser = user.providerData.any(
           (provider) => provider.providerId == 'google.com',
