@@ -3309,13 +3309,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         style: const TextStyle(fontSize: 13.5, color: Color(0xFF374151), height: 1.5),
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    _dialogSectionHeader(Icons.send_rounded, 'Send Message'),
-                    const SizedBox(height: 10),
-                    _AdminMessageSender(
-                      recipientId: fb['userId'] ?? '',
-                      recipientType: userRole.trim().toLowerCase() == 'therapist' ? 'Therapist' : 'Parent',
-                    ),
+                    if (fb['userId'] != null && fb['userId'].toString().trim().isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      _dialogSectionHeader(Icons.send_rounded, 'Send Message'),
+                      const SizedBox(height: 10),
+                      _AdminMessageSender(
+                        recipientId: fb['userId'] ?? '',
+                        recipientType: userRole.trim().toLowerCase() == 'therapist' ? 'Therapist' : 'Parent',
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Anonymous Feedback (No registered user)',
+                        style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0xFF94A3B8)),
+                      ),
+                    ],
                   ],
                 ),
               ),

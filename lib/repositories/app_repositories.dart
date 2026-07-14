@@ -4449,7 +4449,7 @@ class FirebaseAdminRepository implements AdminRepository {
         'type': 'app_feedback',
         'title': 'App Feedback',
         'userId': uid,
-        'userName': resolved?['name'] ?? data['email'] ?? uid,
+        'userName': resolved?['name'] ?? data['name'] ?? data['email'] ?? uid,
         'userEmail': resolved?['email'] ?? data['email'] ?? '',
         'userRole': resolved?['role'] ?? data['role'] ?? 'parent',
         'body': data['body'] ?? data['feedback'] ?? '',
