@@ -5033,6 +5033,33 @@ class _TherapistProfileSettingsScreenState
     super.dispose();
   }
 
+  bool _isPackageAssociatedWithSpecialization(String pkgTitle, String spec) {
+    final cleanTitle = pkgTitle.trim().toLowerCase();
+    final cleanSpec = spec.trim().toLowerCase();
+    if (cleanTitle.contains(cleanSpec) || cleanSpec.contains(cleanTitle)) {
+      return true;
+    }
+    final regExp = RegExp(r'\(([^)]+)\)');
+    final match = regExp.firstMatch(cleanSpec);
+    if (match != null) {
+      final abbreviation = match.group(1)!.trim().toLowerCase();
+      if (cleanTitle.contains(abbreviation)) {
+        return true;
+      }
+    }
+    final words = cleanSpec
+        .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), ' ')
+        .split(RegExp(r'\s+'))
+        .where((w) => w.length >= 3 && w != 'and' && w != 'for' && w != 'with')
+        .toList();
+    for (final word in words) {
+      if (cleanTitle.contains(word)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<void> _openPricing() async {
     // Validate first section before allowing navigation to pricing
     if (_first.text.trim().isEmpty) {
@@ -5121,9 +5148,7 @@ class _TherapistProfileSettingsScreenState
     final removedSpecs = oldSpecs.where((os) => !finalSpecs.any((ns) => ns.trim().toLowerCase() == os.trim().toLowerCase())).toList();
     for (final removedSpec in removedSpecs) {
       final isAssociated = widget.initialPackages.any((pkg) {
-        final cleanTitle = pkg.title.trim().toLowerCase();
-        final cleanSpec = removedSpec.trim().toLowerCase();
-        return cleanTitle.contains(cleanSpec) || cleanSpec.contains(cleanTitle);
+        return _isPackageAssociatedWithSpecialization(pkg.title, removedSpec);
       });
       if (isAssociated) {
         ScaffoldMessenger.of(context).showSnackBar(
