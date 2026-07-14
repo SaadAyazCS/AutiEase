@@ -1261,6 +1261,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           .where('status', isEqualTo: 'pending_review')
           .snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(child: Text('Error loading updates: ${snapshot.error}', style: const TextStyle(color: Colors.red)));
+        }
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
