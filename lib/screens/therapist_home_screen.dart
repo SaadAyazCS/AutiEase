@@ -5149,6 +5149,20 @@ class _TherapistProfileSettingsScreenState
     if (_saving) {
       return;
     }
+    final finalSpecs = _selected.map((s) {
+      if (s == 'Others') return _otherSpecialization.text.trim();
+      return s;
+    }).where((s) => s.isNotEmpty).toList();
+
+    if (finalSpecs.length < packages.length) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('To remove specialization, firstly remove the package associated with it then you can remove specialization.'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
     if (_first.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter your first name.')),
