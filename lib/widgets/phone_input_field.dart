@@ -226,63 +226,25 @@ class _CountryDropdown extends StatelessWidget {
   Widget build(BuildContext context) {
     final r = context.responsive;
 
-    return PopupMenuButton<PhoneCountry>(
-      initialValue: selected,
-      onSelected: onChanged,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: r.w(14),
+        vertical: r.h(14),
       ),
-      itemBuilder: (_) => kSupportedCountries
-          .map(
-            (c) => PopupMenuItem<PhoneCountry>(
-              value: c,
-              child: Row(
-                children: [
-                  Text(c.flag, style: const TextStyle(fontSize: 20)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      c.name,
-                      style: const TextStyle(fontSize: 14),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    c.dialCode,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF4EA9E3),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(selected.flag, style: const TextStyle(fontSize: 18)),
+          const SizedBox(width: 6),
+          Text(
+            selected.dialCode,
+            style: TextStyle(
+              fontSize: r.sp(13, min: 11, max: 15),
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF1A2543),
             ),
-          )
-          .toList(),
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: r.w(10),
-          vertical: r.h(14),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(selected.flag, style: const TextStyle(fontSize: 18)),
-            const SizedBox(width: 4),
-            Text(
-              selected.dialCode,
-              style: TextStyle(
-                fontSize: r.sp(13, min: 11, max: 15),
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF1A2543),
-              ),
-            ),
-            const SizedBox(width: 2),
-            const Icon(Icons.arrow_drop_down, size: 18, color: Color(0xFF888888)),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
