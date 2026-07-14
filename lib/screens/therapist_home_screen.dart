@@ -6816,10 +6816,11 @@ class _TherapistPackagesScreenState extends State<TherapistPackagesScreen> {
       }
     }
     final initial = index == null ? null : _packages[index];
+    final bool isSubscribed = index != null && _activePackageIndices.contains(index);
     final pkg = await showDialog<TherapyPackage>(
       context: context,
       barrierColor: Colors.black45,
-      builder: (_) => _PackageEditor(initial: initial),
+      builder: (_) => _PackageEditor(initial: initial, isSubscribed: isSubscribed),
     );
     if (pkg == null) {
       return;
@@ -7344,9 +7345,10 @@ class _PackageTile extends StatelessWidget {
 }
 
 class _PackageEditor extends StatefulWidget {
-  const _PackageEditor({this.initial});
+  const _PackageEditor({this.initial, this.isSubscribed = false});
 
   final TherapyPackage? initial;
+  final bool isSubscribed;
 
   @override
   State<_PackageEditor> createState() => _PackageEditorState();
@@ -7447,7 +7449,7 @@ class _PackageEditorState extends State<_PackageEditor> {
       return;
     }
 
-    if (widget.initial != null) {
+    if (widget.initial != null && widget.isSubscribed) {
       showDialog<bool>(
         context: context,
         builder: (ctx) {
