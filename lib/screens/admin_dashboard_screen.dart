@@ -3025,33 +3025,35 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             return GestureDetector(
               onTap: () => _showFeedbackDetailDialog(fb),
               child: Container(
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: isUnread ? const Color(0xFFF0FDF4) : Colors.white,
-                  borderRadius: BorderRadius.circular(14),
+                  color: isUnread ? const Color(0xFFEFF6FF) : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: isUnread ? const Color(0xFF86EFAC) : const Color(0xFFE2E8F0),
+                    color: isUnread ? const Color(0xFFBFDBFE) : const Color(0xFFE2E8F0),
                     width: isUnread ? 1.5 : 1.0,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 6,
-                      offset: const Offset(0, 3),
+                      color: Colors.black.withValues(alpha: 0.03),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
                     ),
                   ],
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Avatar
                     Stack(
+                      clipBehavior: Clip.none,
                       children: [
                         Container(
                           width: 44,
                           height: 44,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: roleColor.withValues(alpha: 0.12),
+                            color: roleColor.withValues(alpha: 0.10),
                           ),
                           child: Center(
                             child: Text(
@@ -3066,15 +3068,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         ),
                         if (isUnread)
                           Positioned(
-                            top: 0,
-                            right: 0,
+                            top: -1,
+                            right: -1,
                             child: Container(
-                              width: 10,
-                              height: 10,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF22C55E),
+                              width: 11,
+                              height: 11,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981),
                                 shape: BoxShape.circle,
-                                boxShadow: [BoxShadow(color: Colors.white, blurRadius: 2, spreadRadius: 1)],
+                                border: Border.all(color: isUnread ? const Color(0xFFEFF6FF) : Colors.white, width: 2),
                               ),
                             ),
                           ),
@@ -3087,79 +3089,81 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              Expanded(
+                              Flexible(
                                 child: Text(
                                   userName,
                                   style: TextStyle(
-                                    fontWeight: isUnread ? FontWeight.w700 : FontWeight.w600,
-                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14.5,
                                     color: const Color(0xFF1E293B),
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              const SizedBox(width: 6),
+                              const SizedBox(width: 8),
                               // Role badge
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: roleColor.withValues(alpha: 0.10),
-                                  borderRadius: BorderRadius.circular(5),
+                                  color: roleColor.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
                                   userRole.toUpperCase(),
-                                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: roleColor),
+                                  style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w800, color: roleColor, letterSpacing: 0.3),
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 3),
+                          const SizedBox(height: 5),
                           Row(
                             children: [
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: typeColor.withValues(alpha: 0.10),
-                                  borderRadius: BorderRadius.circular(4),
+                                  color: typeColor.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(5),
                                 ),
                                 child: Text(
                                   isAppFeedback ? 'App Feedback' : 'Therapist Review',
-                                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: typeColor),
+                                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: typeColor),
                                 ),
                               ),
                               if (!isAppFeedback && therapistName != null) ...[
-                                const SizedBox(width: 5),
+                                const SizedBox(width: 6),
                                 Expanded(
                                   child: Text(
                                     '→ $therapistName',
-                                    style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+                                    style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                               ],
                             ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 8),
                           Text(
                             body,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12, color: Color(0xFF475569), height: 1.35),
+                            style: const TextStyle(fontSize: 13, color: Color(0xFF475569), height: 1.4),
                           ),
                         ],
                       ),
                     ),
-                    // Date
+                    const SizedBox(width: 12),
+                    // Date & Chevron
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
                           _getRelativeTime(date),
-                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10),
+                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5, fontWeight: FontWeight.w500),
                         ),
-                        const SizedBox(height: 4),
-                        const Icon(Icons.chevron_right_rounded, color: Color(0xFFCBD5E1), size: 18),
+                        const SizedBox(height: 12),
+                        const Icon(Icons.chevron_right_rounded, color: Color(0xFFCBD5E1), size: 20),
                       ],
                     ),
                   ],
