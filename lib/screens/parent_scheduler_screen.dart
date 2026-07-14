@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/app_models.dart';
 import '../repositories/app_repositories.dart';
 import '../services/notification_service.dart';
@@ -200,6 +201,24 @@ class _ParentSchedulerScreenState extends State<ParentSchedulerScreen> {
         therapistId: widget.therapistId,
         packageTitle: chosenPackage.title,
         preferredDateTime: preferredDateTime,
+      );
+      final timeStr = "${preferredDateTime.day}/${preferredDateTime.month}/${preferredDateTime.year} at ${preferredDateTime.hour.toString().padLeft(2, '0')}:${preferredDateTime.minute.toString().padLeft(2, '0')}";
+      
+      // Write notification to Firestore for the therapist
+      await FirebaseFirestore.instance.collection('notifications').add({
+        'userId': widget.therapistId,
+        'title': '📩 New Custom Slot Request',
+        'message': 'Parent $parentName has requested a custom slot for package "${chosenPackage.title}" at $timeStr.',
+        'category': 'messages',
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+      });
+
+      await AppRepositories.support.sendNotification(
+        userId: widget.therapistId,
+        title: 'New Custom Slot Request',
+        message: 'Parent $parentName has requested a custom slot for package "${chosenPackage.title}" at $timeStr.',
+        category: 'messages',
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

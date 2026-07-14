@@ -327,7 +327,31 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
     if (confirm != true) return;
 
     try {
-      await AppRepositories.support.declineSlotRequest(request.id, reasonController.text.trim());
+      final therapistProfile = await AppRepositories.support.getTherapistById(widget.therapistId);
+      final therapistName = therapistProfile?.displayName.isNotEmpty == true
+          ? therapistProfile!.displayName
+          : 'Therapist';
+
+      final reason = reasonController.text.trim();
+      await AppRepositories.support.declineSlotRequest(request.id, reason);
+
+      // Write notification to Firestore for the requesting parent
+      await FirebaseFirestore.instance.collection('notifications').add({
+        'userId': request.parentId,
+        'title': '❌ Custom Slot Request Declined',
+        'message': 'Therapist $therapistName has declined your request for a custom slot. Reason: $reason',
+        'category': 'messages',
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+      });
+
+      await AppRepositories.support.sendNotification(
+        userId: request.parentId,
+        title: 'Custom Slot Request Declined',
+        message: 'Therapist $therapistName has declined your request for a custom slot. Reason: $reason',
+        category: 'messages',
+      );
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Request declined successfully.'), backgroundColor: Color(0xFFEF4444)),
@@ -352,13 +376,52 @@ class _TherapistSchedulerScreenState extends State<TherapistSchedulerScreen> {
           title: const Text('Manage Appointments'),
           backgroundColor: const Color(0xFF0D9488),
           foregroundColor: Colors.white,
-          bottom: const TabBar(
+          bottom: TabBar(
             labelColor: Colors.white,
-            unselectedLabelColor: Color(0xFFB2DFDB),
+            unselectedLabelColor: const Color(0xFFB2DFDB),
             indicatorColor: Colors.white,
             tabs: [
-              Tab(icon: Icon(Icons.schedule_rounded), text: 'Availability Slots'),
-              Tab(icon: Icon(Icons.mail_outline_rounded), text: 'Slot Requests'),
+              const Tab(icon: Icon(Icons.schedule_rounded), text: 'Availability Slots'),
+              Tab(
+                child: StreamBuilder<List<SlotRequest>>(
+                  stream: AppRepositories.support.watchSlotRequestsForTherapist(widget.therapistId),
+                  builder: (context, snapshot) {
+                    final requests = snapshot.data ?? [];
+                    final pendingCount = requests.where((r) => r.status == 'pending').length;
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.mail_outline_rounded),
+                        const SizedBox(width: 8),
+                        const Text('Slot Requests'),
+                        if (pendingCount > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.red,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 16,
+                              minHeight: 16,
+                            ),
+                            child: Text(
+                              '$pendingCount',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ),
             ],
           ),
         ),
