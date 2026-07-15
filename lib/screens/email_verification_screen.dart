@@ -286,7 +286,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                             children: [
                               SizedBox(height: r.h(10)),
                               // Logo at the top
-                              const LogoWidget(size: 150),
+                              const LogoWidget(size: 120),
                               
                               Expanded(
                                 child: Column(
@@ -331,7 +331,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
-                      color: Color.fromARGB(255, 0, 0, 0),
+                      color: AppColors.primaryBlue,
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -343,49 +343,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                   ),
                   const SizedBox(height: 40),
 
-                  Container(
-                    width: double.infinity,
-                    height: 55,
-                    decoration: BoxDecoration(
-                      color: AppColors.white,
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(
-                        color: AppColors.primaryBlue.withValues(alpha: 0.25),
-                      ),
-                    ),
-                    child: ElevatedButton(
-                      onPressed:
-                          _isCheckingVerification ? null : _continueAfterVerification,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        shadowColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: _isCheckingVerification
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: AppColors.primaryBlue,
-                              ),
-                            )
-                          : const Text(
-                              "I've Verified My Email",
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.primaryBlue,
-                              ),
-                            ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Go to Login Button
+                  // I've Verified My Email Button
                   Container(
                     width: double.infinity,
                     height: 55,
@@ -405,6 +363,49 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                       ],
                     ),
                     child: ElevatedButton(
+                      onPressed:
+                          _isCheckingVerification ? null : _continueAfterVerification,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: _isCheckingVerification
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text(
+                              "I've Verified My Email",
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.white,
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Go to Login Button
+                  Container(
+                    width: double.infinity,
+                    height: 55,
+                    decoration: BoxDecoration(
+                      color: AppColors.white,
+                      borderRadius: BorderRadius.circular(30),
+                      border: Border.all(
+                        color: AppColors.primaryBlue.withValues(alpha: 0.25),
+                      ),
+                    ),
+                    child: ElevatedButton(
                       onPressed: _goToLogin,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.transparent,
@@ -419,7 +420,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: AppColors.white,
+                          color: AppColors.primaryBlue,
                         ),
                       ),
                     ),
