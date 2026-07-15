@@ -63,7 +63,7 @@ class CustomTextField extends StatelessWidget {
   }
 }
 
-class CustomButton extends StatelessWidget {
+class CustomButton extends StatefulWidget {
   final String text;
   final VoidCallback onPressed;
   final bool isLoading;
@@ -80,24 +80,31 @@ class CustomButton extends StatelessWidget {
   });
 
   @override
+  State<CustomButton> createState() => _CustomButtonState();
+}
+
+class _CustomButtonState extends State<CustomButton> {
+  DateTime? _lastTapTime;
+
+  @override
   Widget build(BuildContext context) {
     final r = context.responsive;
     return Container(
       width: double.infinity,
       height: r.h(55),
       decoration: BoxDecoration(
-        gradient: backgroundColor == null
+        gradient: widget.backgroundColor == null
             ? const LinearGradient(
                 colors: [AppColors.orange, AppColors.orangeDark],
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
               )
             : null,
-        color: backgroundColor,
+        color: widget.backgroundColor,
         borderRadius: BorderRadius.circular(r.w(30)),
         boxShadow: [
           BoxShadow(
-            color: (backgroundColor ?? AppColors.orangeDark).withValues(
+            color: (widget.backgroundColor ?? AppColors.orangeDark).withValues(
               alpha: 0.4,
             ),
             blurRadius: r.w(12),
@@ -106,7 +113,16 @@ class CustomButton extends StatelessWidget {
         ],
       ),
       child: ElevatedButton(
-        onPressed: isLoading ? null : onPressed,
+        onPressed: widget.isLoading
+            ? null
+            : () {
+                final now = DateTime.now();
+                if (_lastTapTime == null ||
+                    now.difference(_lastTapTime!).inMilliseconds > 1000) {
+                  _lastTapTime = now;
+                  widget.onPressed();
+                }
+              },
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
@@ -114,19 +130,19 @@ class CustomButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(r.w(30)),
           ),
         ),
-        child: isLoading
+        child: widget.isLoading
             ? SizedBox(
                 width: r.w(24),
                 height: r.w(24),
-                child: CircularProgressIndicator(
+                child: const CircularProgressIndicator(
                   color: AppColors.white,
                   strokeWidth: 2,
                 ),
               )
             : Text(
-                text,
+                widget.text,
                 style: TextStyle(
-                  color: textColor ?? AppColors.white,
+                  color: widget.textColor ?? AppColors.white,
                   fontSize: r.sp(18, min: 16, max: 20),
                   fontWeight: FontWeight.bold,
                 ),

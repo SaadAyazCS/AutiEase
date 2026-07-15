@@ -29,6 +29,7 @@ class _ChildProfileScreenState extends State<ChildProfileScreen>
   final _nameController = TextEditingController();
   bool _isCommunicationSelected = false;
   bool _isLearningSelected = false;
+  bool _coppaConsent = false;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
@@ -75,6 +76,15 @@ class _ChildProfileScreenState extends State<ChildProfileScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please select at least one support area'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+      return;
+    }
+    if (!_coppaConsent) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please verify parental consent to continue.'),
           backgroundColor: AppColors.errorRed,
         ),
       );
@@ -380,6 +390,40 @@ class _ChildProfileScreenState extends State<ChildProfileScreen>
                           ),
                         ),
                         const SizedBox(height: 40),
+
+                        // COPPA Consent Checkbox
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: Checkbox(
+                                value: _coppaConsent,
+                                onChanged: (value) {
+                                  setState(() => _coppaConsent = value ?? false);
+                                },
+                                activeColor: AppColors.orange,
+                                side: const BorderSide(
+                                  color: AppColors.textGrey,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'I verify that I am the parent or legal guardian of this child and consent to processing their development data under COPPA and Privacy terms.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF2A364E),
+                                  height: 1.35,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 30),
 
                         // Continue Button
                         Container(
