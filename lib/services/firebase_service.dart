@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -41,65 +40,6 @@ class FirebaseService {
   String get _authApiKey => DefaultFirebaseOptions.currentPlatform.apiKey;
 
   String _normalizeEmail(String email) => email.trim().toLowerCase();
-
-  Future<bool?> _hasUserProfileForEmail(String email) async {
-    final normalized = _normalizeEmail(email);
-    if (normalized.isEmpty) {
-      return false;
-    }
-
-    try {
-      final candidates = <String>{normalized, email.trim()};
-
-      for (final candidate in candidates) {
-        if (candidate.isEmpty) {
-          continue;
-        }
-        final snapshot = await _users
-            .where('email', isEqualTo: candidate)
-            .limit(1)
-            .get();
-        if (snapshot.docs.isNotEmpty) {
-          return true;
-        }
-      }
-      return false;
-    } on FirebaseException catch (error) {
-      debugPrint('Profile lookup by email failed: ${error.code}');
-      return null;
-    } catch (error) {
-      debugPrint('Profile lookup by email failed: $error');
-      return null;
-    }
-  }
-
-  Future<bool?> _hasAccountViaFunction(String email) async {
-    final normalized = _normalizeEmail(email);
-    if (normalized.isEmpty) {
-      return false;
-    }
-    try {
-      final callable = FirebaseFunctions.instance.httpsCallable(
-        'checkAccountExistsByEmail',
-      );
-      final result = await callable.call({'email': normalized});
-      final data = result.data;
-      debugPrint('checkAccountExistsByEmail result: $data');
-      if (data is Map) {
-        final exists = data['exists'];
-        if (exists is bool) {
-          return exists;
-        }
-      }
-      return null;
-    } on FirebaseFunctionsException catch (e) {
-      debugPrint('Cloud function lookup by email failed with FirebaseFunctionsException: ${e.code} - ${e.message}');
-      return null;
-    } catch (e) {
-      debugPrint('Cloud function lookup by email failed: $e');
-      return null;
-    }
-  }
 
   String _friendlyAuthMessage(
     FirebaseAuthException error, {
@@ -909,31 +849,19 @@ class FirebaseService {
     }
 
     try {
-      // Known-account gate:
-      // 1) Cloud Function (if available)
-      // 2) Users profile lookup fallback
-      final existsViaFunction = await _hasAccountViaFunction(normalizedEmail);
-      final profileExists = existsViaFunction == null
-          ? await _hasUserProfileForEmail(normalizedEmail)
-          : null;
-      final accountExists = existsViaFunction ?? profileExists;
-      if (accountExists != true) {
-        return {
-          'success': false,
-          'message': 'This email is not registered. Please register first.',
-        };
-      }
-
+      // Security fix: To prevent email enumeration, we do not verify whether the account exists
+      // in our database first. We request Firebase Auth to send the reset email, and return
+      // a generic success message regardless of whether the account is registered.
       await _auth.sendPasswordResetEmail(email: normalizedEmail);
       return {
         'success': true,
-        'message': 'Password reset email sent',
+        'message': 'If that email is registered, a password reset link has been sent.',
       };
     } on FirebaseAuthException catch (error) {
       if (error.code == 'user-not-found') {
         return {
-          'success': false,
-          'message': 'This email is not registered. Please register first.',
+          'success': true,
+          'message': 'If that email is registered, a password reset link has been sent.',
         };
       }
       return {
@@ -944,7 +872,10 @@ class FirebaseService {
         ),
       };
     } catch (error) {
-      return {'success': false, 'message': error.toString()};
+      return {
+        'success': true,
+        'message': 'If that email is registered, a password reset link has been sent.',
+      };
     }
   }
 
