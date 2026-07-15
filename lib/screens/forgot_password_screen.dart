@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../utils/app_colors.dart';
 import '../widgets/wave_background.dart';
 import '../widgets/custom_widgets.dart';
@@ -173,54 +172,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     }
   }
 
-  Future<void> _openEmailApp() async {
-    final emailText = _emailController.text.trim().toLowerCase();
-    String urlString = 'mailto:';
-    
-    if (emailText.endsWith('@gmail.com')) {
-      urlString = 'https://mail.google.com';
-    } else if (emailText.endsWith('@outlook.com') || emailText.endsWith('@hotmail.com') || emailText.endsWith('@live.com')) {
-      urlString = 'https://outlook.live.com';
-    } else if (emailText.endsWith('@yahoo.com')) {
-      urlString = 'https://mail.yahoo.com';
-    }
-    
-    final uri = Uri.parse(urlString);
-    try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        // Fallback to mailto:
-        final mailtoUri = Uri.parse('mailto:');
-        if (await canLaunchUrl(mailtoUri)) {
-          await launchUrl(mailtoUri);
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Could not open email client.'),
-                backgroundColor: AppColors.errorRed,
-              ),
-            );
-          }
-        }
-      }
-    } catch (_) {
-      final mailtoUri = Uri.parse('mailto:');
-      try {
-        await launchUrl(mailtoUri);
-      } catch (_) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Could not open email client.'),
-              backgroundColor: AppColors.errorRed,
-            ),
-          );
-        }
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -510,7 +461,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const SizedBox(height: 120),
+        const SizedBox(height: 20),
+        const LogoWidget(size: 120),
+        const SizedBox(height: 40),
 
         // Success Icon
         FadeTransition(
@@ -529,7 +482,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
             ),
           ),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: 12),
 
         const Text(
           'Email Sent!',
@@ -570,7 +523,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
         ),
         const SizedBox(height: 40),
 
-        // Open Email Inbox Button
+        // Back to Login Button
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 30),
           child: Container(
@@ -592,7 +545,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
               ],
             ),
             child: ElevatedButton(
-              onPressed: _openEmailApp,
+              onPressed: () => Navigator.pop(context),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.transparent,
                 shadowColor: Colors.transparent,
@@ -602,29 +555,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
                 elevation: 0,
               ),
               child: const Text(
-                'Open Email Inbox',
+                'Back to Login',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: AppColors.white,
                 ),
-              ),
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 16),
-
-        // Back to Login Link
-        Center(
-          child: TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Back to Login',
-              style: TextStyle(
-                color: Color(0xFF1A2543),
-                fontWeight: FontWeight.w600,
-                fontSize: 17,
               ),
             ),
           ),
