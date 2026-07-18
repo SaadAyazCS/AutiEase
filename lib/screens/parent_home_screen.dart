@@ -173,7 +173,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
       if (!mounted || hasSeen) {
         return;
       }
-      await Future<void>.delayed(const Duration(milliseconds: 420));
       if (!mounted) {
         return;
       }
@@ -181,12 +180,8 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
         _showCoachmark = true;
         _pulseInfoGlow = true;
       });
-      // Play pulse animation for ~2 seconds (3 forward-reverse cycles)
+      // Play heartbeat pulse animation continuously while coachmark is shown
       _pulseController.repeat(reverse: true);
-      await Future<void>.delayed(const Duration(seconds: 2));
-      if (!mounted) return;
-      _pulseController.stop();
-      _pulseController.animateTo(0);
     } catch (_) {
       // Non-blocking: omit coachmark when Firestore is unavailable.
     }
@@ -344,12 +339,12 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Container(
-            constraints: BoxConstraints(maxWidth: r.w(248)),
+            constraints: BoxConstraints(maxWidth: r.w(275)),
             padding: EdgeInsets.fromLTRB(
-              r.w(14),
+              r.w(16),
+              r.h(16),
+              r.w(16),
               r.h(14),
-              r.w(14),
-              r.h(12),
             ),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
@@ -385,7 +380,7 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
                 Row(
                   children: [
                     Container(
-                      padding: EdgeInsets.all(r.w(5)),
+                      padding: EdgeInsets.all(r.w(6)),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.22),
                         borderRadius: BorderRadius.circular(r.w(8)),
@@ -393,7 +388,7 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
                       child: Icon(
                         Icons.waving_hand_rounded,
                         color: Colors.white,
-                        size: r.sp(17, min: 14, max: 20),
+                        size: r.sp(20, min: 16, max: 24),
                       ),
                     ),
                     SizedBox(width: r.w(8)),
@@ -403,22 +398,22 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
                         style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w800,
-                          fontSize: r.sp(15.5, min: 13, max: 18),
+                          fontSize: r.sp(18, min: 15, max: 22),
                           height: 1.2,
                         ),
                       ),
                     ),
                   ],
                 ),
-                SizedBox(height: r.h(8)),
+                SizedBox(height: r.h(10)),
                 Text(
                   'Tap the circular (i) icon just below Settings to explore '
                   'what each tab does. That opens a step-by-step tour of your '
                   'home—starting with Dashboard, then the other sections.',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.94),
-                    fontSize: r.sp(13, min: 11.5, max: 15),
-                    height: 1.45,
+                    color: Colors.white.withValues(alpha: 0.95),
+                    fontSize: r.sp(14.5, min: 13, max: 18),
+                    height: 1.4,
                   ),
                 ),
                 SizedBox(height: r.h(10)),
@@ -436,7 +431,8 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
                     child: Text(
                       'Maybe later',
                       style: TextStyle(
-                        fontSize: r.sp(12.5),
+                        fontSize: r.sp(14),
+                        fontWeight: FontWeight.w600,
                         decoration: TextDecoration.underline,
                         decorationColor:
                             Colors.white.withValues(alpha: 0.9),
@@ -673,13 +669,13 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
             ),
             if (_showCoachmark)
               Positioned(
-                right: r.w(36),
-                bottom: r.h(88) + r.w(30) + r.h(10),
+                right: r.w(20),
+                bottom: r.h(85) + r.w(44) + r.h(10),
                 child: coachmarkBubble(),
               ),
             Positioned(
-              right: r.w(48),
-              bottom: r.h(90),
+              right: r.w(32),
+              bottom: r.h(85),
               child: ScaleTransition(
                 scale: _pulseAnimation,
                 child: GestureDetector(
@@ -688,41 +684,29 @@ class _ParentHomeScreenState extends State<ParentHomeScreen>
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 500),
                     curve: Curves.easeOutCubic,
-                    width: r.w(30),
-                    height: r.w(30),
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: const Color(0xFFFF6B35),
                       shape: BoxShape.circle,
-                      border: Border.all(
-                        color: const Color(0xFF101010),
-                        width: r.w(1.8),
-                      ),
                       boxShadow: [
-                        if (_pulseInfoGlow) ...[
+                        if (_pulseInfoGlow)
                           BoxShadow(
-                            color: const Color(0xFF4EA9E3).withValues(alpha: 0.55),
-                            blurRadius: r.h(16),
-                            spreadRadius: r.h(1.5),
+                            color: const Color(0xFFFF6B35).withValues(alpha: 0.6),
+                            blurRadius: 20,
+                            spreadRadius: 3,
                           ),
-                          BoxShadow(
-                            color: const Color(0xFF56B9F5).withValues(alpha: 0.35),
-                            blurRadius: r.h(24),
-                            spreadRadius: 0,
-                            offset: Offset(0, r.h(6)),
-                          ),
-                        ],
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.22),
-                          blurRadius: r.h(6),
-                          offset: Offset(0, r.h(3)),
+                          color: Colors.black.withValues(alpha: 0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
                         ),
                       ],
                     ),
                     alignment: Alignment.center,
                     child: Icon(
-                      Icons.info_outline_rounded,
-                      size: r.sp(20, min: 14, max: 22),
-                      color: const Color(0xFF101010),
+                      Icons.info_outline,
+                      size: r.sp(26, min: 20, max: 30),
+                      color: Colors.white,
                     ),
                   ),
                 ),
