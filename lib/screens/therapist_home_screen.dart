@@ -100,6 +100,9 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
       TweenSequenceItem(tween: Tween(begin: 0.08, end: 0.0), weight: 1),
     ]).animate(CurvedAnimation(parent: _bellController, curve: Curves.linear));
 
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkFirstTimeVisit();
+    });
     _loadState();
     _startEmergencyMonitoring();
   }
@@ -452,9 +455,6 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
         // This handles existing users who completed profiles before the flag was added
         await _markInitialProfileCompleted();
       }
-      
-      // Check if it's the first time visiting the home screen
-      await _checkFirstTimeVisit();
     } catch (_) {
       if (mounted) {
         setState(() => _loading = false);
@@ -484,12 +484,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
           _isGlowing = true;
           _isDialogShowing = true; // Show tooltip instantly
         });
-        // Play pulse animation for ~2 seconds (3 forward-reverse cycles)
+        // Play pulse animation continuously while dialog is showing
         _pulseController.repeat(reverse: true);
-        await Future<void>.delayed(const Duration(seconds: 2));
-        if (!mounted) return;
-        _pulseController.stop();
-        _pulseController.animateTo(0);
       } else {
         if (!mounted) return;
         setState(() {
@@ -524,6 +520,10 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
   }
 
   Future<void> _startInfoFlow() async {
+    // Stop pulse heartbeat animation
+    _pulseController.stop();
+    _pulseController.animateTo(0);
+
     // Hide tooltip if showing
     if (_isDialogShowing && mounted) {
       setState(() {
@@ -544,6 +544,14 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
         context,
         MaterialPageRoute(builder: (_) => const TherapistInfoFlowScreen()),
       );
+      if (mounted) {
+        _pulseController.stop();
+        _pulseController.animateTo(0);
+        setState(() {
+          _isGlowing = false;
+          _isDialogShowing = false;
+        });
+      }
     }
   }
 
@@ -1532,7 +1540,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
                   children: [
                     // Tooltip cloud with enhanced design
                     Container(
-                      constraints: BoxConstraints(maxWidth: r.w(220)),
+                      constraints: BoxConstraints(maxWidth: r.w(270)),
                       padding: EdgeInsets.all(r.w(16)),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
@@ -1577,7 +1585,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
                                 child: Icon(
                                   Icons.celebration,
                                   color: Colors.white,
-                                  size: r.sp(16),
+                                  size: r.sp(20, min: 16, max: 24),
                                 ),
                               ),
                               SizedBox(width: r.w(8)),
@@ -1587,7 +1595,7 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w700,
-                                    fontSize: r.sp(14),
+                                    fontSize: r.sp(17, min: 14, max: 22),
                                     shadows: [
                                       Shadow(
                                         color: Colors.black.withValues(alpha: 0.3),
@@ -1604,8 +1612,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen>
                           Text(
                             'Tap this glowing icon to discover your dashboard features and get started!',
                             style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.9),
-                              fontSize: r.sp(12),
+                              color: Colors.white.withValues(alpha: 0.95),
+                              fontSize: r.sp(14.5, min: 12.5, max: 18),
                               height: 1.4,
                               shadows: [
                                 Shadow(
