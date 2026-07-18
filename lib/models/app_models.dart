@@ -1612,6 +1612,8 @@ class TherapistThread {
     // Report tracking — true after the respective side has filed an open report
     this.reportedByParent = false,
     this.reportedByTherapist = false,
+    // True when the therapist deleted their account — chat is locked & read-only for parent
+    this.therapistDeleted = false,
   });
 
   final String id;
@@ -1643,6 +1645,8 @@ class TherapistThread {
   final bool reportedByParent;
   /// True after the therapist has filed an open report on this thread.
   final bool reportedByTherapist;
+  /// True when the therapist deleted their account — chat is locked & read-only for parent.
+  final bool therapistDeleted;
 
   bool get hasOpenEmergency => emergencyStatus == 'requested';
   bool get emergencyResponded => emergencyStatus == 'responded';
@@ -1677,6 +1681,7 @@ class TherapistThread {
       finalReplySentByTherapist: data['finalReplySentByTherapist'] == true,
       reportedByParent: data['reportedByParent'] == true,
       reportedByTherapist: data['reportedByTherapist'] == true,
+      therapistDeleted: data['therapistDeleted'] == true,
     );
   }
 
@@ -1704,6 +1709,7 @@ class TherapistThread {
     bool? finalReplySentByTherapist,
     bool? reportedByParent,
     bool? reportedByTherapist,
+    bool? therapistDeleted,
   }) {
     return TherapistThread(
       id: id,
@@ -1733,6 +1739,7 @@ class TherapistThread {
       finalReplySentByTherapist: finalReplySentByTherapist ?? this.finalReplySentByTherapist,
       reportedByParent: reportedByParent ?? this.reportedByParent,
       reportedByTherapist: reportedByTherapist ?? this.reportedByTherapist,
+      therapistDeleted: therapistDeleted ?? this.therapistDeleted,
     );
   }
 
@@ -1760,6 +1767,7 @@ class TherapistThread {
       'finalReplySentByTherapist': finalReplySentByTherapist,
       'reportedByParent': reportedByParent,
       'reportedByTherapist': reportedByTherapist,
+      'therapistDeleted': therapistDeleted,
     };
   }
 }

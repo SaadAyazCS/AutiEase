@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -5316,6 +5316,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         final parentName = _userNames[sub.userId] ?? 'Unknown Parent';
                         final parentEmail = _userEmails[sub.userId] ?? '';
                         final therapistName = _therapistNames[sub.therapistId] ?? 'Unknown Therapist';
+                        // True when the sub was cancelled because therapist deleted their account
+                        final isTherapistDeleted = rawData['therapistDeleted'] == true ||
+                            (_therapistNames[sub.therapistId] == null && (sub.therapistId?.isNotEmpty == true));
 
                         // Status styling
                         final statusStr = sub.status.toLowerCase().trim();
@@ -5442,11 +5445,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                                         ),
                                                         const SizedBox(height: 2),
                                                         Text(
-                                                          therapistName,
+                                                          isTherapistDeleted ? 'Unknown Therapist' : therapistName,
                                                           maxLines: 1,
                                                           overflow: TextOverflow.ellipsis,
-                                                          style: const TextStyle(fontSize: 13, color: Color(0xFF334155), fontWeight: FontWeight.w600),
+                                                          style: TextStyle(
+                                                            fontSize: 13,
+                                                            color: isTherapistDeleted ? const Color(0xFF991B1B) : const Color(0xFF334155),
+                                                            fontWeight: FontWeight.w600,
+                                                          ),
                                                         ),
+                                                        if (isTherapistDeleted) ...[
+                                                          const SizedBox(height: 3),
+                                                          Container(
+                                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                            decoration: BoxDecoration(
+                                                              color: const Color(0xFFFEF2F2),
+                                                              borderRadius: BorderRadius.circular(4),
+                                                              border: Border.all(color: const Color(0xFFFCA5A5)),
+                                                            ),
+                                                            child: const Text(
+                                                              '\u26a0 Account Deleted',
+                                                              style: TextStyle(
+                                                                fontSize: 9,
+                                                                fontWeight: FontWeight.bold,
+                                                                color: Color(0xFF991B1B),
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
                                                       ],
                                                     ),
                                                   ),
