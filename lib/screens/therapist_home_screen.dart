@@ -6298,6 +6298,117 @@ class _TherapistProfileSettingsScreenState
   }
 
   Future<void> _showDeleteAccountDialog() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+    final uid = currentUser.uid;
+
+    // ── Pre-check: block deletion if any active subscriptions exist ──────────
+    if (!mounted) return;
+    setState(() => _isDeleting = true);
+    int activeSubCount = 0;
+    try {
+      final subsSnap = await FirebaseFirestore.instance
+          .collection(FirestoreCollections.subscriptions)
+          .where('therapistId', isEqualTo: uid)
+          .get();
+      for (final doc in subsSnap.docs) {
+        final status = (doc.data()['status'] ?? '').toString().toLowerCase().trim();
+        if (['active', 'trialing', 'grace_period', 'pending'].contains(status)) {
+          activeSubCount++;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error checking subscriptions before deletion: $e');
+    } finally {
+      if (mounted) setState(() => _isDeleting = false);
+    }
+
+    if (!mounted) return;
+
+    // Block deletion if active subscribers exist
+    if (activeSubCount > 0) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3CD),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706), size: 24),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Cannot Delete Account',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFCA5A5)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.people_alt_outlined, color: Color(0xFFDC2626), size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'You have $activeSubCount active subscriber${activeSubCount == 1 ? '' : 's'}.',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFFDC2626),
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'You cannot delete your account while parents are actively subscribed to you. This protects parents who are currently paying for your services.',
+                style: TextStyle(fontSize: 13, color: Color(0xFF475569)),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'To delete your account:',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+              const SizedBox(height: 6),
+              const Text('1. Ask your current subscribers to cancel their subscription, or', style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 4),
+              const Text('2. Wait for all active subscriptions to naturally expire.', style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 4),
+              const Text('3. Once no active subscriptions remain, you can delete your account.', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF334155)),
+              child: const Text('Understood'),
+            ),
+          ],
+        ),
+      );
+      return; // Stop here — do NOT proceed to the delete dialog
+    }
+
+    // ── No active subscriptions — show the standard delete confirmation ──────
     bool checkboxChecked = false;
 
     final result = await showDialog<bool>(
@@ -6374,6 +6485,7 @@ class _TherapistProfileSettingsScreenState
     }
   }
 
+
   Future<void> _deleteAccount() async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return;
@@ -6397,30 +6509,7 @@ class _TherapistProfileSettingsScreenState
       // First try to delete Firestore documents while we still have auth context
       bool firestoreDeleted = false;
       try {
-        // ── Step 0: Cancel all active subscriptions for this therapist ──────
-        try {
-          final subsSnap = await FirebaseFirestore.instance
-              .collection(FirestoreCollections.subscriptions)
-              .where('therapistId', isEqualTo: uid)
-              .get();
-          for (final sub in subsSnap.docs) {
-            final status = (sub.data()['status'] ?? '').toString().toLowerCase();
-            // Only touch subscriptions that are currently active/trialing/grace
-            if (['active', 'trialing', 'grace_period', 'pending'].contains(status)) {
-              await sub.reference.update({
-                'status': 'canceled',
-                'therapistDeleted': true,
-                'canceledAt': FieldValue.serverTimestamp(),
-                'cancelReason': 'Therapist deleted their account',
-              });
-            }
-          }
-        } catch (e) {
-          // Non-critical: subscription cancellation failure should not block account deletion
-          debugPrint('Warning: Could not cancel subscriptions on account deletion: $e');
-        }
-
-        // ── Step 0b: Lock all chat threads for this therapist ──────────────
+        // ── Step 0: Lock all chat threads for this therapist (archive for parents) ──
         try {
           final threadsSnap = await FirebaseFirestore.instance
               .collection(FirestoreCollections.therapistThreads)
