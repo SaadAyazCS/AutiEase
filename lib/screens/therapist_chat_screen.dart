@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -159,9 +160,12 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   // ─── Part 2: Voice note ─────────────────────────────────────────────────
   bool _isRecording = false;
   Timer? _recordingTimer;
-  int _recordingSeconds = 0;
-  // Simulated waveform bars
-  final List<double> _waveformBars = List.generate(20, (_) => 0.3);
+  // Recording seconds — ValueNotifier so only the timer text rebuilds
+  final ValueNotifier<int> _recordingSecondsNotifier = ValueNotifier(0);
+  // Simulated waveform bars — using ValueNotifier so only the waveform widget rebuilds (not the whole page)
+  final ValueNotifier<List<double>> _waveformNotifier = ValueNotifier(
+    List.generate(20, (_) => 0.3),
+  );
   Timer? _waveformTimer;
   // Playing back voice notes
   String? _playingVoiceId;
@@ -191,6 +195,12 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
   String _searchQuery = '';
   late Stream<TherapistThread?> _threadStream;
   late Stream<List<TherapistMessage>> _messagesStream;
+
+  // ─── Performance helpers ─────────────────────────────────────────────────
+  // Tracks last known peer active timestamp to avoid setState on unchanged data
+  DateTime? _lastKnownPeerActiveAt;
+  // Tracks whether initial _updateLastRead has been sent for this session
+  bool _lastReadSentOnce = false;
 
   @override
   void initState() {
@@ -237,6 +247,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     _waveformTimer?.cancel();
     _voicePlayTimer?.cancel();
     _searchController.dispose();
+    _waveformNotifier.dispose();
+    _recordingSecondsNotifier.dispose();
     // Clear typing indicator when leaving
     _clearTypingFlag();
     _audioRecorder.dispose();
@@ -285,6 +297,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
 
   /// Refresh block info from a live thread snapshot.
+  /// Only calls setState when the block state actually changes to avoid unnecessary rebuilds.
   void _refreshBlockInfoFromThread(TherapistThread thread) {
     final myRole = widget.senderRole;
     final iBlockedThem = myRole == 'parent'
@@ -298,6 +311,12 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         : (theyBlockedMe
             ? (myRole == 'parent' ? thread.therapistDisplayName : thread.parentDisplayName)
             : '');
+    // ── Perf guard: skip setState if nothing changed ──────────────────────
+    if (_blockInfo.iBlockedThem == iBlockedThem &&
+        _blockInfo.theyBlockedMe == theyBlockedMe &&
+        _blockInfo.blockerDisplayName == blockerName) {
+      return;
+    }
     if (mounted) {
       setState(() {
         _blockInfo = BlockInfo(
@@ -315,18 +334,28 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     try {
       final userDoc = await FirebaseFirestore.instance.collection(FirestoreCollections.users).doc(peerId).get();
       if (userDoc.exists && userDoc.data() != null) {
-        if (mounted) {
-          setState(() {
-            _peerUserProfile = UserProfile.fromMap(userDoc.id, userDoc.data()!);
-          });
+        final newProfile = UserProfile.fromMap(userDoc.id, userDoc.data()!);
+        // ── Perf guard: only setState if lastActiveAt actually changed ────
+        final newActive = newProfile.lastActiveAt;
+        if (newActive != _lastKnownPeerActiveAt || _peerUserProfile == null) {
+          _lastKnownPeerActiveAt = newActive;
+          if (mounted) {
+            setState(() {
+              _peerUserProfile = newProfile;
+            });
+          }
         }
       }
       if (widget.senderRole == 'parent') {
         final tProfile = await AppRepositories.support.getTherapistById(peerId);
         if (tProfile != null && mounted) {
-          setState(() {
-            _peerTherapistProfile = tProfile;
-          });
+          // Only rebuild if the profile data meaningfully changed
+          final prevActive = _peerTherapistProfile?.lastActiveAt;
+          if (prevActive != tProfile.lastActiveAt || _peerTherapistProfile == null) {
+            setState(() {
+              _peerTherapistProfile = tProfile;
+            });
+          }
         }
       } else {
         // Fetch child profile details for the therapist to view
@@ -335,9 +364,12 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
             .doc(widget.thread.childId)
             .get();
         if (childDoc.exists && childDoc.data() != null && mounted) {
-          setState(() {
-            _peerChildProfile = ChildProfile.fromMap(childDoc.id, childDoc.data()!);
-          });
+          // Only update child profile on first load (it rarely changes)
+          if (_peerChildProfile == null) {
+            setState(() {
+              _peerChildProfile = ChildProfile.fromMap(childDoc.id, childDoc.data()!);
+            });
+          }
         }
       }
     } catch (_) {}
@@ -1880,28 +1912,24 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
         setState(() {
           _isRecording = true;
-          _recordingSeconds = 0;
+          _recordingSecondsNotifier.value = 0;
         });
 
         _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-          if (mounted) {
-            setState(() {
-              _recordingSeconds++;
-              if (_recordingSeconds >= 120) { // Max 2 minutes cap
-                _stopAndSendVoice();
-              }
-            });
+          final next = _recordingSecondsNotifier.value + 1;
+          _recordingSecondsNotifier.value = next;
+          if (next >= 120) { // Max 2 minutes cap
+            _stopAndSendVoice();
           }
         });
 
         _waveformTimer = Timer.periodic(const Duration(milliseconds: 120), (_) {
-          if (mounted) {
-            setState(() {
-              for (int i = 0; i < _waveformBars.length; i++) {
-                _waveformBars[i] = 0.15 + math.Random().nextDouble() * 0.85;
-              }
-            });
-          }
+          // Update ValueNotifier directly — only the waveform widget rebuilds,
+          // not the entire chat screen
+          _waveformNotifier.value = List.generate(
+            _waveformNotifier.value.length,
+            (_) => 0.15 + math.Random().nextDouble() * 0.85,
+          );
         });
       } else {
         if (mounted) {
@@ -1922,10 +1950,10 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
       _isRecording = false;
     });
 
-    if (_recordingSeconds < 1) return; // too short, ignore
+    if (_recordingSecondsNotifier.value < 1) return; // too short, ignore
 
-    final durationSec = _recordingSeconds;
-    _recordingSeconds = 0;
+    final durationSec = _recordingSecondsNotifier.value;
+    _recordingSecondsNotifier.value = 0;
 
     try {
       final path = await _audioRecorder.stop();
@@ -1959,11 +1987,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     } catch (_) {}
     setState(() {
       _isRecording = false;
-      _recordingSeconds = 0;
-      for (int i = 0; i < _waveformBars.length; i++) {
-        _waveformBars[i] = 0.3;
-      }
     });
+    _recordingSecondsNotifier.value = 0;
+    _waveformNotifier.value = List.generate(_waveformNotifier.value.length, (_) => 0.3);
   }
 
   void _toggleVoicePlay(String messageId, String payload) async {
@@ -2234,42 +2260,42 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
         ),
       );
     } else if (message.messageType == 'image' && message.attachments.isNotEmpty) {
-      Widget img;
-      try {
-        final rawBase64 = message.attachments.first;
-        final Uint8List bytes;
-        if (_messageImageCache.containsKey(message.id)) {
-          bytes = _messageImageCache[message.id]!;
-        } else {
-          bytes = base64Decode(rawBase64);
+      final rawBase64 = message.attachments.first;
+      // If already cached, render immediately
+      if (_messageImageCache.containsKey(message.id)) {
+        final bytes = _messageImageCache[message.id]!;
+        bodyWidget = _buildImageBodyWidget(message, bytes, isMine);
+      } else {
+        // Decode off the UI thread using a background isolate the first time
+        final decodeFuture = compute(base64Decode, rawBase64).then((bytes) {
           _messageImageCache[message.id] = bytes;
-        }
-        img = Image.memory(
-          bytes,
-          fit: BoxFit.cover,
-          width: 200,
-          height: 200,
-          errorBuilder: (context, e, s) => const Icon(Icons.broken_image, size: 50),
+          return bytes;
+        });
+        bodyWidget = FutureBuilder<Uint8List>(
+          future: decodeFuture,
+          builder: (context, snap) {
+            if (snap.hasData) {
+              return _buildImageBodyWidget(message, snap.data!, isMine);
+            }
+            // Lightweight placeholder while decoding in background
+            return Container(
+              width: 200,
+              height: 200,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE9EAF0),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Center(
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            );
+          },
         );
-      } catch (_) {
-        img = const Icon(Icons.broken_image, size: 50);
       }
-      bodyWidget = Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          GestureDetector(
-            onTap: () => _openImageViewer(context, message.attachments.first),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: img,
-            ),
-          ),
-          if (message.body.isNotEmpty && message.body != 'Sent an image') ...[
-            const SizedBox(height: 6),
-            _highlightedText(message.body, isMine),
-          ],
-        ],
-      );
     } else if (message.messageType == 'file' && message.attachments.isNotEmpty) {
       bodyWidget = InkWell(
         onTap: () {
@@ -2442,6 +2468,39 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
     }
 
     return bodyWidget;
+  }
+
+  /// Builds the image content widget from already-decoded bytes.
+  /// Called by _buildMessageBody for both cached and freshly computed images.
+  Widget _buildImageBodyWidget(TherapistMessage message, Uint8List bytes, bool isMine) {
+    Widget img;
+    try {
+      img = Image.memory(
+        bytes,
+        fit: BoxFit.cover,
+        width: 200,
+        height: 200,
+        errorBuilder: (context, e, s) => const Icon(Icons.broken_image, size: 50),
+      );
+    } catch (_) {
+      img = const Icon(Icons.broken_image, size: 50);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: () => _openImageViewer(context, message.attachments.first),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: img,
+          ),
+        ),
+        if (message.body.isNotEmpty && message.body != 'Sent an image') ...[
+          const SizedBox(height: 6),
+          _highlightedText(message.body, isMine),
+        ],
+      ],
+    );
   }
 
   Widget _highlightedText(String text, bool isMine) {
@@ -2922,12 +2981,19 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                           // Trigger scroll to bottom and read status sync on new messages
                           WidgetsBinding.instance.addPostFrameCallback((_) {
                             final lastMsgId = messages.isNotEmpty ? messages.first.id : null;
-                            if (messages.length != _previousMessageCount || lastMsgId != _previousLastMessageId) {
+                            final hasChanged = messages.length != _previousMessageCount ||
+                                lastMsgId != _previousLastMessageId;
+                            if (hasChanged) {
                               _previousMessageCount = messages.length;
                               _previousLastMessageId = lastMsgId;
                               _scrollToBottom();
+                              // Only update lastRead when there are actually new messages
+                              _updateLastRead();
+                            } else if (!_lastReadSentOnce) {
+                              // Send once on initial load so peer knows we've opened the chat
+                              _lastReadSentOnce = true;
+                              _updateLastRead();
                             }
-                            _updateLastRead();
                           });
 
                           var displayMessages = messages;
@@ -2940,6 +3006,8 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                           final peerTyping = widget.senderRole == 'parent' ? thread.therapistTyping : thread.parentTyping;
                           final showTyping = peerTyping && !_searchMode;
                           final itemCount = displayMessages.length + (showTyping ? 1 : 0);
+                          // Hoist maxWidth so it's computed once per build, not per list item
+                          final bubbleMaxWidth = constraints.maxWidth * 0.75;
 
                           return CustomPaint(
                             painter: const _ChatBackgroundPainter(),
@@ -3027,7 +3095,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                                        vertical: 10,
                                                      ),
                                                      constraints: BoxConstraints(
-                                                       maxWidth: MediaQuery.of(context).size.width * 0.75,
+                                                       maxWidth: bubbleMaxWidth,
                                                      ),
                                                      decoration: BoxDecoration(
                                                        color: message.messageType == 'final'
@@ -3435,31 +3503,39 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                     children: [
                                       const Icon(Icons.mic, color: Colors.red, size: 24),
                                       const SizedBox(width: 8),
-                                      Text(
-                                        '${(_recordingSeconds ~/ 60).toString().padLeft(2, '0')}:${(_recordingSeconds % 60).toString().padLeft(2, '0')}',
-                                        style: const TextStyle(
-                                          color: Colors.red,
-                                          fontWeight: FontWeight.bold,
+                                      ValueListenableBuilder<int>(
+                                        valueListenable: _recordingSecondsNotifier,
+                                        builder: (context, secs, _) => Text(
+                                          '${(secs ~/ 60).toString().padLeft(2, '0')}:${(secs % 60).toString().padLeft(2, '0')}',
+                                          style: const TextStyle(
+                                            color: Colors.red,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
                                       const SizedBox(width: 12),
                                       Expanded(
-                                        child: SizedBox(
-                                          height: 32,
-                                          child: Row(
-                                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                            children: List.generate(_waveformBars.length, (idx) {
-                                              return AnimatedContainer(
-                                                duration: const Duration(milliseconds: 120),
-                                                width: 3,
-                                                height: 32 * _waveformBars[idx],
-                                                decoration: BoxDecoration(
-                                                  color: AppColors.primaryBlue,
-                                                  borderRadius: BorderRadius.circular(1.5),
-                                                ),
-                                              );
-                                            }),
-                                          ),
+                                        child: ValueListenableBuilder<List<double>>(
+                                          valueListenable: _waveformNotifier,
+                                          builder: (context, bars, _) {
+                                            return SizedBox(
+                                              height: 32,
+                                              child: Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                                children: List.generate(bars.length, (idx) {
+                                                  return AnimatedContainer(
+                                                    duration: const Duration(milliseconds: 120),
+                                                    width: 3,
+                                                    height: 32 * bars[idx],
+                                                    decoration: BoxDecoration(
+                                                      color: AppColors.primaryBlue,
+                                                      borderRadius: BorderRadius.circular(1.5),
+                                                    ),
+                                                  );
+                                                }),
+                                              ),
+                                            );
+                                          },
                                         ),
                                       ),
                                       const SizedBox(width: 12),
