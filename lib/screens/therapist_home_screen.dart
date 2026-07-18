@@ -6397,6 +6397,47 @@ class _TherapistProfileSettingsScreenState
       // First try to delete Firestore documents while we still have auth context
       bool firestoreDeleted = false;
       try {
+        // ── Step 0: Cancel all active subscriptions for this therapist ──────
+        try {
+          final subsSnap = await FirebaseFirestore.instance
+              .collection(FirestoreCollections.subscriptions)
+              .where('therapistId', isEqualTo: uid)
+              .get();
+          for (final sub in subsSnap.docs) {
+            final status = (sub.data()['status'] ?? '').toString().toLowerCase();
+            // Only touch subscriptions that are currently active/trialing/grace
+            if (['active', 'trialing', 'grace_period', 'pending'].contains(status)) {
+              await sub.reference.update({
+                'status': 'canceled',
+                'therapistDeleted': true,
+                'canceledAt': FieldValue.serverTimestamp(),
+                'cancelReason': 'Therapist deleted their account',
+              });
+            }
+          }
+        } catch (e) {
+          // Non-critical: subscription cancellation failure should not block account deletion
+          debugPrint('Warning: Could not cancel subscriptions on account deletion: $e');
+        }
+
+        // ── Step 0b: Lock all chat threads for this therapist ──────────────
+        try {
+          final threadsSnap = await FirebaseFirestore.instance
+              .collection(FirestoreCollections.therapistThreads)
+              .where('therapistId', isEqualTo: uid)
+              .get();
+          for (final thread in threadsSnap.docs) {
+            await thread.reference.update({
+              'status': 'locked',
+              'therapistDeleted': true,
+              'therapistDeletedAt': FieldValue.serverTimestamp(),
+            });
+          }
+        } catch (e) {
+          // Non-critical: thread locking failure should not block account deletion
+          debugPrint('Warning: Could not lock chat threads on account deletion: $e');
+        }
+
         // Delete from therapist_profiles collection
         await FirebaseFirestore.instance
             .collection(FirestoreCollections.therapistProfiles)

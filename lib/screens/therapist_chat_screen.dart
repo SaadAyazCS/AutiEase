@@ -2750,6 +2750,9 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
 
                       final isRestricted = _activeRestriction != null && _activeRestriction!.isActive;
 
+                      // If therapist deleted their account, only allow View Profile and Shared Media
+                      final isTherapistDeleted = currentThread.therapistDeleted;
+
                       return [
                         const PopupMenuItem(
                           value: 'profile',
@@ -2771,52 +2774,53 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                             ],
                           ),
                         ),
-                        // Clinical note, report, and block are all hidden in view-only mode or under restriction
-                        // Also hide 'Add Clinical Note' if the parent blocked the therapist
-                        if (!isViewOnly && !isRestricted && widget.senderRole == 'therapist' && !_blockInfo.theyBlockedMe)
-                          const PopupMenuItem(
-                            value: 'clinical_note',
-                            child: Row(
-                              children: [
-                                Icon(Icons.description_outlined, size: 20, color: Colors.black87),
-                                SizedBox(width: 8),
-                                Text('Add Clinical Note'),
-                              ],
-                            ),
-                          ),
-                        if (!isViewOnly && !isRestricted) ...[ 
-                          // Only show Report User if this side hasn't already filed one
-                          if (!hasAlreadyReported)
+                        // Hide ALL actions when therapist deleted their account
+                        if (!isTherapistDeleted) ...[
+                          // Clinical note, report, and block are all hidden in view-only mode or under restriction
+                          // Also hide 'Add Clinical Note' if the parent blocked the therapist
+                          if (!isViewOnly && !isRestricted && widget.senderRole == 'therapist' && !_blockInfo.theyBlockedMe)
                             const PopupMenuItem(
-                              value: 'report',
+                              value: 'clinical_note',
                               child: Row(
                                 children: [
-                                  Icon(Icons.report_outlined, size: 20, color: AppColors.errorRed),
+                                  Icon(Icons.description_outlined, size: 20, color: Colors.black87),
                                   SizedBox(width: 8),
-                                  Text('Report User', style: TextStyle(color: AppColors.errorRed)),
+                                  Text('Add Clinical Note'),
                                 ],
                               ),
                             ),
-                          // Hide "Block User" if the other party already blocked us —
-                          // blocked person cannot counter-block the blocker.
-                          // Still show "Unblock User" if we are the one who initiated the block.
-                          if (!_blockInfo.theyBlockedMe || _blockInfo.iBlockedThem)
-                            PopupMenuItem(
-                              value: 'block',
-                              child: Row(
-                                children: [
-                                  Icon(_blockInfo.iBlockedThem ? Icons.lock_open : Icons.block, size: 20, color: Colors.black87),
-                                  const SizedBox(width: 8),
-                                  Text(_blockInfo.iBlockedThem ? 'Unblock User' : 'Block User'),
-                                ],
+                          if (!isViewOnly && !isRestricted) ...[ 
+                            // Only show Report User if this side hasn't already filed one
+                            if (!hasAlreadyReported)
+                              const PopupMenuItem(
+                                value: 'report',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.report_outlined, size: 20, color: AppColors.errorRed),
+                                    SizedBox(width: 8),
+                                    Text('Report User', style: TextStyle(color: AppColors.errorRed)),
+                                  ],
+                                ),
                               ),
-                            ),
+                            // Hide "Block User" if the other party already blocked us —
+                            // blocked person cannot counter-block the blocker.
+                            // Still show "Unblock User" if we are the one who initiated the block.
+                            if (!_blockInfo.theyBlockedMe || _blockInfo.iBlockedThem)
+                              PopupMenuItem(
+                                value: 'block',
+                                child: Row(
+                                  children: [
+                                    Icon(_blockInfo.iBlockedThem ? Icons.lock_open : Icons.block, size: 20, color: Colors.black87),
+                                    const SizedBox(width: 8),
+                                    Text(_blockInfo.iBlockedThem ? 'Unblock User' : 'Block User'),
+                                  ],
+                                ),
+                              ),
+                          ],
                         ],
                       ];
                     },
-
                   ),
-
           ],
         ),
         body: StreamBuilder<TherapistThread?>(
@@ -2842,19 +2846,42 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                         text: 'Read-only mode: this conversation remains visible, but new parent messages require an active subscription.',
                         color: Color(0xFFF2E8C6),
                       ),
-                    if (thread.hasOpenEmergency)
+                    // Therapist account deleted — highest priority banner, always shown
+                    if (thread.therapistDeleted)
+                      Container(
+                        width: double.infinity,
+                        color: const Color(0xFFFFF3CD),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.account_circle_outlined, size: 18, color: Color(0xFF92400E)),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                '\u26a0\ufe0f This therapist has deleted their account. This chat is now archived and read-only.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF78350F),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (!thread.therapistDeleted && thread.hasOpenEmergency)
                       _ChatStateBanner(
                         text: thread.emergencyRequestedBy == 'parent'
                             ? 'Emergency requested by parent.'
                             : 'Emergency requested by therapist.',
                         color: const Color(0xFFFFD9D9),
                       )
-                    else if (_showResolvedBanner)
+                    else if (!thread.therapistDeleted && _showResolvedBanner)
                       const _ChatStateBanner(
                         text: 'Emergency response has been recorded.',
                         color: Color(0xFFD8F4DD),
                       ),
-                    if (thread.isBlocked)
+                    if (!thread.therapistDeleted && thread.isBlocked)
                       _BlockedBanner(
                         iBlockedThem: _blockInfo.iBlockedThem,
                         blockerDisplayName: _blockInfo.blockerDisplayName,
@@ -2862,7 +2889,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                             ? thread.therapistDisplayName
                             : thread.parentDisplayName,
                       ),
-                    if (_activeRestriction != null && _activeRestriction!.isActive)
+                    if (!thread.therapistDeleted && _activeRestriction != null && _activeRestriction!.isActive)
                       _RestrictionBanner(
                         endDate: _activeRestriction!.endDate,
                         senderRole: widget.senderRole,
@@ -3169,7 +3196,7 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
 
-                              if (thread.hasOpenEmergency)
+                              if (!thread.therapistDeleted && thread.hasOpenEmergency)
                                 Padding(
                                   padding: const EdgeInsets.only(bottom: 8),
                                   child: ElevatedButton.icon(
@@ -3184,7 +3211,30 @@ class _TherapistChatScreenState extends State<TherapistChatScreen> with WidgetsB
                                     ),
                                   ),
                                 ),
-                              if (_activeRestriction != null && _activeRestriction!.isActive)
+                              if (thread.therapistDeleted)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                  ),
+                                  child: const Row(
+                                    children: [
+                                      Icon(Icons.lock_outline, size: 18, color: Color(0xFF94A3B8)),
+                                      SizedBox(width: 10),
+                                      Text(
+                                        'Chat archived \u2014 this account no longer exists.',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Color(0xFF94A3B8),
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else if (_activeRestriction != null && _activeRestriction!.isActive)
                                 _RestrictedComposerBanner(endDate: _activeRestriction!.endDate)
                               else if (!canSendMessage)
                                 _BlockedInputArea(
