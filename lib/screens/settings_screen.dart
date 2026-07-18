@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'dart:ui';
@@ -149,6 +151,117 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _showDeleteAccountDialog() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+    final uid = currentUser.uid;
+
+    // ── Pre-check: block deletion if any active subscriptions exist ──────────
+    if (!mounted) return;
+    setState(() => _isDeleting = true);
+    int activeSubCount = 0;
+    try {
+      final subsSnap = await FirebaseFirestore.instance
+          .collection(FirestoreCollections.subscriptions)
+          .where('userId', isEqualTo: uid)
+          .get();
+      for (final doc in subsSnap.docs) {
+        final status = (doc.data()['status'] ?? '').toString().toLowerCase().trim();
+        if (['active', 'trialing', 'grace_period', 'pending'].contains(status)) {
+          activeSubCount++;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error checking subscriptions before deletion: $e');
+    } finally {
+      if (mounted) setState(() => _isDeleting = false);
+    }
+
+    if (!mounted) return;
+
+    // Block deletion if an active subscription exists
+    if (activeSubCount > 0) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3CD),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706), size: 24),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Cannot Delete Account',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFCA5A5)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.subscriptions_outlined, color: Color(0xFFDC2626), size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'You have $activeSubCount active subscription${activeSubCount == 1 ? '' : 's'}.',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFFDC2626),
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'You cannot delete your account while you have an active therapist subscription. This ensures a clean end to your ongoing professional support.',
+                style: TextStyle(fontSize: 13, color: Color(0xFF475569)),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'To delete your account:',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+              const SizedBox(height: 6),
+              const Text('1. Go to Professional Support and cancel your subscription, or', style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 4),
+              const Text('2. Wait for your current subscription period to expire.', style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 4),
+              const Text('3. Once no active subscriptions remain, you can delete your account.', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF334155)),
+              child: const Text('Understood'),
+            ),
+          ],
+        ),
+      );
+      return; // Stop here — do NOT proceed to the delete dialog
+    }
+
+    // ── No active subscriptions — show the standard delete confirmation ──────
     var checkboxChecked = false;
 
     final result = await showDialog<bool>(
