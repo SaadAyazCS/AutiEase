@@ -260,8 +260,11 @@ class _ChildProfileScreenState extends State<ChildProfileScreen>
                               );
                             },
                             decoration: const InputDecoration(
-                              hintText: 'Leo',
-                              hintStyle: TextStyle(color: Color(0xFF212121)),
+                              hintText: 'ABC',
+                              hintStyle: TextStyle(
+                                color: Color(0xFF9E9E9E),
+                                fontWeight: FontWeight.w400,
+                              ),
                               border: InputBorder.none,
                               contentPadding: EdgeInsets.only(
                                 left: 16,
