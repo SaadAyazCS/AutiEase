@@ -47,8 +47,8 @@ class CommunicationFigmaCatalog {
     'clothes',
   ];
 
-  static const Set<String> hiddenBoardIds = <String>{'feelings'};
-  static const Set<String> hiddenBoardTitles = <String>{'feelings'};
+  static const Set<String> hiddenBoardIds = <String>{};
+  static const Set<String> hiddenBoardTitles = <String>{};
 
   static const List<CommunicationBoardDefinition> boards =
       <CommunicationBoardDefinition>[
