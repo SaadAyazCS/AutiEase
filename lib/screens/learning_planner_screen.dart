@@ -1036,7 +1036,7 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen>
     final speakLearnOptions = _learnOptionsFor(
       categoryKey: 'speak_learn',
       modules: groupedModules['speak_learn'] ?? const <LearningModuleModel>[],
-      fallbackLabels: const ['Alphabets', 'Sentences', 'Words'],
+      fallbackLabels: const ['Alphabets', 'Words', 'Sentences'],
     );
     final focusGameOptions = _learnOptionsFor(
       categoryKey: 'focus_games',
@@ -1184,10 +1184,10 @@ class _LearningPlannerScreenState extends State<LearningPlannerScreen>
     if (lower.contains('alphabet')) {
       return 0;
     }
-    if (lower.contains('sentence')) {
+    if (lower.contains('word')) {
       return 1;
     }
-    if (lower.contains('word')) {
+    if (lower.contains('sentence')) {
       return 2;
     }
     return 3;

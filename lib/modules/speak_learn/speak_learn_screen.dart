@@ -551,19 +551,19 @@ class _SpeakLearnScreenState extends State<SpeakLearnScreen>
     return switch (kind) {
       SpeakLearnLevelKind.alphabets => _HubLevelCard(
         kind: kind,
-        background: const Color(0xFFFFE4E8),
+        background: const Color(0xFFFFB6B6),
         onTap: () => _showLevelIntroThenStart(kind),
         trailing: _alphabetArt(),
       ),
       SpeakLearnLevelKind.words => _HubLevelCard(
         kind: kind,
-        background: const Color(0xFFE4FCCD),
+        background: const Color(0xFFC1FF9B),
         onTap: () => _showLevelIntroThenStart(kind),
         trailing: _wordsArt(),
       ),
       SpeakLearnLevelKind.sentences => _HubLevelCard(
         kind: kind,
-        background: const Color(0xFFD5F5F5),
+        background: const Color(0xFFC7F0E3),
         onTap: () => _showLevelIntroThenStart(kind),
         trailing: _sentencesArt(),
       ),
@@ -1408,7 +1408,7 @@ class _HubLevelCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(28),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 22),
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 28),
           decoration: BoxDecoration(
             color: background,
             borderRadius: BorderRadius.circular(28),
